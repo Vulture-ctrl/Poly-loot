@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (GUI FIXED, gargoyle stay-behind, bosses, auto-click 730,300) ]]
+--[[ POLY LOOT – FINAL (GUI FIXED, gargoyle ABOVE 5, bosses, auto-click 730,300) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -673,11 +673,10 @@ local function teleportToPosition(targetPos)
     root.CFrame = CFrame.new(targetPos)
 end
 
-local function tweenBehindMob(mobModel)
+local function tweenAboveMob(mobModel)
     local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
     if not rootPart then return false end
-    local behindOffset = -rootPart.CFrame.LookVector * 4
-    local targetPos = rootPart.Position + behindOffset + Vector3.new(0, 3, 0)
+    local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
     return tweenToPosition(targetPos, 0.4)
 end
 
@@ -720,7 +719,7 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM – stay behind continuously, no return (FIXED)
+--  GARGOYLE FARM – stay ABOVE continuously, no return
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -789,10 +788,10 @@ function toggleGargoyleFarm()
         gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (behind)"
+        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (above 5)"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started – staying behind"
+    status.Text = "Gargoyle farming started – staying above by 5"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -802,15 +801,14 @@ function toggleGargoyleFarm()
             if mob then
                 local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
                 if rootPart then
-                    -- CALCULATE POSITION BEHIND THE MOB (FACING TOWARD IT)
-                    local behindOffset = -rootPart.CFrame.LookVector * 4
-                    local targetPos = rootPart.Position + behindOffset + Vector3.new(0, 3, 0)
+                    -- CALCULATE POSITION ABOVE THE MOB BY 5 STUDS
+                    local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
                     local char = player.Character
                     
                     if char then
                         local playerRoot = char:FindFirstChild("HumanoidRootPart")
                         if playerRoot then
-                            -- MOVE BEHIND THE GARGOYLE AND FACE TOWARD IT
+                            -- MOVE ABOVE THE GARGOYLE AND FACE DOWN TOWARD IT
                             local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
                             local tween = TweenService:Create(playerRoot, tweenInfo, {
                                 CFrame = CFrame.new(targetPos, rootPart.Position)
@@ -818,50 +816,49 @@ function toggleGargoyleFarm()
                             tween:Play()
                         end
                     end
-                    status.Text = "Following Gargoyle from behind (dist " .. math.floor(dist) .. ")"
+                    status.Text = "Following Gargoyle from above (dist " .. math.floor(dist) .. ")"
                 end
             else
                 status.Text = "No Gargoyle found, waiting..."
                 task.wait(1)
             end
             
-            -- CONSTANTLY RESCAN SO IT STAYS BEHIND
+            -- CONSTANTLY RESCAN SO IT STAYS ABOVE
             task.wait(0.3)
         end
     end)
 end
 
 -- ============================================================
---  STAY BEHIND (bosses)
+--  STAY ABOVE (bosses)
 -- ============================================================
-local stayBehindConnection = nil
+local stayAboveConnection = nil
 
-local function startStayBehind(mobName)
-    if stayBehindConnection then
-        stayBehindConnection:Disconnect()
+local function startStayAbove(mobName)
+    if stayAboveConnection then
+        stayAboveConnection:Disconnect()
     end
     cheats.stayBehind = true
     cheats.stayBehindTarget = mobName
     
-    stayBehindConnection = RunService.Heartbeat:Connect(function()
+    stayAboveConnection = RunService.Heartbeat:Connect(function()
         if not cheats.stayBehind then
-            stayBehindConnection:Disconnect()
-            stayBehindConnection = nil
+            stayAboveConnection:Disconnect()
+            stayAboveConnection = nil
             return
         end
         
         local mobModel = Workspace:FindFirstChild(mobName)
         if not mobModel then
             status.Text = mobName .. " not found, stopping follow"
-            stopStayBehind()
+            stopStayAbove()
             return
         end
         
         local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
         if not rootPart then return end
         
-        local behindOffset = -rootPart.CFrame.LookVector * 4
-        local targetPos = rootPart.Position + behindOffset + Vector3.new(0, 3, 0)
+        local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
         
         local char = player.Character
         if char then
@@ -875,14 +872,14 @@ local function startStayBehind(mobName)
             end
         end
     end)
-    status.Text = "Following " .. mobName .. " (behind)"
+    status.Text = "Following " .. mobName .. " (above 5)"
 end
 
-local function stopStayBehind()
+local function stopStayAbove()
     cheats.stayBehind = false
-    if stayBehindConnection then
-        stayBehindConnection:Disconnect()
-        stayBehindConnection = nil
+    if stayAboveConnection then
+        stayAboveConnection:Disconnect()
+        stayAboveConnection = nil
     end
     status.Text = "Stopped following"
 end
@@ -893,7 +890,7 @@ end
 local function teleportToBoss(modelName, entrancePos)
     local mobModel = Workspace:FindFirstChild(modelName)
     if mobModel then
-        tweenBehindMob(mobModel)
+        tweenAboveMob(mobModel)
     else
         status.Text = modelName .. " not found – teleporting to entrance"
         tweenToPosition(entrancePos + Vector3.new(0,5,0), 0.6)
@@ -1248,7 +1245,7 @@ local function closeGUI()
     if cheats.fly then cheats.fly = false; if disableFly then disableFly() end end
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
-    if stayBehindConnection then stayBehindConnection:Disconnect(); stayBehindConnection = nil end
+    if stayAboveConnection then stayAboveConnection:Disconnect(); stayAboveConnection = nil end
     if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
     pcall(function() screenGui:Destroy() end)
 end
@@ -1711,9 +1708,9 @@ for _, def in ipairs(mobDefs) do
         followRow.button.BackgroundColor3 = newVal and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
         followRow.label.Text = "Follow: " .. (newVal and "ON" or "OFF")
         if newVal then
-            startStayBehind(def.modelName)
+            startStayAbove(def.modelName)
         else
-            stopStayBehind()
+            stopStayAbove()
         end
     end)
     
@@ -2108,4 +2105,4 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
-print("✅ POLY LOOT – full script loaded (gargoyle stay-behind, no return, bosses, auto-click 730,300).")
+print("✅ POLY LOOT – full script loaded (gargoyle ABOVE 5, no return, bosses, auto-click 730,300).")
