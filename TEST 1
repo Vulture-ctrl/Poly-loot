@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (GUI FIXED, gargoyle ABOVE 5, bosses, auto-click 730,300) ]]
+--[[ POLY LOOT – FINAL (GARGOYLE + BOSS FARM auto teleport & lock 5.1, bosses, auto-click 730,300) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -676,7 +676,7 @@ end
 local function tweenAboveMob(mobModel)
     local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
     if not rootPart then return false end
-    local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     return tweenToPosition(targetPos, 0.4)
 end
 
@@ -719,12 +719,40 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM – stay ABOVE continuously, no return
+--  LOCK HELPER FUNCTION (shared for all farms)
+-- ============================================================
+local function lockAboveTarget(targetMob, height)
+    if not targetMob then return end
+    
+    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return end
+    
+    local char = player.Character
+    if not char then return end
+    local playerRoot = char:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    local targetPos = rootPart.Position + Vector3.new(0, height or 5.1, 0)
+    
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = true
+    end
+    
+    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    return targetPos
+end
+
+-- ============================================================
+--  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
 local gargoyleBtn = nil
 local gargoyleStatusLabel = nil
+local currentGargoyleTarget = nil
+local gargoyleBodyVelocity = nil
+local gargoyleBodyPosition = nil
 
 local function getNearestGargoyle()
     local char = player.Character
@@ -749,13 +777,72 @@ local function getNearestGargoyle()
     return nearest, nearestDist
 end
 
+local function lockAboveGargoyle(targetMob)
+    if not targetMob then return end
+    
+    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return end
+    
+    local char = player.Character
+    if not char then return end
+    local playerRoot = char:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+    
+    if gargoyleBodyVelocity then
+        gargoyleBodyVelocity:Destroy()
+        gargoyleBodyVelocity = nil
+    end
+    if gargoyleBodyPosition then
+        gargoyleBodyPosition:Destroy()
+        gargoyleBodyPosition = nil
+    end
+    
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = true
+    end
+    
+    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    gargoyleBodyPosition = Instance.new("BodyPosition")
+    gargoyleBodyPosition.Position = targetPos
+    gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyPosition.D = 5000
+    gargoyleBodyPosition.P = 20000
+    gargoyleBodyPosition.Parent = playerRoot
+    
+    gargoyleBodyVelocity = Instance.new("BodyVelocity")
+    gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    gargoyleBodyVelocity.Parent = playerRoot
+    
+    currentGargoyleTarget = targetMob
+end
+
 function toggleGargoyleFarm()
-    -- TURN OFF
     if gargoyleFarmRunning then
         gargoyleFarmRunning = false
         if gargoyleFarmThread then
             task.cancel(gargoyleFarmThread)
             gargoyleFarmThread = nil
+        end
+        if gargoyleBodyVelocity then
+            gargoyleBodyVelocity:Destroy()
+            gargoyleBodyVelocity = nil
+        end
+        if gargoyleBodyPosition then
+            gargoyleBodyPosition:Destroy()
+            gargoyleBodyPosition = nil
+        end
+        currentGargoyleTarget = nil
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+            end
         end
         status.Text = "Gargoyle farm stopped"
         if gargoyleBtn then
@@ -765,6 +852,120 @@ function toggleGargoyleFarm()
         if gargoyleStatusLabel then
             gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
             gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        end
+        return
+    end
+    
+    local char = player.Character
+    if not char then
+        status.Text = "Character not loaded"
+        return
+    end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        status.Text = "RootPart not found"
+        return
+    end
+    
+    gargoyleFarmRunning = true
+    currentGargoyleTarget = nil
+    if gargoyleBtn then
+        gargoyleBtn.Text = "🧛 Gargoyle Farm (ON)"
+        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+    if gargoyleStatusLabel then
+        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (scanning)"
+        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
+    status.Text = "Gargoyle farming started – scanning for Gargoyles"
+    
+    gargoyleFarmThread = task.spawn(function()
+        while gargoyleFarmRunning do
+            local mob, dist = getNearestGargoyle()
+            
+            if mob then
+                if currentGargoyleTarget ~= mob then
+                    if gargoyleBodyVelocity then
+                        gargoyleBodyVelocity:Destroy()
+                        gargoyleBodyVelocity = nil
+                    end
+                    if gargoyleBodyPosition then
+                        gargoyleBodyPosition:Destroy()
+                        gargoyleBodyPosition = nil
+                    end
+                    lockAboveGargoyle(mob)
+                    status.Text = "🔒 Locked above Gargoyle (facing down, dist " .. math.floor(dist) .. ")"
+                    if gargoyleStatusLabel then
+                        gargoyleStatusLabel.Text = "Gargoyle farm: LOCKED ✅"
+                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
+                end
+            else
+                status.Text = "No Gargoyle found, scanning..."
+                if gargoyleStatusLabel then
+                    gargoyleStatusLabel.Text = "Gargoyle farm: SCANNING 🔍"
+                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                end
+                if gargoyleBodyVelocity then
+                    gargoyleBodyVelocity:Destroy()
+                    gargoyleBodyVelocity = nil
+                end
+                if gargoyleBodyPosition then
+                    gargoyleBodyPosition:Destroy()
+                    gargoyleBodyPosition = nil
+                end
+                currentGargoyleTarget = nil
+                task.wait(1)
+            end
+            task.wait(0.3)
+        end
+    end)
+end
+
+-- ============================================================
+--  BOSS FARM – auto scan, teleport, and lock above boss
+-- ============================================================
+local bossFarms = {}
+local bossFarmThreads = {}
+
+local function getBoss(modelName)
+    return Workspace:FindFirstChild(modelName)
+end
+
+function toggleBossFarm(bossName, bossDisplayName, btn, statusLabel)
+    local key = bossName
+    
+    -- TURN OFF
+    if bossFarms[key] and bossFarms[key].running then
+        bossFarms[key].running = false
+        if bossFarmThreads[key] then
+            task.cancel(bossFarmThreads[key])
+            bossFarmThreads[key] = nil
+        end
+        if bossFarms[key].bodyVelocity then
+            bossFarms[key].bodyVelocity:Destroy()
+            bossFarms[key].bodyVelocity = nil
+        end
+        if bossFarms[key].bodyPosition then
+            bossFarms[key].bodyPosition:Destroy()
+            bossFarms[key].bodyPosition = nil
+        end
+        bossFarms[key].currentTarget = nil
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+            end
+        end
+        status.Text = bossDisplayName .. " farm stopped"
+        if btn then
+            btn.Text = "🎯 " .. bossDisplayName .. " Farm (OFF)"
+            btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        end
+        if statusLabel then
+            statusLabel.Text = bossDisplayName .. " farm: OFF"
+            statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
         end
         return
     end
@@ -782,119 +983,100 @@ function toggleGargoyleFarm()
     end
     
     -- TURN ON
-    gargoyleFarmRunning = true
-    if gargoyleBtn then
-        gargoyleBtn.Text = "🧛 Gargoyle Farm (ON)"
-        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    if not bossFarms[key] then
+        bossFarms[key] = {
+            running = false,
+            currentTarget = nil,
+            bodyVelocity = nil,
+            bodyPosition = nil,
+        }
     end
-    if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (above 5)"
-        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end
-    status.Text = "Gargoyle farming started – staying above by 5"
     
-    gargoyleFarmThread = task.spawn(function()
-        while gargoyleFarmRunning do
-            -- FIND NEAREST GARGOYLE
-            local mob, dist = getNearestGargoyle()
+    bossFarms[key].running = true
+    bossFarms[key].currentTarget = nil
+    
+    if btn then
+        btn.Text = "🎯 " .. bossDisplayName .. " Farm (ON)"
+        btn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+    if statusLabel then
+        statusLabel.Text = bossDisplayName .. " farm: ACTIVE (scanning)"
+        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
+    status.Text = bossDisplayName .. " farming started – scanning for boss"
+    
+    bossFarmThreads[key] = task.spawn(function()
+        while bossFarms[key] and bossFarms[key].running do
+            local mob = getBoss(bossName)
             
             if mob then
-                local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-                if rootPart then
-                    -- CALCULATE POSITION ABOVE THE MOB BY 5 STUDS
-                    local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
-                    local char = player.Character
+                if bossFarms[key].currentTarget ~= mob then
+                    if bossFarms[key].bodyVelocity then
+                        bossFarms[key].bodyVelocity:Destroy()
+                        bossFarms[key].bodyVelocity = nil
+                    end
+                    if bossFarms[key].bodyPosition then
+                        bossFarms[key].bodyPosition:Destroy()
+                        bossFarms[key].bodyPosition = nil
+                    end
                     
-                    if char then
-                        local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                        if playerRoot then
-                            -- MOVE ABOVE THE GARGOYLE AND FACE DOWN TOWARD IT
-                            local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-                            local tween = TweenService:Create(playerRoot, tweenInfo, {
-                                CFrame = CFrame.new(targetPos, rootPart.Position)
-                            })
-                            tween:Play()
+                    local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+                    if rootPart then
+                        local char = player.Character
+                        if char then
+                            local playerRoot = char:FindFirstChild("HumanoidRootPart")
+                            if playerRoot then
+                                local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+                                
+                                local hum = char:FindFirstChild("Humanoid")
+                                if hum then
+                                    hum.PlatformStand = true
+                                end
+                                
+                                playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+                                
+                                bossFarms[key].bodyPosition = Instance.new("BodyPosition")
+                                bossFarms[key].bodyPosition.Position = targetPos
+                                bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                                bossFarms[key].bodyPosition.D = 5000
+                                bossFarms[key].bodyPosition.P = 20000
+                                bossFarms[key].bodyPosition.Parent = playerRoot
+                                
+                                bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
+                                bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                                bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                                bossFarms[key].bodyVelocity.Parent = playerRoot
+                                
+                                bossFarms[key].currentTarget = mob
+                                status.Text = "🔒 Teleported & locked above " .. bossDisplayName .. " (facing down)"
+                                if statusLabel then
+                                    statusLabel.Text = bossDisplayName .. " farm: LOCKED ✅"
+                                    statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                                end
+                            end
                         end
                     end
-                    status.Text = "Following Gargoyle from above (dist " .. math.floor(dist) .. ")"
                 end
             else
-                status.Text = "No Gargoyle found, waiting..."
+                status.Text = "No " .. bossDisplayName .. " found, scanning..."
+                if statusLabel then
+                    statusLabel.Text = bossDisplayName .. " farm: SCANNING 🔍"
+                    statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                end
+                if bossFarms[key].bodyVelocity then
+                    bossFarms[key].bodyVelocity:Destroy()
+                    bossFarms[key].bodyVelocity = nil
+                end
+                if bossFarms[key].bodyPosition then
+                    bossFarms[key].bodyPosition:Destroy()
+                    bossFarms[key].bodyPosition = nil
+                end
+                bossFarms[key].currentTarget = nil
                 task.wait(1)
             end
-            
-            -- CONSTANTLY RESCAN SO IT STAYS ABOVE
             task.wait(0.3)
         end
     end)
-end
-
--- ============================================================
---  STAY ABOVE (bosses)
--- ============================================================
-local stayAboveConnection = nil
-
-local function startStayAbove(mobName)
-    if stayAboveConnection then
-        stayAboveConnection:Disconnect()
-    end
-    cheats.stayBehind = true
-    cheats.stayBehindTarget = mobName
-    
-    stayAboveConnection = RunService.Heartbeat:Connect(function()
-        if not cheats.stayBehind then
-            stayAboveConnection:Disconnect()
-            stayAboveConnection = nil
-            return
-        end
-        
-        local mobModel = Workspace:FindFirstChild(mobName)
-        if not mobModel then
-            status.Text = mobName .. " not found, stopping follow"
-            stopStayAbove()
-            return
-        end
-        
-        local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
-        if not rootPart then return end
-        
-        local targetPos = rootPart.Position + Vector3.new(0, 5, 0)
-        
-        local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-                local tween = TweenService:Create(root, tweenInfo, {
-                    CFrame = CFrame.new(targetPos, rootPart.Position)
-                })
-                tween:Play()
-            end
-        end
-    end)
-    status.Text = "Following " .. mobName .. " (above 5)"
-end
-
-local function stopStayAbove()
-    cheats.stayBehind = false
-    if stayAboveConnection then
-        stayAboveConnection:Disconnect()
-        stayAboveConnection = nil
-    end
-    status.Text = "Stopped following"
-end
-
--- ============================================================
---  BOSS TELEPORT
--- ============================================================
-local function teleportToBoss(modelName, entrancePos)
-    local mobModel = Workspace:FindFirstChild(modelName)
-    if mobModel then
-        tweenAboveMob(mobModel)
-    else
-        status.Text = modelName .. " not found – teleporting to entrance"
-        tweenToPosition(entrancePos + Vector3.new(0,5,0), 0.6)
-    end
 end
 
 -- ============================================================
@@ -1245,8 +1427,35 @@ local function closeGUI()
     if cheats.fly then cheats.fly = false; if disableFly then disableFly() end end
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
-    if stayAboveConnection then stayAboveConnection:Disconnect(); stayAboveConnection = nil end
     if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
+    if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy(); gargoyleBodyVelocity = nil end
+    if gargoyleBodyPosition then gargoyleBodyPosition:Destroy(); gargoyleBodyPosition = nil end
+    
+    for key, data in pairs(bossFarms) do
+        if data.running then
+            data.running = false
+        end
+        if bossFarmThreads[key] then
+            task.cancel(bossFarmThreads[key])
+            bossFarmThreads[key] = nil
+        end
+        if data.bodyVelocity then
+            data.bodyVelocity:Destroy()
+            data.bodyVelocity = nil
+        end
+        if data.bodyPosition then
+            data.bodyPosition:Destroy()
+            data.bodyPosition = nil
+        end
+    end
+    
+    local char = player.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+        end
+    end
     pcall(function() screenGui:Destroy() end)
 end
 
@@ -1638,98 +1847,76 @@ for _, data in ipairs(shopButtons) do
     end)
 end
 
--- Mobs with Follow toggle (KingChicken and Spider)
-local mobSection = Instance.new("Frame")
-mobSection.Size = UDim2.new(1, 0, 0, s(200))
-mobSection.BackgroundTransparency = 1
-mobSection.Parent = teleportScroller
+-- BOSS FARM SECTION (Chicken and Spider)
+local bossFarmSection = Instance.new("Frame")
+bossFarmSection.Size = UDim2.new(1, 0, 0, s(160))
+bossFarmSection.BackgroundTransparency = 1
+bossFarmSection.Parent = teleportScroller
 
-local mobHeader = Instance.new("TextLabel")
-mobHeader.Size = UDim2.new(1, 0, 0, 22)
-mobHeader.BackgroundTransparency = 1
-mobHeader.Text = "👾 Mobs (Teleport + Follow)"
-mobHeader.TextColor3 = Color3.fromRGB(255, 150, 150)
-mobHeader.Font = Enum.Font.GothamBold
-mobHeader.TextSize = bigText(15)
-mobHeader.TextXAlignment = Enum.TextXAlignment.Left
-mobHeader.Parent = mobSection
+local bossFarmHeader = Instance.new("TextLabel")
+bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
+bossFarmHeader.BackgroundTransparency = 1
+bossFarmHeader.Text = "🎯 Boss Farms (Auto Scan + Teleport + Lock)"
+bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
+bossFarmHeader.Font = Enum.Font.GothamBold
+bossFarmHeader.TextSize = bigText(15)
+bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
+bossFarmHeader.Parent = bossFarmSection
 
-local mobGrid = Instance.new("Frame")
-mobGrid.Size = UDim2.new(1, 0, 1, -s(22))
-mobGrid.Position = UDim2.new(0, 0, 0, s(22))
-mobGrid.BackgroundTransparency = 1
-mobGrid.Parent = mobSection
+local bossFarmGrid = Instance.new("Frame")
+bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
+bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
+bossFarmGrid.BackgroundTransparency = 1
+bossFarmGrid.Parent = bossFarmSection
 
-local mobGridLayout = Instance.new("UIGridLayout")
-mobGridLayout.Parent = mobGrid
-mobGridLayout.CellSize = UDim2.new(0.4, 0, 0, s(34))
-mobGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-mobGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+local bossFarmGridLayout = Instance.new("UIGridLayout")
+bossFarmGridLayout.Parent = bossFarmGrid
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(60))
+bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-local mobDefs = {
-    {key = "Chicken", text = "🐔 King Chicken", color = Color3.fromRGB(200,180,80), entrance = CHICKEN_BOSS_ENTRANCE, modelName = "KingChicken"},
-    {key = "Spider", text = "🕷 Spider Boss", color = Color3.fromRGB(150,100,200), entrance = SPIDER_BOSS_ENTRANCE, modelName = "SpiderBoss"}
+local bossFarmDefs = {
+    {key = "KingChicken", display = "🐔 King Chicken", entrance = CHICKEN_BOSS_ENTRANCE},
+    {key = "SpiderBoss", display = "🕷 Spider Boss", entrance = SPIDER_BOSS_ENTRANCE}
 }
 
-local followToggles = {}
-
-for _, def in ipairs(mobDefs) do
+for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
     cell.Size = UDim2.new(1, 0, 1, 0)
     cell.BackgroundTransparency = 1
-    cell.Parent = mobGrid
+    cell.Parent = bossFarmGrid
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.5, 0, 0.6, 0)
+    btn.Size = UDim2.new(1, 0, 0.5, 0)
     btn.Position = UDim2.new(0, 0, 0, 0)
-    btn.BackgroundColor3 = def.color
+    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
-    btn.Text = def.text
+    btn.Text = "🎯 " .. def.display .. " Farm (OFF)"
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = bigText(12)
     btn.Parent = cell
     
-    btn.Activated:Connect(function()
-        teleportToBoss(def.modelName, def.entrance)
-    end)
-    
-    local followRow = addToggleRow(cell, "Follow", false)
-    followRow.button.Size = UDim2.new(0, s(50), 1, -s(4))
-    followRow.button.Position = UDim2.new(0.55, 0, 0, s(2))
-    followRow.label.Text = "Follow: OFF"
-    
-    followToggles[def.key] = followRow
-    
-    followRow.button.MouseButton1Click:Connect(function()
-        local newVal = not followRow.value
-        followRow.value = newVal
-        followRow.button.Text = newVal and "ON" or "OFF"
-        followRow.button.BackgroundColor3 = newVal and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-        followRow.label.Text = "Follow: " .. (newVal and "ON" or "OFF")
-        if newVal then
-            startStayAbove(def.modelName)
-        else
-            stopStayAbove()
-        end
-    end)
-    
     local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(0.7, 0, 0.4, 0)
-    statusLabel.Position = UDim2.new(0, 0, 0.6, 0)
+    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
     statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "❓ Unknown"
+    statusLabel.Text = def.display .. " farm: OFF"
     statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    statusLabel.Font = Enum.Font.GothamBold
+    statusLabel.Font = Enum.Font.Gotham
     statusLabel.TextSize = bigText(11)
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
     statusLabel.Parent = cell
     
-    if def.key == "Chicken" then
-        bossData.Chicken.statusLabel = statusLabel
-    elseif def.key == "Spider" then
-        bossData.Spider.statusLabel = statusLabel
-    end
+    -- Store button reference for toggle function
+    local bossBtn = btn
+    local bossStatusLabel = statusLabel
+    local bossName = def.key
+    local bossDisplay = def.display
+    
+    btn.Activated:Connect(function()
+        toggleBossFarm(bossName, bossDisplay, bossBtn, bossStatusLabel)
+    end)
 end
 
 -- Custom coords (Tween)
@@ -2105,4 +2292,4 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
-print("✅ POLY LOOT – full script loaded (gargoyle ABOVE 5, no return, bosses, auto-click 730,300).")
+print("✅ POLY LOOT – full script loaded (GARGOYLE + BOSS FARM auto teleport & lock 5.1, bosses, auto-click 730,300).")
