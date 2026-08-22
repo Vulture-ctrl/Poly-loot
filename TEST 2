@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (GUI FIXED, gargoyle ABOVE 4.5 STABLE, bosses, auto-click 730,300) ]]
+--[[ POLY LOOT – FINAL (GUI FIXED, gargoyle ABOVE 5.1 LOCKED, bosses, auto-click 730,300) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -676,7 +676,7 @@ end
 local function tweenAboveMob(mobModel)
     local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
     if not rootPart then return false end
-    local targetPos = rootPart.Position + Vector3.new(0, 4.5, 0)
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     return tweenToPosition(targetPos, 0.4)
 end
 
@@ -719,14 +719,15 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM – stay ABOVE continuously, STABLE POSITION (no floating)
+--  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
 local gargoyleBtn = nil
 local gargoyleStatusLabel = nil
+local currentGargoyleTarget = nil
 
--- BODY VELOCITY FOR STABLE HOVER
+-- BODY VELOCITY FOR LOCKED POSITION
 local gargoyleBodyVelocity = nil
 local gargoyleBodyPosition = nil
 
@@ -753,6 +754,57 @@ local function getNearestGargoyle()
     return nearest, nearestDist
 end
 
+-- Function to lock character above a specific Gargoyle, facing DOWN
+local function lockAboveGargoyle(targetMob)
+    if not targetMob then return end
+    
+    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return end
+    
+    local char = player.Character
+    if not char then return end
+    local playerRoot = char:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    -- Calculate position 5.1 studs above the Gargoyle
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+    
+    -- Remove old locks
+    if gargoyleBodyVelocity then
+        gargoyleBodyVelocity:Destroy()
+        gargoyleBodyVelocity = nil
+    end
+    if gargoyleBodyPosition then
+        gargoyleBodyPosition:Destroy()
+        gargoyleBodyPosition = nil
+    end
+    
+    -- Set PlatformStand to prevent walking
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = true
+    end
+    
+    -- INSTANTLY move above the Gargoyle and face DOWN (looking at the Gargoyle)
+    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    -- BodyPosition to lock position
+    gargoyleBodyPosition = Instance.new("BodyPosition")
+    gargoyleBodyPosition.Position = targetPos
+    gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyPosition.D = 5000
+    gargoyleBodyPosition.P = 20000
+    gargoyleBodyPosition.Parent = playerRoot
+    
+    -- BodyVelocity to stabilize
+    gargoyleBodyVelocity = Instance.new("BodyVelocity")
+    gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    gargoyleBodyVelocity.Parent = playerRoot
+    
+    currentGargoyleTarget = targetMob
+end
+
 function toggleGargoyleFarm()
     -- TURN OFF
     if gargoyleFarmRunning then
@@ -761,7 +813,7 @@ function toggleGargoyleFarm()
             task.cancel(gargoyleFarmThread)
             gargoyleFarmThread = nil
         end
-        -- Remove body velocity
+        -- Remove locks
         if gargoyleBodyVelocity then
             gargoyleBodyVelocity:Destroy()
             gargoyleBodyVelocity = nil
@@ -770,6 +822,7 @@ function toggleGargoyleFarm()
             gargoyleBodyPosition:Destroy()
             gargoyleBodyPosition = nil
         end
+        currentGargoyleTarget = nil
         -- Reset humanoid state
         local char = player.Character
         if char then
@@ -804,53 +857,16 @@ function toggleGargoyleFarm()
     
     -- TURN ON
     gargoyleFarmRunning = true
+    currentGargoyleTarget = nil
     if gargoyleBtn then
         gargoyleBtn.Text = "🧛 Gargoyle Farm (ON)"
         gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (above 4.5 STABLE)"
+        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (LOCKED above 5.1)"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started – hovering above 4.5"
-    
-    -- Setup stable hover with BodyVelocity and BodyPosition
-    local function setupStableHover(targetPos)
-        local char = player.Character
-        if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-        
-        -- Remove old velocity/position
-        if gargoyleBodyVelocity then
-            gargoyleBodyVelocity:Destroy()
-            gargoyleBodyVelocity = nil
-        end
-        if gargoyleBodyPosition then
-            gargoyleBodyPosition:Destroy()
-            gargoyleBodyPosition = nil
-        end
-        
-        -- Set PlatformStand to prevent walking
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = true
-        end
-        
-        -- BodyPosition to hold position
-        gargoyleBodyPosition = Instance.new("BodyPosition")
-        gargoyleBodyPosition.Position = targetPos
-        gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyPosition.D = 5000
-        gargoyleBodyPosition.P = 20000
-        gargoyleBodyPosition.Parent = root
-        
-        -- BodyVelocity to stabilize
-        gargoyleBodyVelocity = Instance.new("BodyVelocity")
-        gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        gargoyleBodyVelocity.Parent = root
-    end
+    status.Text = "Gargoyle farming started – locked above 5.1, facing down"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -858,41 +874,50 @@ function toggleGargoyleFarm()
             local mob, dist = getNearestGargoyle()
             
             if mob then
-                local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-                if rootPart then
-                    -- CALCULATE POSITION ABOVE THE MOB BY 4.5 STUDS
-                    local targetPos = rootPart.Position + Vector3.new(0, 4.5, 0)
-                    local char = player.Character
-                    
-                    if char then
-                        local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                        if playerRoot then
-                            -- Teleport to position first (instant)
-                            playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-                            
-                            -- Setup stable hover
-                            setupStableHover(targetPos)
-                        end
+                -- Only lock to a new Gargoyle if it's different from current
+                if currentGargoyleTarget ~= mob then
+                    -- Remove old locks before moving to new target
+                    if gargoyleBodyVelocity then
+                        gargoyleBodyVelocity:Destroy()
+                        gargoyleBodyVelocity = nil
                     end
-                    status.Text = "Hovering above Gargoyle (dist " .. math.floor(dist) .. ")"
+                    if gargoyleBodyPosition then
+                        gargoyleBodyPosition:Destroy()
+                        gargoyleBodyPosition = nil
+                    end
+                    
+                    -- Lock above the new Gargoyle, facing DOWN
+                    lockAboveGargoyle(mob)
+                    status.Text = "🔒 Locked above Gargoyle (facing down, dist " .. math.floor(dist) .. ")"
                 end
             else
                 status.Text = "No Gargoyle found, waiting..."
+                -- If no Gargoyle found, unlock
+                if gargoyleBodyVelocity then
+                    gargoyleBodyVelocity:Destroy()
+                    gargoyleBodyVelocity = nil
+                end
+                if gargoyleBodyPosition then
+                    gargoyleBodyPosition:Destroy()
+                    gargoyleBodyPosition = nil
+                end
+                currentGargoyleTarget = nil
                 task.wait(1)
             end
             
-            -- Update position every 0.3 seconds to stay stable
-            task.wait(0.3)
+            -- Check every 0.2 seconds for target changes
+            task.wait(0.2)
         end
     end)
 end
 
 -- ============================================================
---  STAY ABOVE (bosses) - STABLE
+--  STAY ABOVE (bosses) - LOCKED
 -- ============================================================
 local stayAboveConnection = nil
 local stayAboveBodyVelocity = nil
 local stayAboveBodyPosition = nil
+local currentBossTarget = nil
 
 local function startStayAbove(mobName)
     if stayAboveConnection then
@@ -915,48 +940,54 @@ local function startStayAbove(mobName)
             return
         end
         
-        local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
-        if not rootPart then return end
-        
-        local targetPos = rootPart.Position + Vector3.new(0, 4.5, 0)
-        
-        local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                -- Instant teleport
-                root.CFrame = CFrame.new(targetPos, rootPart.Position)
-                
-                -- Setup stable hover
-                if stayAboveBodyPosition then
-                    stayAboveBodyPosition:Destroy()
-                    stayAboveBodyPosition = nil
+        -- Only lock if target changed
+        if currentBossTarget ~= mobModel then
+            currentBossTarget = mobModel
+            
+            local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
+            if not rootPart then return end
+            
+            local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+            
+            local char = player.Character
+            if char then
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    -- Remove old locks
+                    if stayAboveBodyPosition then
+                        stayAboveBodyPosition:Destroy()
+                        stayAboveBodyPosition = nil
+                    end
+                    if stayAboveBodyVelocity then
+                        stayAboveBodyVelocity:Destroy()
+                        stayAboveBodyVelocity = nil
+                    end
+                    
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum then
+                        hum.PlatformStand = true
+                    end
+                    
+                    -- Move above and face DOWN
+                    root.CFrame = CFrame.new(targetPos, rootPart.Position)
+                    
+                    stayAboveBodyPosition = Instance.new("BodyPosition")
+                    stayAboveBodyPosition.Position = targetPos
+                    stayAboveBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    stayAboveBodyPosition.D = 5000
+                    stayAboveBodyPosition.P = 20000
+                    stayAboveBodyPosition.Parent = root
+                    
+                    stayAboveBodyVelocity = Instance.new("BodyVelocity")
+                    stayAboveBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    stayAboveBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                    stayAboveBodyVelocity.Parent = root
                 end
-                if stayAboveBodyVelocity then
-                    stayAboveBodyVelocity:Destroy()
-                    stayAboveBodyVelocity = nil
-                end
-                
-                local hum = char:FindFirstChild("Humanoid")
-                if hum then
-                    hum.PlatformStand = true
-                end
-                
-                stayAboveBodyPosition = Instance.new("BodyPosition")
-                stayAboveBodyPosition.Position = targetPos
-                stayAboveBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                stayAboveBodyPosition.D = 5000
-                stayAboveBodyPosition.P = 20000
-                stayAboveBodyPosition.Parent = root
-                
-                stayAboveBodyVelocity = Instance.new("BodyVelocity")
-                stayAboveBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                stayAboveBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                stayAboveBodyVelocity.Parent = root
             end
+            status.Text = "🔒 Locked above " .. mobName .. " (facing down)"
         end
     end)
-    status.Text = "Following " .. mobName .. " (above 4.5 stable)"
+    status.Text = "Following " .. mobName .. " (above 5.1 locked)"
 end
 
 local function stopStayAbove()
@@ -973,6 +1004,7 @@ local function stopStayAbove()
         stayAboveBodyPosition:Destroy()
         stayAboveBodyPosition = nil
     end
+    currentBossTarget = nil
     local char = player.Character
     if char then
         local hum = char:FindFirstChild("Humanoid")
@@ -2215,4 +2247,4 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
-print("✅ POLY LOOT – full script loaded (gargoyle ABOVE 4.5 STABLE, no return, bosses, auto-click 730,300).")
+print("✅ POLY LOOT – full script loaded (gargoyle ABOVE 5.1 LOCKED facing down, no return, bosses, auto-click 730,300).")
