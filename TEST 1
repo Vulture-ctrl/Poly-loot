@@ -349,7 +349,7 @@ local function createScroller()
     local layout = Instance.new("UIListLayout")
     layout.Parent = scroller
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, s(8))
+    layout.Padding = UDim.new(0, s(12))
     
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + s(10))
@@ -426,18 +426,23 @@ local function createSection(parent, title, height)
     section.Parent = parent
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 22)
+    header.Size = UDim2.new(1, 0, 0, s(24))
     header.BackgroundTransparency = 1
     header.Text = title
     header.TextColor3 = Color3.fromRGB(255, 200, 100)
     header.Font = Enum.Font.GothamBold
-    header.TextSize = bigText(15)
+    header.TextSize = bigText(16)
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = section
     
+    local spacer = Instance.new("Frame")
+    spacer.Size = UDim2.new(1, 0, 0, s(6))
+    spacer.BackgroundTransparency = 1
+    spacer.Parent = section
+    
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 1, -s(22))
-    container.Position = UDim2.new(0, 0, 0, s(22))
+    container.Size = UDim2.new(1, 0, 1, -s(30))
+    container.Position = UDim2.new(0, 0, 0, s(30))
     container.BackgroundTransparency = 1
     container.Parent = section
     
@@ -445,10 +450,10 @@ local function createSection(parent, title, height)
 end
 
 local function addButton(parent, text, color, callback, height)
-    height = height or s(32)
+    height = height or s(34)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.8, 0, 0, height)
-    btn.Position = UDim2.new(0.1, 0, 0, 0)
+    btn.Size = UDim2.new(0.6, 0, 0, height)
+    btn.Position = UDim2.new(0.2, 0, 0, 0)
     btn.BackgroundColor3 = color
     btn.BorderSizePixel = 0
     btn.Text = text
@@ -464,7 +469,7 @@ end
 
 local function addStatusLabel(parent, text, yPos)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.8, 0, 0, s(24))
+    lbl.Size = UDim2.new(0.8, 0, 0, s(22))
     lbl.Position = UDim2.new(0.1, 0, yPos, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
@@ -478,7 +483,7 @@ end
 
 local function addToggleRow(parent, labelText, initial)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, s(32))
+    row.Size = UDim2.new(1, 0, 0, s(34))
     row.BackgroundTransparency = 1
     row.Parent = parent
     
@@ -493,8 +498,8 @@ local function addToggleRow(parent, labelText, initial)
     lbl.Parent = row
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, s(60), 1, -s(4))
-    btn.Position = UDim2.new(0.6, 0, 0, s(2))
+    btn.Size = UDim2.new(0, s(60), 1, -s(6))
+    btn.Position = UDim2.new(0.6, 0, 0, s(3))
     btn.BackgroundColor3 = initial and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
@@ -1190,7 +1195,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (CLEAN LAYOUT WITH SECTIONS)
+--  FARM TAB (SPACED OUT)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1200,12 +1205,12 @@ status.Parent = farmScroller
 refreshInventory()
 
 -- Section 1: Gargoyle Farm
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 65)
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 70)
 gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
-gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.65)
+gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
 -- Section 2: Boss Farms
-local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 115)
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 120)
 
 local bossFarmDefs = {
     {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1214,14 +1219,14 @@ local bossFarmDefs = {
 
 for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(0.45, 0, 0, s(50))
+    cell.Size = UDim2.new(0.45, 0, 0, s(55))
     cell.BackgroundTransparency = 1
     cell.Parent = bossContainer
     
     local gridLayout = Instance.new("UIGridLayout")
     gridLayout.Parent = bossContainer
-    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(50))
-    gridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
+    gridLayout.CellPadding = UDim2.new(0, s(10), 0, s(10))
     gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     
     local btn = Instance.new("TextButton")
@@ -1258,7 +1263,7 @@ for _, def in ipairs(bossFarmDefs) do
 end
 
 -- Section 3: Combat Controls
-local combatSection, combatContainer = createSection(farmScroller, "⚔️ Combat Controls", 80)
+local combatSection, combatContainer = createSection(farmScroller, "⚔️ Combat Controls", 85)
 local autoCollectToggle = addToggleRow(combatContainer, "Auto-Collect Gold", true)
 local autoLootToggle = addToggleRow(combatContainer, "Auto-Loot", false)
 
@@ -1294,7 +1299,7 @@ for idx, action in ipairs(autoActions) do
     header.Parent = autoScroller
     
     local checkboxContainer = Instance.new("Frame")
-    checkboxContainer.Size = UDim2.new(1, -s(10), 0, s(72))
+    checkboxContainer.Size = UDim2.new(1, -s(10), 0, s(80))
     checkboxContainer.BackgroundTransparency = 1
     checkboxContainer.Parent = autoScroller
     
@@ -1422,7 +1427,7 @@ for idx, action in ipairs(autoActions) do
     
     if idx < #autoActions then
         local sep = Instance.new("Frame")
-        sep.Size = UDim2.new(1, 0, 0, s(2))
+        sep.Size = UDim2.new(1, 0, 0, s(3))
         sep.BackgroundColor3 = Color3.fromRGB(60,60,80)
         sep.BorderSizePixel = 0
         sep.Parent = autoScroller
@@ -1819,7 +1824,7 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
---  TELEPORT TAB (CLEAN LAYOUT WITH SECTIONS)
+--  TELEPORT TAB (SPACED OUT)
 -- ============================================================
 
 -- Section 1: Current Position
@@ -1849,7 +1854,7 @@ RunService.Heartbeat:Connect(updatePos)
 player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
 
 -- Section 2: Shops & Locations
-local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 110)
+local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 115)
 
 local shopGrid = Instance.new("Frame")
 shopGrid.Size = UDim2.new(1, 0, 1, 0)
@@ -1858,8 +1863,8 @@ shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(30))
-shopGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(32))
+shopGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
 shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 local shopButtons = {
@@ -1887,7 +1892,7 @@ for _, data in ipairs(shopButtons) do
 end
 
 -- Section 3: Custom Teleport
-local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 100)
+local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 110)
 
 local coordRow = Instance.new("Frame")
 coordRow.Size = UDim2.new(1, 0, 0, s(36))
@@ -1928,8 +1933,8 @@ coordZ.TextSize = bigText(14)
 coordZ.Parent = coordRow
 
 local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.3, 0, 0, s(28))
-copyBtn.Position = UDim2.new(0.35, 0, 0.55, 0)
+copyBtn.Size = UDim2.new(0.3, 0, 0, s(30))
+copyBtn.Position = UDim2.new(0.35, 0, 0.5, 0)
 copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
 copyBtn.BorderSizePixel = 0
 copyBtn.Text = "📋 Copy Pos"
@@ -1953,7 +1958,7 @@ copyBtn.Activated:Connect(function()
 end)
 
 local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0.3, 0, 0, s(28))
+teleportBtn.Size = UDim2.new(0.3, 0, 0, s(30))
 teleportBtn.Position = UDim2.new(0.35, 0, 0.8, 0)
 teleportBtn.BackgroundColor3 = Color3.fromRGB(60,120,200)
 teleportBtn.BorderSizePixel = 0
