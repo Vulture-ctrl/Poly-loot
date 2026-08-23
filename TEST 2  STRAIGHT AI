@@ -1,4 +1,4 @@
---[[ POLY LOOT – DELTA/POTASSIUM COMPATIBLE ]] 
+--[[ POLY LOOT – DELTA/POTASSIUM FIXED + SPEED 40 ]] 
 
 -- ============================================================
 -- SERVICES
@@ -14,18 +14,32 @@ local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ============================================================
--- FIND GUI PARENT - DELTA/POTASSIUM FIX
+-- WAIT FOR CHARACTER - IMPORTANT FOR DELTA
+-- ============================================================
+local function waitForCharacter()
+    local char = player.Character
+    if not char or not char.Parent then
+        player.CharacterAdded:Wait()
+        task.wait(1)
+    end
+    return player.Character
+end
+
+waitForCharacter()
+
+-- ============================================================
+-- FIND GUI PARENT - DELTA/POTASSIUM SPECIFIC
 -- ============================================================
 local guiParent = nil
 
--- Try gethui first (works for Delta, Potassium, etc.)
+-- Method 1: gethui (works on Delta, Potassium, Synapse, etc.)
 pcall(function()
     if gethui then
         guiParent = gethui()
     end
 end)
 
--- If gethui failed, try PlayerGui
+-- Method 2: PlayerGui
 if not guiParent then
     pcall(function()
         if player and player:FindFirstChild("PlayerGui") then
@@ -34,14 +48,14 @@ if not guiParent then
     end)
 end
 
--- If both failed, use CoreGui
+-- Method 3: CoreGui
 if not guiParent then
     pcall(function()
         guiParent = game:GetService("CoreGui")
     end)
 end
 
--- ABSOLUTE FALLBACK - create our own
+-- Method 4: Create our own
 if not guiParent then
     guiParent = Instance.new("ScreenGui")
     pcall(function()
@@ -50,18 +64,13 @@ if not guiParent then
 end
 
 -- ============================================================
--- WAIT FOR CHARACTER
+-- CREATE SCREENGUI - SIMPLE AND RELIABLE
 -- ============================================================
-local function waitForCharacter()
-    local char = player.Character
-    if not char or not char.Parent then
-        player.CharacterAdded:Wait()
-        task.wait(0.5)
-    end
-    return player.Character
-end
-
-waitForCharacter()
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "POLYLOOT"
+screenGui.ResetOnSpawn = false
+screenGui.Enabled = true
+screenGui.Parent = guiParent
 
 -- ============================================================
 -- ITEM DATABASE
@@ -298,7 +307,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- CONFIG
+-- CONFIG - SPEED SET TO 40 FOR ATTACKING
 -- ============================================================
 local CONFIG = {
     AttackDelay = 0.8,
@@ -317,7 +326,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 74,
+    WalkSpeed = 40,  -- CHANGED TO 40 FOR ATTACKING
 }
 
 -- ============================================================
@@ -345,6 +354,18 @@ local cheats = {
 }
 
 -- ============================================================
+-- STATUS TEXT
+-- ============================================================
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, 0, 0, 28)
+status.BackgroundTransparency = 1
+status.Text = "Status: Loading..."
+status.TextColor3 = Color3.fromRGB(255,255,255)
+status.Font = Enum.Font.GothamBold
+status.TextSize = 18
+status.Parent = nil
+
+-- ============================================================
 -- SCALING
 -- ============================================================
 local viewport = workspace.CurrentCamera.ViewportSize
@@ -355,108 +376,75 @@ local function s(value) return value * scale end
 local function bigText(size) return math.floor(size * scale * 1.4) end
 
 -- ============================================================
--- CREATE SCREENGUI - DELTA/POTASSIUM SAFE
+-- CREATE MAIN GUI - SIMPLIFIED FOR DELTA
 -- ============================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = guiParent
 
--- Make sure it's visible
-screenGui.Enabled = true
-
--- ============================================================
--- STATUS TEXT
--- ============================================================
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, 0, 0, 28)
-status.BackgroundTransparency = 1
-status.Text = "Status: Initializing..."
-status.TextColor3 = Color3.fromRGB(255,255,255)
-status.Font = Enum.Font.GothamBold
-status.TextSize = 18
-status.Parent = nil
-
--- ============================================================
--- GUI CREATION
--- ============================================================
+-- Main Frame with visible background
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
-mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
-mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-mainFrame.BackgroundTransparency = 0.15
-mainFrame.BorderSizePixel = 1
+mainFrame.Size = UDim2.new(0, 640, 0, 720)
+mainFrame.Position = UDim2.new(0.5, -320, 0.5, -360)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 35)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.BorderSizePixel = 2
 mainFrame.BorderColor3 = Color3.fromRGB(0, 200, 255)
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
 
 -- Title bar
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, s(50))
+titleBar.Size = UDim2.new(1, 0, 0, 45)
 titleBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-titleBar.BackgroundTransparency = 0.6
+titleBar.BackgroundTransparency = 0.5
 titleBar.BorderSizePixel = 0
 titleBar.Parent = mainFrame
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0.6, -s(10), 0.6, 0)
-titleLabel.Position = UDim2.new(0, s(10), 0, s(2))
+titleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
 titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "POLY LOOT"
 titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
 titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = bigText(26)
+titleLabel.TextSize = 24
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
 
-local watermark = Instance.new("TextLabel")
-watermark.Size = UDim2.new(0.6, -s(10), 0.4, 0)
-watermark.Position = UDim2.new(0, s(12), 0, s(30))
-watermark.BackgroundTransparency = 1
-watermark.Text = "Made by 19_GIRLVULTTURE"
-watermark.TextColor3 = Color3.fromRGB(150, 180, 220)
-watermark.Font = Enum.Font.Gotham
-watermark.TextSize = bigText(11)
-watermark.TextXAlignment = Enum.TextXAlignment.Left
-watermark.Parent = titleBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, s(28), 0, s(28))
-minBtn.Position = UDim2.new(1, -s(66), 0, s(11))
-minBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
-minBtn.BorderSizePixel = 0
-minBtn.Text = "─"
-minBtn.TextColor3 = Color3.fromRGB(255,255,255)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = bigText(20)
-minBtn.Parent = titleBar
-
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, s(28), 0, s(28))
-closeBtn.Position = UDim2.new(1, -s(32), 0, s(11))
-closeBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+closeBtn.Size = UDim2.new(0, 30, 1, 0)
+closeBtn.Position = UDim2.new(1, -30, 0, 0)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 closeBtn.BorderSizePixel = 0
 closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = bigText(16)
+closeBtn.TextSize = 16
 closeBtn.Parent = titleBar
-closeBtn.ZIndex = 10
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 30, 1, 0)
+minBtn.Position = UDim2.new(1, -60, 0, 0)
+minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+minBtn.BorderSizePixel = 0
+minBtn.Text = "─"
+minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 20
+minBtn.Parent = titleBar
 
 -- ============================================================
 -- TAB BAR
 -- ============================================================
 local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, 0, 0, s(36))
-tabBar.Position = UDim2.new(0, 0, 0, s(50))
-tabBar.BackgroundColor3 = Color3.fromRGB(0,0,0)
+tabBar.Size = UDim2.new(1, 0, 0, 35)
+tabBar.Position = UDim2.new(0, 0, 0, 45)
+tabBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 tabBar.BackgroundTransparency = 0.4
 tabBar.BorderSizePixel = 0
 tabBar.Parent = mainFrame
 
 local contentContainer = Instance.new("Frame")
-contentContainer.Size = UDim2.new(1, -s(10), 1, -s(86))
-contentContainer.Position = UDim2.new(0, s(5), 0, s(86))
+contentContainer.Size = UDim2.new(1, -10, 1, -90)
+contentContainer.Position = UDim2.new(0, 5, 0, 85)
 contentContainer.BackgroundTransparency = 1
 contentContainer.ClipsDescendants = false
 contentContainer.Parent = mainFrame
@@ -466,7 +454,7 @@ local function createScroller()
     scroller.Size = UDim2.new(1, 0, 1, 0)
     scroller.BackgroundTransparency = 1
     scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroller.ScrollBarThickness = s(4)
+    scroller.ScrollBarThickness = 4
     scroller.Visible = false
     scroller.ClipsDescendants = false
     scroller.Parent = contentContainer
@@ -474,10 +462,10 @@ local function createScroller()
     local layout = Instance.new("UIListLayout")
     layout.Parent = scroller
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, s(12))
+    layout.Padding = UDim.new(0, 10)
     
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + s(10))
+        scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
     end)
     
     return scroller, layout
@@ -490,7 +478,7 @@ local playerScroller, playerLayout = createScroller()
 local teleportScroller, teleportLayout = createScroller()
 
 -- ============================================================
--- TAB SWITCHING
+-- TAB BUTTONS
 -- ============================================================
 local function switchTab(tab)
     farmScroller.Visible = (tab == "farm")
@@ -507,18 +495,18 @@ for i, name in ipairs(tabs) do
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.25, 0, 1, 0)
     btn.Position = UDim2.new((i-1)*0.25, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     btn.BackgroundTransparency = 0.5
     btn.Text = name
-    btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180,180,200)
+    btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180, 180, 200)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(14)
+    btn.TextSize = 14
     btn.BorderSizePixel = 0
     btn.Parent = tabBar
     
     local underline = Instance.new("Frame")
-    underline.Size = UDim2.new(0.6, 0, 0, s(3))
-    underline.Position = UDim2.new(0.2, 0, 1, -s(3))
+    underline.Size = UDim2.new(0.6, 0, 0, 3)
+    underline.Position = UDim2.new(0.2, 0, 1, -3)
     underline.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
     underline.BackgroundTransparency = (name == "Farm") and 0 or 1
     underline.BorderSizePixel = 0
@@ -529,7 +517,7 @@ for i, name in ipairs(tabs) do
         activeTab = name
         for _, tb in pairs(tabButtons) do
             tb.underline.BackgroundTransparency = 1
-            tb.button.TextColor3 = Color3.fromRGB(180,180,200)
+            tb.button.TextColor3 = Color3.fromRGB(180, 180, 200)
         end
         underline.BackgroundTransparency = 0
         btn.TextColor3 = Color3.fromRGB(0, 200, 255)
@@ -546,28 +534,23 @@ switchTab("farm")
 -- ============================================================
 local function createSection(parent, title, height)
     local section = Instance.new("Frame")
-    section.Size = UDim2.new(1, -s(10), 0, s(height))
+    section.Size = UDim2.new(1, -10, 0, height)
     section.BackgroundTransparency = 1
     section.Parent = parent
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, s(24))
+    header.Size = UDim2.new(1, 0, 0, 24)
     header.BackgroundTransparency = 1
     header.Text = title
     header.TextColor3 = Color3.fromRGB(255, 200, 100)
     header.Font = Enum.Font.GothamBold
-    header.TextSize = bigText(16)
+    header.TextSize = 16
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = section
     
-    local spacer = Instance.new("Frame")
-    spacer.Size = UDim2.new(1, 0, 0, s(8))
-    spacer.BackgroundTransparency = 1
-    spacer.Parent = section
-    
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 1, -s(32))
-    container.Position = UDim2.new(0, 0, 0, s(32))
+    container.Size = UDim2.new(1, 0, 1, -30)
+    container.Position = UDim2.new(0, 0, 0, 30)
     container.BackgroundTransparency = 1
     container.Parent = section
     
@@ -575,16 +558,16 @@ local function createSection(parent, title, height)
 end
 
 local function addButton(parent, text, color, callback, height)
-    height = height or s(34)
+    height = height or 34
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.6, 0, 0, height)
     btn.Position = UDim2.new(0.2, 0, 0, 0)
     btn.BackgroundColor3 = color
     btn.BorderSizePixel = 0
     btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(14)
+    btn.TextSize = 14
     btn.Parent = parent
     if callback then
         btn.Activated:Connect(callback)
@@ -594,13 +577,13 @@ end
 
 local function addStatusLabel(parent, text, yPos)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.8, 0, 0, s(22))
+    lbl.Size = UDim2.new(0.8, 0, 0, 22)
     lbl.Position = UDim2.new(0.1, 0, yPos, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
-    lbl.TextColor3 = Color3.fromRGB(200,200,200)
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = bigText(13)
+    lbl.TextSize = 13
     lbl.TextXAlignment = Enum.TextXAlignment.Center
     lbl.Parent = parent
     return lbl
@@ -608,7 +591,7 @@ end
 
 local function addToggleRow(parent, labelText, initial)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, s(38))
+    row.Size = UDim2.new(1, 0, 0, 38)
     row.BackgroundTransparency = 1
     row.Parent = parent
     
@@ -616,21 +599,21 @@ local function addToggleRow(parent, labelText, initial)
     lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
-    lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = bigText(14)
+    lbl.TextSize = 14
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, s(60), 1, -s(6))
-    btn.Position = UDim2.new(0.6, 0, 0, s(3))
-    btn.BackgroundColor3 = initial and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    btn.Size = UDim2.new(0, 60, 1, -6)
+    btn.Position = UDim2.new(0.6, 0, 0, 3)
+    btn.BackgroundColor3 = initial and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
-    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(14)
+    btn.TextSize = 14
     btn.Parent = row
     
     return {label = lbl, button = btn, value = initial, row = row}
@@ -638,24 +621,24 @@ end
 
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, s(48))
+    row.Size = UDim2.new(1, 0, 0, 48)
     row.BackgroundTransparency = 1
     row.Parent = parent
     
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
+    lbl.Size = UDim2.new(0.5, 0, 0, 20)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. string.format("%.1f", initVal) .. unit
-    lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = bigText(14)
+    lbl.TextSize = 14
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.35, 0, 0, s(16))
-    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
-    slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
+    slider.Size = UDim2.new(0.35, 0, 0, 16)
+    slider.Position = UDim2.new(0.55, 0, 0.5, -8)
+    slider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
     slider.BorderSizePixel = 0
     slider.Parent = row
     
@@ -670,9 +653,9 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
     valLabel.Position = UDim2.new(0.85, 0, 0, 0)
     valLabel.BackgroundTransparency = 1
     valLabel.Text = string.format("%.1f", initVal) .. unit
-    valLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    valLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     valLabel.Font = Enum.Font.Gotham
-    valLabel.TextSize = bigText(14)
+    valLabel.TextSize = 14
     valLabel.Parent = row
     
     local dragging = false
@@ -712,7 +695,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
 end
 
 -- ============================================================
--- MOVEMENT HELPERS
+-- MOVEMENT HELPERS - SPEED 40
 -- ============================================================
 local function tweenToPosition(targetPos, duration)
     duration = duration or CONFIG.TweenDuration
@@ -734,9 +717,9 @@ local function tweenAtWalkSpeed(targetPos)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     local distance = (targetPos - root.Position).Magnitude
-    local speed = CONFIG.WalkSpeed
+    local speed = CONFIG.WalkSpeed  -- Now 40
     local duration = distance / speed
-    if duration < 0.2 then duration = 0.2 end
+    if duration < 0.3 then duration = 0.3 end
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
     tween:Play()
@@ -1243,16 +1226,16 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Moving to loot at walk speed 74..."
+    status.Text = "Moving to loot..."
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
     if not lootStillExists(item) then
-        status.Text = "Loot disappeared before pickup, moving to next..."
+        status.Text = "Loot disappeared"
         return
     end
     
-    status.Text = "Holding E to pick up..."
+    status.Text = "Holding E..."
     
     local startTime = tick()
     local holdDuration = CONFIG.LootHoldSeconds or 5
@@ -1271,7 +1254,7 @@ local function instantLoot()
     
     while (tick() - startTime) < holdDuration do
         if not lootStillExists(item) then
-            status.Text = "Loot picked up! Cancelling E hold early."
+            status.Text = "Loot picked up! Cancelling E."
             break
         end
         task.wait(0.1)
@@ -1444,7 +1427,7 @@ function toggleGargoyleFarm()
             
             if mob then
                 lockAboveGargoyle(mob)
-                status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
+                status.Text = "🔒 Locked above Gargoyle"
             else
                 status.Text = "No Gargoyle found, scanning..."
                 if gargoyleStatusLabel then
@@ -1474,7 +1457,7 @@ status.TextColor3 = Color3.fromRGB(255,100,100)
 status.Parent = farmScroller
 
 local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
-gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, 32)
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
 local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms", 125)
@@ -1486,14 +1469,14 @@ local bossFarmDefs = {
 
 for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(0.45, 0, 0, s(55))
+    cell.Size = UDim2.new(0.45, 0, 0, 55)
     cell.BackgroundTransparency = 1
     cell.Parent = bossContainer
     
     local gridLayout = Instance.new("UIGridLayout")
     gridLayout.Parent = bossContainer
-    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
-    gridLayout.CellPadding = UDim2.new(0, s(10), 0, s(10))
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, 55)
+    gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
     gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     
     local btn = Instance.new("TextButton")
@@ -1504,7 +1487,7 @@ for _, def in ipairs(bossFarmDefs) do
     btn.Text = def.display .. " Farm (OFF)"
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(11)
+    btn.TextSize = 11
     btn.Parent = cell
     
     local statusLabel = Instance.new("TextLabel")
@@ -1514,7 +1497,7 @@ for _, def in ipairs(bossFarmDefs) do
     statusLabel.Text = def.display .. ": OFF"
     statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
     statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = bigText(11)
+    statusLabel.TextSize = 11
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
     statusLabel.Parent = cell
     
@@ -1529,7 +1512,7 @@ end
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
 
 local collectRow = Instance.new("Frame")
-collectRow.Size = UDim2.new(1, 0, 0, s(38))
+collectRow.Size = UDim2.new(1, 0, 0, 38)
 collectRow.BackgroundTransparency = 1
 collectRow.Parent = autoContainer
 
@@ -1539,19 +1522,19 @@ collectLabel.BackgroundTransparency = 1
 collectLabel.Text = "Auto-Collect Gold: OFF"
 collectLabel.TextColor3 = Color3.fromRGB(200,200,220)
 collectLabel.Font = Enum.Font.Gotham
-collectLabel.TextSize = bigText(14)
+collectLabel.TextSize = 14
 collectLabel.TextXAlignment = Enum.TextXAlignment.Left
 collectLabel.Parent = collectRow
 
 local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-collectBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+collectBtn.Size = UDim2.new(0, 60, 1, -6)
+collectBtn.Position = UDim2.new(0.6, 0, 0, 3)
 collectBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 collectBtn.BorderSizePixel = 0
 collectBtn.Text = "OFF"
 collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
 collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = bigText(14)
+collectBtn.TextSize = 14
 collectBtn.Parent = collectRow
 
 collectBtn.Activated:Connect(function()
@@ -1562,8 +1545,8 @@ collectBtn.Activated:Connect(function()
 end)
 
 local lootRow = Instance.new("Frame")
-lootRow.Size = UDim2.new(1, 0, 0, s(38))
-lootRow.Position = UDim2.new(0, 0, 0, s(40))
+lootRow.Size = UDim2.new(1, 0, 0, 38)
+lootRow.Position = UDim2.new(0, 0, 0, 40)
 lootRow.BackgroundTransparency = 1
 lootRow.Parent = autoContainer
 
@@ -1573,19 +1556,19 @@ lootLabel.BackgroundTransparency = 1
 lootLabel.Text = "Auto-Loot: OFF"
 lootLabel.TextColor3 = Color3.fromRGB(200,200,220)
 lootLabel.Font = Enum.Font.Gotham
-lootLabel.TextSize = bigText(14)
+lootLabel.TextSize = 14
 lootLabel.TextXAlignment = Enum.TextXAlignment.Left
 lootLabel.Parent = lootRow
 
 local lootBtn = Instance.new("TextButton")
-lootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-lootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+lootBtn.Size = UDim2.new(0, 60, 1, -6)
+lootBtn.Position = UDim2.new(0.6, 0, 0, 3)
 lootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 lootBtn.BorderSizePixel = 0
 lootBtn.Text = "OFF"
 lootBtn.TextColor3 = Color3.fromRGB(255,255,255)
 lootBtn.Font = Enum.Font.GothamBold
-lootBtn.TextSize = bigText(14)
+lootBtn.TextSize = 14
 lootBtn.Parent = lootRow
 
 lootBtn.Activated:Connect(function()
@@ -1596,8 +1579,8 @@ lootBtn.Activated:Connect(function()
 end)
 
 local batchRow = Instance.new("Frame")
-batchRow.Size = UDim2.new(1, 0, 0, s(38))
-batchRow.Position = UDim2.new(0, 0, 0, s(80))
+batchRow.Size = UDim2.new(1, 0, 0, 38)
+batchRow.Position = UDim2.new(0, 0, 0, 80)
 batchRow.BackgroundTransparency = 1
 batchRow.Parent = autoContainer
 
@@ -1607,19 +1590,19 @@ batchLabel.BackgroundTransparency = 1
 batchLabel.Text = "Batch Mode: OFF"
 batchLabel.TextColor3 = Color3.fromRGB(200,200,220)
 batchLabel.Font = Enum.Font.Gotham
-batchLabel.TextSize = bigText(14)
+batchLabel.TextSize = 14
 batchLabel.TextXAlignment = Enum.TextXAlignment.Left
 batchLabel.Parent = batchRow
 
 local batchBtn = Instance.new("TextButton")
-batchBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-batchBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+batchBtn.Size = UDim2.new(0, 60, 1, -6)
+batchBtn.Position = UDim2.new(0.6, 0, 0, 3)
 batchBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 batchBtn.BorderSizePixel = 0
 batchBtn.Text = "OFF"
 batchBtn.TextColor3 = Color3.fromRGB(255,255,255)
 batchBtn.Font = Enum.Font.GothamBold
-batchBtn.TextSize = bigText(14)
+batchBtn.TextSize = 14
 batchBtn.Parent = batchRow
 
 batchBtn.Activated:Connect(function()
@@ -1636,14 +1619,14 @@ local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
 
 local refreshBtn = Instance.new("TextButton")
-refreshBtn.Size = UDim2.new(0.6, 0, 0, s(36))
+refreshBtn.Size = UDim2.new(0.6, 0, 0, 36)
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
 refreshBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 200)
 refreshBtn.BorderSizePixel = 0
 refreshBtn.Text = "🔄 Refresh Inventory"
 refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
 refreshBtn.Font = Enum.Font.GothamBold
-refreshBtn.TextSize = bigText(15)
+refreshBtn.TextSize = 15
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
@@ -1652,7 +1635,7 @@ end)
 
 for idx, action in ipairs(autoActions) do
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, -s(10), 0, s(80))
+    box.Size = UDim2.new(1, -10, 0, 80)
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
     box.BackgroundTransparency = 0.3
     box.BorderSizePixel = 1
@@ -1660,19 +1643,19 @@ for idx, action in ipairs(autoActions) do
     box.Parent = autoScroller
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, -s(8), 0, s(24))
-    header.Position = UDim2.new(0, s(4), 0, s(4))
+    header.Size = UDim2.new(1, -8, 0, 24)
+    header.Position = UDim2.new(0, 4, 0, 4)
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. action .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
-    header.TextSize = bigText(15)
+    header.TextSize = 15
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
     local toggleRow = Instance.new("Frame")
-    toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
-    toggleRow.Position = UDim2.new(0, s(4), 0, s(32))
+    toggleRow.Size = UDim2.new(1, -8, 0, 34)
+    toggleRow.Position = UDim2.new(0, 4, 0, 32)
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = box
     
@@ -1682,19 +1665,19 @@ for idx, action in ipairs(autoActions) do
     toggleLabel.Text = action .. ": OFF"
     toggleLabel.TextColor3 = Color3.fromRGB(200,200,220)
     toggleLabel.Font = Enum.Font.Gotham
-    toggleLabel.TextSize = bigText(13)
+    toggleLabel.TextSize = 13
     toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
     toggleLabel.Parent = toggleRow
     
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, s(50), 1, -s(4))
-    toggleBtn.Position = UDim2.new(0.5, 0, 0, s(2))
+    toggleBtn.Size = UDim2.new(0, 50, 1, -4)
+    toggleBtn.Position = UDim2.new(0.5, 0, 0, 2)
     toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
     toggleBtn.BorderSizePixel = 0
     toggleBtn.Text = "OFF"
     toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
     toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = bigText(13)
+    toggleBtn.TextSize = 13
     toggleBtn.Parent = toggleRow
     
     local enabled = false
@@ -1718,7 +1701,7 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 16, "", function(val)
+    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 40, "", function(val)
         val = math.min(val, 74)
         cheats.speed = val
         CONFIG.WalkSpeed = val
@@ -1749,8 +1732,8 @@ playerToggles = addPlayerTabContent()
 -- MINI BAR
 -- ============================================================
 local miniBar = Instance.new("Frame")
-miniBar.Size = UDim2.new(0, s(480), 0, s(40))
-miniBar.Position = UDim2.new(0.5, -s(240), 0.1, 0)
+miniBar.Size = UDim2.new(0, 480, 0, 40)
+miniBar.Position = UDim2.new(0.5, -240, 0.1, 0)
 miniBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 miniBar.BackgroundTransparency = 0.3
 miniBar.BorderSizePixel = 0
@@ -1760,47 +1743,47 @@ miniBar.Parent = screenGui
 
 local miniTitle = Instance.new("TextLabel")
 miniTitle.Size = UDim2.new(0.2, 0, 0.6, 0)
-miniTitle.Position = UDim2.new(0, s(8), 0, s(2))
+miniTitle.Position = UDim2.new(0, 8, 0, 2)
 miniTitle.BackgroundTransparency = 1
 miniTitle.Text = "POLY LOOT"
 miniTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
 miniTitle.Font = Enum.Font.GothamBold
-miniTitle.TextSize = bigText(14)
+miniTitle.TextSize = 14
 miniTitle.TextXAlignment = Enum.TextXAlignment.Left
 miniTitle.Parent = miniBar
 
 local miniACBtn = Instance.new("TextButton")
-miniACBtn.Size = UDim2.new(0, s(140), 0.8, 0)
+miniACBtn.Size = UDim2.new(0, 140, 0.8, 0)
 miniACBtn.Position = UDim2.new(0.35, 0, 0.1, 0)
 miniACBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 miniACBtn.BorderSizePixel = 0
 miniACBtn.Text = "AC: OFF"
 miniACBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniACBtn.Font = Enum.Font.GothamBold
-miniACBtn.TextSize = bigText(13)
+miniACBtn.TextSize = 13
 miniACBtn.TextScaled = true
 miniACBtn.Parent = miniBar
 
 local restoreBtn = Instance.new("TextButton")
-restoreBtn.Size = UDim2.new(0, s(32), 1, 0)
+restoreBtn.Size = UDim2.new(0, 32, 1, 0)
 restoreBtn.Position = UDim2.new(0.85, 0, 0, 0)
 restoreBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
 restoreBtn.BorderSizePixel = 0
 restoreBtn.Text = "⬆"
 restoreBtn.TextColor3 = Color3.fromRGB(255,255,255)
 restoreBtn.Font = Enum.Font.GothamBold
-restoreBtn.TextSize = bigText(18)
+restoreBtn.TextSize = 18
 restoreBtn.Parent = miniBar
 
 local miniCloseBtn = Instance.new("TextButton")
-miniCloseBtn.Size = UDim2.new(0, s(32), 1, 0)
-miniCloseBtn.Position = UDim2.new(1, -s(32), 0, 0)
+miniCloseBtn.Size = UDim2.new(0, 32, 1, 0)
+miniCloseBtn.Position = UDim2.new(1, -32, 0, 0)
 miniCloseBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
 miniCloseBtn.BorderSizePixel = 0
 miniCloseBtn.Text = "✕"
 miniCloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniCloseBtn.Font = Enum.Font.GothamBold
-miniCloseBtn.TextSize = bigText(18)
+miniCloseBtn.TextSize = 18
 miniCloseBtn.Parent = miniBar
 miniCloseBtn.ZIndex = 10
 
@@ -2072,12 +2055,12 @@ end)
 -- ============================================================
 local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
 local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 0, s(34))
+posUpdate.Size = UDim2.new(1, 0, 0, 34)
 posUpdate.BackgroundTransparency = 1
 posUpdate.Text = "0.0, 0.0, 0.0"
 posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
 posUpdate.Font = Enum.Font.GothamBold
-posUpdate.TextSize = bigText(18)
+posUpdate.TextSize = 18
 posUpdate.TextXAlignment = Enum.TextXAlignment.Center
 posUpdate.Parent = posContainer
 
@@ -2103,8 +2086,8 @@ shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(32))
-shopGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
+shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, 32)
+shopGridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
 shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 local shopButtons = {
@@ -2124,7 +2107,7 @@ for _, data in ipairs(shopButtons) do
     btn.Text = data.text
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(12)
+    btn.TextSize = 12
     btn.Parent = shopGrid
     btn.Activated:Connect(function()
         teleportToPosition(data.pos + Vector3.new(0,5,0))
@@ -2175,7 +2158,7 @@ local function collectGold()
     
     isAtGoldMine = true
     goldMineStartTime = tick()
-    status.Text = "Collecting gold for " .. CONFIG.CollectHoldTime .. "s..."
+    status.Text = "Collecting gold..."
     
     while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
         local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
@@ -2343,4 +2326,5 @@ makeDraggable(miniBar, miniBar)
 startFarm()
 
 print("✅ POLY LOOT loaded for Delta/Potassium!")
+print("✅ Walk Speed set to 40 for better attacking!")
 print("✅ GUI should be visible now!")
