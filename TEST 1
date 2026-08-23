@@ -1195,7 +1195,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (SPACED OUT)
+--  FARM TAB (ONLY GARGOYLE + BOSS FARMS - NO COMBAT CONTROLS)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1205,12 +1205,12 @@ status.Parent = farmScroller
 refreshInventory()
 
 -- Section 1: Gargoyle Farm
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 70)
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
 gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
 -- Section 2: Boss Farms
-local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 120)
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
 
 local bossFarmDefs = {
     {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1262,10 +1262,43 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Combat Controls
-local combatSection, combatContainer = createSection(farmScroller, "⚔️ Combat Controls", 85)
-local autoCollectToggle = addToggleRow(combatContainer, "Auto-Collect Gold", true)
-local autoLootToggle = addToggleRow(combatContainer, "Auto-Loot", false)
+-- Section 3: Auto Controls (Only two toggles - spaced properly)
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)
+
+local autoCollectToggle = addToggleRow(autoContainer, "Auto-Collect Gold", true)
+
+local autoLootToggle = Instance.new("Frame")
+autoLootToggle.Size = UDim2.new(1, 0, 0, s(34))
+autoLootToggle.BackgroundTransparency = 1
+autoLootToggle.Parent = autoContainer
+
+local autoLootLabel = Instance.new("TextLabel")
+autoLootLabel.Size = UDim2.new(0.5, 0, 1, 0)
+autoLootLabel.BackgroundTransparency = 1
+autoLootLabel.Text = "Auto-Loot: OFF"
+autoLootLabel.TextColor3 = Color3.fromRGB(200,200,220)
+autoLootLabel.Font = Enum.Font.Gotham
+autoLootLabel.TextSize = bigText(14)
+autoLootLabel.TextXAlignment = Enum.TextXAlignment.Left
+autoLootLabel.Parent = autoLootToggle
+
+local autoLootBtn = Instance.new("TextButton")
+autoLootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+autoLootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+autoLootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+autoLootBtn.BorderSizePixel = 0
+autoLootBtn.Text = "OFF"
+autoLootBtn.TextColor3 = Color3.fromRGB(255,255,255)
+autoLootBtn.Font = Enum.Font.GothamBold
+autoLootBtn.TextSize = bigText(14)
+autoLootBtn.Parent = autoLootToggle
+
+autoLootBtn.Activated:Connect(function()
+    CONFIG.AutoLoot = not CONFIG.AutoLoot
+    autoLootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
+    autoLootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    autoLootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
+end)
 
 -- ============================================================
 --  AUTO TAB (Sell, Upgrade, Dismantle)
@@ -1978,7 +2011,7 @@ end)
 RunService.Heartbeat:Connect(updateBossStatus)
 
 -- ============================================================
---  FARM LOOP (Runs automatically)
+--  FARM LOOP (Runs automatically - just attacks and collects)
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2130,22 +2163,6 @@ local function stopFarm()
     status.Text = "Status: Stopped"
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
-
-autoCollectToggle.button.Activated:Connect(function()
-    CONFIG.EnableCollect = not CONFIG.EnableCollect
-    autoCollectToggle.value = CONFIG.EnableCollect
-    autoCollectToggle.button.Text = CONFIG.EnableCollect and "ON" or "OFF"
-    autoCollectToggle.button.BackgroundColor3 = CONFIG.EnableCollect and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    autoCollectToggle.label.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
-end)
-
-autoLootToggle.button.Activated:Connect(function()
-    CONFIG.AutoLoot = not CONFIG.AutoLoot
-    autoLootToggle.value = CONFIG.AutoLoot
-    autoLootToggle.button.Text = CONFIG.AutoLoot and "ON" or "OFF"
-    autoLootToggle.button.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    autoLootToggle.label.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
-end)
 
 -- ===== LOOT FUNCTION =====
 local function getNearestLoot()
