@@ -57,7 +57,7 @@ local CONFIG = {
     CollectAmount = 1119,
     AntiAFKInterval = 45,
     EnableAttack = true,
-    EnableCollect = false,  -- Changed to OFF by default
+    EnableCollect = false,
     LootHoldSeconds = 5,
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
@@ -1211,10 +1211,11 @@ local function refreshInventory()
     if status then
         status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded"
     end
+    return inventoryCache
 end
 
 -- ============================================================
---  FARM TAB (SPACED PROPERLY)
+--  FARM TAB
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1281,10 +1282,10 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Auto Controls (SPACED PROPERLY - TWO SEPARATE ROWS)
+-- Section 3: Auto Controls (SPACED PROPERLY)
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 95)
 
--- Auto-Collect Gold - Row 1 (LOWERED)
+-- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
 collectRow.Size = UDim2.new(1, 0, 0, s(38))
 collectRow.BackgroundTransparency = 1
@@ -1318,7 +1319,7 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
--- Auto-Loot - Row 2 (Separate row, not overlapping)
+-- Auto-Loot
 local lootRow = Instance.new("Frame")
 lootRow.Size = UDim2.new(1, 0, 0, s(38))
 lootRow.Position = UDim2.new(0, 0, 0, s(40))
@@ -1354,22 +1355,10 @@ lootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
---  AUTO TAB (TWO COLUMN LAYOUT WITH BOXES)
+--  AUTO TAB (3 ROWS, 1 COLUMN WITH BOXES)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Upgrade", "Dismantle"}
-
--- Create a two-column grid container
-local autoGrid = Instance.new("Frame")
-autoGrid.Size = UDim2.new(1, 0, 1, 0)
-autoGrid.BackgroundTransparency = 1
-autoGrid.Parent = autoScroller
-
-local autoGridLayout = Instance.new("UIGridLayout")
-autoGridLayout.Parent = autoGrid
-autoGridLayout.CellSize = UDim2.new(0.48, 0, 0, s(175))
-autoGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
-autoGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 -- Refresh button at top
 local refreshBtn = Instance.new("TextButton")
@@ -1382,43 +1371,52 @@ refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
 refreshBtn.Font = Enum.Font.GothamBold
 refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
-refreshBtn.Activated:Connect(refreshInventory)
+refreshBtn.Activated:Connect(function()
+    refreshInventory()
+    status.Text = "Inventory refreshed!"
+end)
 
--- Create a cell for each action
+-- Spacer after refresh button
+local topSpacer = Instance.new("Frame")
+topSpacer.Size = UDim2.new(1, 0, 0, s(8))
+topSpacer.BackgroundTransparency = 1
+topSpacer.Parent = autoScroller
+
+-- Create each action as a separate box (3 rows, 1 column)
 for idx, action in ipairs(autoActions) do
     local currentAction = action
     
-    -- Each action gets its own cell in the grid WITH A BOX
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
-    cell.BackgroundTransparency = 0.3
-    cell.BorderSizePixel = 1
-    cell.BorderColor3 = Color3.fromRGB(60, 80, 120)
-    cell.Parent = autoGrid
+    -- Box container
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(1, -s(10), 0, s(175))
+    box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
+    box.BackgroundTransparency = 0.3
+    box.BorderSizePixel = 1
+    box.BorderColor3 = Color3.fromRGB(60, 80, 120)
+    box.Parent = autoScroller
     
     -- Header
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, s(24))
-    header.Position = UDim2.new(0, s(4), 0, s(2))
+    header.Size = UDim2.new(1, -s(8), 0, s(24))
+    header.Position = UDim2.new(0, s(4), 0, s(4))
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. currentAction .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
     header.TextSize = bigText(15)
     header.TextXAlignment = Enum.TextXAlignment.Left
-    header.Parent = cell
+    header.Parent = box
     
     -- Checkbox container
     local checkboxContainer = Instance.new("Frame")
     checkboxContainer.Size = UDim2.new(1, -s(8), 0, s(85))
-    checkboxContainer.Position = UDim2.new(0, s(4), 0, s(28))
+    checkboxContainer.Position = UDim2.new(0, s(4), 0, s(32))
     checkboxContainer.BackgroundTransparency = 1
-    checkboxContainer.Parent = cell
+    checkboxContainer.Parent = box
     
     local grid = Instance.new("UIGridLayout")
     grid.Parent = checkboxContainer
-    grid.CellSize = UDim2.new(0, s(70), 0, s(30))
+    grid.CellSize = UDim2.new(0, s(70), 0, s(28))
     grid.CellPadding = UDim2.new(0, s(4), 0, s(2))
     grid.HorizontalAlignment = Enum.HorizontalAlignment.Left
     grid.VerticalAlignment = Enum.VerticalAlignment.Top
@@ -1433,13 +1431,13 @@ for idx, action in ipairs(autoActions) do
     
     for _, rarity in ipairs(RARITY_LIST) do
         local cbContainer = Instance.new("Frame")
-        cbContainer.Size = UDim2.new(0, s(70), 0, s(30))
+        cbContainer.Size = UDim2.new(0, s(70), 0, s(28))
         cbContainer.BackgroundTransparency = 1
         cbContainer.Parent = checkboxContainer
         
         local checkBtn = Instance.new("TextButton")
         checkBtn.Size = UDim2.new(0, s(22), 0, s(22))
-        checkBtn.Position = UDim2.new(0, 0, 0, s(4))
+        checkBtn.Position = UDim2.new(0, 0, 0, s(3))
         checkBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
         checkBtn.BorderSizePixel = 1
         checkBtn.BorderColor3 = Color3.fromRGB(100,100,150)
@@ -1512,9 +1510,9 @@ for idx, action in ipairs(autoActions) do
     -- Toggle row
     local toggleRow = Instance.new("Frame")
     toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
-    toggleRow.Position = UDim2.new(0, s(4), 0, s(115))
+    toggleRow.Position = UDim2.new(0, s(4), 0, s(120))
     toggleRow.BackgroundTransparency = 1
-    toggleRow.Parent = cell
+    toggleRow.Parent = box
     
     local toggleLabel = Instance.new("TextLabel")
     toggleLabel.Size = UDim2.new(0.5, 0, 1, 0)
@@ -1568,6 +1566,14 @@ for idx, action in ipairs(autoActions) do
             return selected
         end,
     }
+    
+    -- Spacer between boxes
+    if idx < #autoActions then
+        local spacer = Instance.new("Frame")
+        spacer.Size = UDim2.new(1, 0, 0, s(8))
+        spacer.BackgroundTransparency = 1
+        spacer.Parent = autoScroller
+    end
 end
 
 -- ============================================================
@@ -2170,11 +2176,11 @@ local function performRarityAction(action, rarityList)
     local skipped = 0
     local totalItems = 0
     
-    -- If no rarities selected or empty, process all items
+    -- If no rarities selected, process all items
     if not rarityList or #rarityList == 0 then
         for serial, item in pairs(inventoryCache) do
             totalItems = totalItems + 1
-            local success, err = pcall(function()
+            local success = pcall(function()
                 if action == "Sell" and sellRequest then
                     sellRequest:FireServer({[serial] = 1})
                     processed = processed + 1
@@ -2194,7 +2200,7 @@ local function performRarityAction(action, rarityList)
         if processed > 0 then
             status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
         elseif skipped > 0 then
-            status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items (favorited/unavailable)"
+            status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items"
         end
         return
     end
@@ -2221,7 +2227,7 @@ local function performRarityAction(action, rarityList)
         end
         
         if shouldProcess then
-            local success, err = pcall(function()
+            local success = pcall(function()
                 if action == "Sell" and sellRequest then
                     sellRequest:FireServer({[serial] = 1})
                     processed = processed + 1
