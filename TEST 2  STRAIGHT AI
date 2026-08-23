@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (FULLY WORKING) ]]
+--[[ POLY LOOT – ULTIMATE (SAFE MODE) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +31,7 @@ local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Se
 
 -- ===== CONFIG =====
 local CONFIG = {
-    AttackDelay = 0.3,
+    AttackDelay = 0.8,            -- increased to avoid rate‑limiting
     DelayVariation = 0.1,
     CollectInterval = 30,
     CollectAmount = 1119,
@@ -39,13 +39,13 @@ local CONFIG = {
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 5,          -- Hold E for 5 seconds (configurable)
+    LootHoldSeconds = 5,
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
-    CollectUseTeleport = false,   -- false = walk, true = teleport
-    BatchMode = false,            -- true = no wait between sell/dismantle/upgrade
+    CollectUseTeleport = false,
+    BatchMode = false,
 }
 
 -- ===== COORDINATES =====
@@ -517,7 +517,7 @@ local function performClick()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (NO PLATFORMSTAND)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -661,13 +661,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             bossFarms[key].timerConnection = nil
         end
         bossFarms[key].currentTarget = nil
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.PlatformStand = false
-            end
-        end
+        -- REMOVED: no PlatformStand reset needed
         status.Text = bossDisplayName .. " farm stopped"
         if btn then
             btn.Text = bossDisplayName .. " Farm (OFF)"
@@ -831,10 +825,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
                 if playerRoot then
                     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
                     
-                    local hum = char:FindFirstChild("Humanoid")
-                    if hum then
-                        hum.PlatformStand = true
-                    end
+                    -- No PlatformStand – player can still attack
                     
                     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
                     
@@ -1042,10 +1033,11 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
---  PICKUP/LOOT FUNCTIONS (HOLD E FOR CONFIGURABLE SECONDS)
+--  PICKUP/LOOT FUNCTIONS (NO SIMULATED KEY, ONLY REMOTES)
 -- ============================================================
 
 local function holdKey(keyCode, duration)
+    -- Not used in auto-loot anymore; kept for other potential uses
     if VirtualInputManager then
         pcall(function()
             VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
@@ -1073,7 +1065,7 @@ local function holdKey(keyCode, duration)
 end
 
 -- ============================================================
---  INSTANT LOOT (UPDATED: ONLY ONE E HOLD, NO TWEEN BACK)
+--  INSTANT LOOT – remote only, no E hold
 -- ============================================================
 local function getNearestLoot()
     local char = player.Character
@@ -1083,7 +1075,6 @@ local function getNearestLoot()
     local pos = root.Position
     local nearest, nearestDist = nil, 50
     
-    -- Check Drops folder
     local dropsFolder = Workspace:FindFirstChild("Drops")
     if dropsFolder then
         for _, obj in ipairs(dropsFolder:GetDescendants()) do
@@ -1107,7 +1098,6 @@ local function getNearestLoot()
         end
     end
     
-    -- Check Animal_ServerDrops
     local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
     if serverDrops then
         for _, obj in ipairs(serverDrops:GetDescendants()) do
@@ -1126,7 +1116,6 @@ local function getNearestLoot()
         end
     end
     
-    -- Check workspace directly
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = string.lower(obj.Name)
@@ -1171,11 +1160,11 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Looting item... (holding E for " .. CONFIG.LootHoldSeconds .. "s)"
+    status.Text = "Looting item..."
     
     -- Tween to item
     tweenToPosition(targetPos, 0.3)
-    task.wait(0.3) -- ensure tween finishes
+    task.wait(0.3)
     
     -- Verify item still exists
     local stillExists = false
@@ -1189,10 +1178,7 @@ local function instantLoot()
         return
     end
     
-    -- Hold E for configured duration (this is the only E press)
-    holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
-    
-    -- Also try remote pickup (without holding E again)
+    -- ONLY remote events – no key press
     pcall(function()
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
         if pickupRemote and pickupRemote:IsA("RemoteEvent") then
@@ -1226,11 +1212,11 @@ local function instantLoot()
     end)
     
     status.Text = "Item pickup attempted, moving to next..."
-    -- Do NOT tween back; stay in position for next loot
+    -- Do NOT tween back
 end
 
 -- ============================================================
---  GARGOYLE FARM
+--  GARGOYLE FARM (NO PLATFORMSTAND)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1285,10 +1271,7 @@ local function lockAboveGargoyle(targetMob)
         gargoyleBodyPosition = nil
     end
     
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-        hum.PlatformStand = true
-    end
+    -- No PlatformStand – player can attack
     
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
@@ -1323,13 +1306,7 @@ function toggleGargoyleFarm()
             gargoyleBodyPosition = nil
         end
         currentGargoyleTarget = nil
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.PlatformStand = false
-            end
-        end
+        -- No PlatformStand to reset
         status.Text = "Gargoyle farm stopped"
         if gargoyleBtn then
             gargoyleBtn.Text = "Gargoyle Farm (OFF)"
@@ -1477,7 +1454,7 @@ for _, def in ipairs(bossFarmDefs) do
 end
 
 -- Section 3: Auto Controls
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150) -- increased height for new toggles
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
 
 -- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
@@ -1861,13 +1838,7 @@ local function closeGUI()
         end
     end
     
-    local char = player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-        end
-    end
+    -- No PlatformStand to reset
     pcall(function() screenGui:Destroy() end)
 end
 
@@ -1984,17 +1955,14 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ============================================================
---  FLY LOGIC
+--  FLY LOGIC (NO PLATFORMSTAND)
 -- ============================================================
 local flyConnection = nil
 
 local function enableFly()
     local char = player.Character
     if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = true
-        end
+        -- No PlatformStand – player can attack
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
             local bv = root:FindFirstChild("FlyVelocity")
@@ -2066,10 +2034,6 @@ end
 local function disableFly()
     local char = player.Character
     if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-        end
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
             local bv = root:FindFirstChild("FlyVelocity")
@@ -2292,9 +2256,6 @@ local function doAntiAFK()
     end
 end
 
--- ============================================================
---  COLLECT GOLD (UPDATED WITH WALK/STAY)
--- ============================================================
 local function collectGold()
     local char = player.Character
     if not char then return end
@@ -2342,7 +2303,6 @@ local function collectGold()
     isAtGoldMine = false
     status.Text = "Gold collection complete (" .. collectCount .. " total)"
     
-    -- Only teleport back if we used teleport to go there
     if CONFIG.CollectUseTeleport then
         status.Text = "Teleporting back..."
         teleportToPosition(originalPos)
@@ -2351,9 +2311,6 @@ local function collectGold()
     end
 end
 
--- ============================================================
---  PERFORM ACTION (UPDATED: SKIPS FAILURES, BATCH MODE)
--- ============================================================
 local function performAction(action)
     if not inventoryCache or next(inventoryCache) == nil then
         status.Text = "Inventory empty – press Refresh Inventory"
@@ -2379,7 +2336,7 @@ local function performAction(action)
             failed = failed + 1
         end
         if not CONFIG.BatchMode then
-            task.wait(0.02)
+            task.wait(0.05) -- slight delay to avoid flooding
         end
     end
     
@@ -2390,9 +2347,6 @@ local function performAction(action)
     end
 end
 
--- ============================================================
---  START/STOP FARM
--- ============================================================
 local function startFarm()
     if running then return end
     running = true
@@ -2461,16 +2415,7 @@ player.CharacterAdded:Connect(function(char)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.WalkSpeed = cheats.speed
-        if cheats.fly then
-            hum.PlatformStand = true
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                local bv = Instance.new("BodyVelocity")
-                bv.Name = "FlyVelocity"
-                bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                bv.Parent = root
-            end
-        end
+        -- No PlatformStand for fly – handled by enableFly/disableFly
     end
 end)
 
@@ -2508,4 +2453,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – ULTIMATE script loaded!")
+print("✅ POLY LOOT – SAFE MODE loaded!")
