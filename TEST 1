@@ -419,16 +419,69 @@ switchTab("farm")
 -- ============================================================
 --  HELPERS
 -- ============================================================
-local function addControl(parent, height)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, -s(10), 0, s(height))
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    return frame
+local function createSection(parent, title, height)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, -s(10), 0, s(height))
+    section.BackgroundTransparency = 1
+    section.Parent = parent
+    
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1, 0, 0, 22)
+    header.BackgroundTransparency = 1
+    header.Text = title
+    header.TextColor3 = Color3.fromRGB(255, 200, 100)
+    header.Font = Enum.Font.GothamBold
+    header.TextSize = bigText(15)
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Parent = section
+    
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 1, -s(22))
+    container.Position = UDim2.new(0, 0, 0, s(22))
+    container.BackgroundTransparency = 1
+    container.Parent = section
+    
+    return section, container
+end
+
+local function addButton(parent, text, color, callback, height)
+    height = height or s(32)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.8, 0, 0, height)
+    btn.Position = UDim2.new(0.1, 0, 0, 0)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = bigText(14)
+    btn.Parent = parent
+    if callback then
+        btn.Activated:Connect(callback)
+    end
+    return btn
+end
+
+local function addStatusLabel(parent, text, yPos)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.8, 0, 0, s(24))
+    lbl.Position = UDim2.new(0.1, 0, yPos, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(200,200,200)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = bigText(13)
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.Parent = parent
+    return lbl
 end
 
 local function addToggleRow(parent, labelText, initial)
-    local row = addControl(parent, 32)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, s(32))
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+    
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.BackgroundTransparency = 1
@@ -450,11 +503,15 @@ local function addToggleRow(parent, labelText, initial)
     btn.TextSize = bigText(14)
     btn.Parent = row
     
-    return {label = lbl, button = btn, value = initial}
+    return {label = lbl, button = btn, value = initial, row = row}
 end
 
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
-    local row = addControl(parent, 48)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, s(48))
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+    
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(0.5, 0, 0, s(20))
     lbl.BackgroundTransparency = 1
@@ -582,7 +639,7 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN
+--  GARGOYLE FARM
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -714,7 +771,8 @@ function toggleGargoyleFarm()
     if gargoyleStatusLabel then
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end    status.Text = "Gargoyle farming started"
+    end
+    status.Text = "Gargoyle farming started"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -760,7 +818,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (FIXED TIMER)
+--  BOSS FARM WITH TIMER
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -803,10 +861,10 @@ local function isBossAlive(timerLabel)
     end
     local num = tonumber(text:match("(%d+)"))
     if num then
-        return false -- Has a timer, so dead
+        return false
     end
     if text == "" then
-        return true -- Assume alive if no text
+        return true
     end
     return false
 end
@@ -993,7 +1051,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local respawnTime = getBossRespawnTime(timerLabel)
             local formattedTime = formatRespawnTime(respawnTime)
             
-            -- Update status label - show ALIVE or full timer (ALWAYS visible)
             if statusLabel then
                 if isAlive then
                     statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
@@ -1133,7 +1190,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (NO START BUTTON, NO COLLECT GOLD, NO LOOT NOW)
+--  FARM TAB (CLEAN LAYOUT WITH SECTIONS)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1142,72 +1199,13 @@ status.Parent = farmScroller
 
 refreshInventory()
 
--- GARGOYLE FARM SECTION
-local gargoyleSection = Instance.new("Frame")
-gargoyleSection.Size = UDim2.new(1, 0, 0, s(65))
-gargoyleSection.BackgroundTransparency = 1
-gargoyleSection.Parent = farmScroller
+-- Section 1: Gargoyle Farm
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 65)
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
+gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.65)
 
-local gargoyleHeader = Instance.new("TextLabel")
-gargoyleHeader.Size = UDim2.new(1, 0, 0, 22)
-gargoyleHeader.BackgroundTransparency = 1
-gargoyleHeader.Text = "🧛 Gargoyle Farm"
-gargoyleHeader.TextColor3 = Color3.fromRGB(255, 150, 200)
-gargoyleHeader.Font = Enum.Font.GothamBold
-gargoyleHeader.TextSize = bigText(15)
-gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
-gargoyleHeader.Parent = gargoyleSection
-
-gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.5, 0, 0.4, 0)
-gargoyleBtn.Position = UDim2.new(0.25, 0, 0.1, 0)
-gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-gargoyleBtn.BorderSizePixel = 0
-gargoyleBtn.Text = "Gargoyle Farm (OFF)"
-gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(13)
-gargoyleBtn.Parent = gargoyleSection
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
-
-gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
-gargoyleStatusLabel.BackgroundTransparency = 1
-gargoyleStatusLabel.Text = "Gargoyle: OFF"
-gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-gargoyleStatusLabel.Font = Enum.Font.Gotham
-gargoyleStatusLabel.TextSize = bigText(13)
-gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-gargoyleStatusLabel.Parent = gargoyleSection
-
--- BOSS FARMS SECTION
-local bossFarmSection = Instance.new("Frame")
-bossFarmSection.Size = UDim2.new(1, 0, 0, s(115))
-bossFarmSection.BackgroundTransparency = 1
-bossFarmSection.Parent = farmScroller
-
-local bossFarmHeader = Instance.new("TextLabel")
-bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
-bossFarmHeader.BackgroundTransparency = 1
-bossFarmHeader.Text = "🎯 Boss Farms (Timer + Auto Follow)"
-bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-bossFarmHeader.Font = Enum.Font.GothamBold
-bossFarmHeader.TextSize = bigText(15)
-bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
-bossFarmHeader.Parent = bossFarmSection
-
-local bossFarmGrid = Instance.new("Frame")
-bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
-bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
-bossFarmGrid.BackgroundTransparency = 1
-bossFarmGrid.Parent = bossFarmSection
-
-local bossFarmGridLayout = Instance.new("UIGridLayout")
-bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(50))
-bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+-- Section 2: Boss Farms
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 115)
 
 local bossFarmDefs = {
     {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1216,12 +1214,18 @@ local bossFarmDefs = {
 
 for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
+    cell.Size = UDim2.new(0.45, 0, 0, s(50))
     cell.BackgroundTransparency = 1
-    cell.Parent = bossFarmGrid
+    cell.Parent = bossContainer
+    
+    local gridLayout = Instance.new("UIGridLayout")
+    gridLayout.Parent = bossContainer
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(50))
+    gridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+    gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0.45, 0)
+    btn.Size = UDim2.new(1, 0, 0.5, 0)
     btn.Position = UDim2.new(0, 0, 0, 0)
     btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
@@ -1253,24 +1257,10 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Combat Controls (ONLY Auto-Collect Gold + Auto-Loot)
-local combatSection = Instance.new("Frame")
-combatSection.Size = UDim2.new(1, 0, 0, s(80))
-combatSection.BackgroundTransparency = 1
-combatSection.Parent = farmScroller
-
-local combatHeader = Instance.new("TextLabel")
-combatHeader.Size = UDim2.new(1, 0, 0, 22)
-combatHeader.BackgroundTransparency = 1
-combatHeader.Text = "⚔️ Combat Controls"
-combatHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-combatHeader.Font = Enum.Font.GothamBold
-combatHeader.TextSize = bigText(15)
-combatHeader.TextXAlignment = Enum.TextXAlignment.Left
-combatHeader.Parent = combatSection
-
-local autoCollectToggle = addToggleRow(combatSection, "Auto-Collect Gold", true)
-local autoLootToggle = addToggleRow(combatSection, "Auto-Loot", false)
+-- Section 3: Combat Controls
+local combatSection, combatContainer = createSection(farmScroller, "⚔️ Combat Controls", 80)
+local autoCollectToggle = addToggleRow(combatContainer, "Auto-Collect Gold", true)
+local autoLootToggle = addToggleRow(combatContainer, "Auto-Loot", false)
 
 -- ============================================================
 --  AUTO TAB (Sell, Upgrade, Dismantle)
@@ -1829,27 +1819,20 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
---  TELEPORT TAB (Locations only - Clean & Spaced)
+--  TELEPORT TAB (CLEAN LAYOUT WITH SECTIONS)
 -- ============================================================
-local teleportLabel = Instance.new("TextLabel")
-teleportLabel.Size = UDim2.new(1, 0, 0, 24)
-teleportLabel.BackgroundTransparency = 1
-teleportLabel.Text = "📍 Teleport to Location:"
-teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
-teleportLabel.Font = Enum.Font.Gotham
-teleportLabel.TextSize = bigText(15)
-teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
-teleportLabel.Parent = teleportScroller
 
+-- Section 1: Current Position
+local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
 local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 0, 34)
+posUpdate.Size = UDim2.new(1, 0, 0, s(34))
 posUpdate.BackgroundTransparency = 1
-posUpdate.Text = "Current Pos: 0.0, 0.0, 0.0"
+posUpdate.Text = "0.0, 0.0, 0.0"
 posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
 posUpdate.Font = Enum.Font.GothamBold
 posUpdate.TextSize = bigText(18)
-posUpdate.TextXAlignment = Enum.TextXAlignment.Left
-posUpdate.Parent = teleportScroller
+posUpdate.TextXAlignment = Enum.TextXAlignment.Center
+posUpdate.Parent = posContainer
 
 local function updatePos()
     local char = player.Character
@@ -1857,7 +1840,7 @@ local function updatePos()
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
             local p = root.Position
-            posUpdate.Text = string.format("Current Pos: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
+            posUpdate.Text = string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z)
         end
     end
 end
@@ -1865,52 +1848,13 @@ end
 RunService.Heartbeat:Connect(updatePos)
 player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
 
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.4, 0, 0, s(32))
-copyBtn.Position = UDim2.new(0.3, 0, 0, 0)
-copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
-copyBtn.BorderSizePixel = 0
-copyBtn.Text = "📋 Copy to Custom"
-copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = bigText(14)
-copyBtn.Parent = teleportScroller
-
-copyBtn.Activated:Connect(function()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            coordX.Text = string.format("%.1f", p.X)
-            coordY.Text = string.format("%.1f", p.Y)
-            coordZ.Text = string.format("%.1f", p.Z)
-            status.Text = "Coordinates copied to Custom"
-        end
-    end
-end)
-
--- Shops & Locations (Instant TP)
-local shopSection = Instance.new("Frame")
-shopSection.Size = UDim2.new(1, 0, 0, s(100))
-shopSection.BackgroundTransparency = 1
-shopSection.Parent = teleportScroller
-
-local shopHeader = Instance.new("TextLabel")
-shopHeader.Size = UDim2.new(1, 0, 0, 22)
-shopHeader.BackgroundTransparency = 1
-shopHeader.Text = "🏪 Shops & Locations"
-shopHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-shopHeader.Font = Enum.Font.GothamBold
-shopHeader.TextSize = bigText(15)
-shopHeader.TextXAlignment = Enum.TextXAlignment.Left
-shopHeader.Parent = shopSection
+-- Section 2: Shops & Locations
+local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 110)
 
 local shopGrid = Instance.new("Frame")
-shopGrid.Size = UDim2.new(1, 0, 1, -s(22))
-shopGrid.Position = UDim2.new(0, 0, 0, s(22))
+shopGrid.Size = UDim2.new(1, 0, 1, 0)
 shopGrid.BackgroundTransparency = 1
-shopGrid.Parent = shopSection
+shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
@@ -1942,21 +1886,17 @@ for _, data in ipairs(shopButtons) do
     end)
 end
 
--- Custom coords (Tween)
-local coordRow = addControl(teleportScroller, 50)
-local coordLabel = Instance.new("TextLabel")
-coordLabel.Size = UDim2.new(0.2, 0, 1, 0)
-coordLabel.BackgroundTransparency = 1
-coordLabel.Text = "Custom XYZ:"
-coordLabel.TextColor3 = Color3.fromRGB(200,200,220)
-coordLabel.Font = Enum.Font.Gotham
-coordLabel.TextSize = bigText(14)
-coordLabel.TextXAlignment = Enum.TextXAlignment.Right
-coordLabel.Parent = coordRow
+-- Section 3: Custom Teleport
+local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 100)
+
+local coordRow = Instance.new("Frame")
+coordRow.Size = UDim2.new(1, 0, 0, s(36))
+coordRow.BackgroundTransparency = 1
+coordRow.Parent = customContainer
 
 local coordX = Instance.new("TextBox")
-coordX.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordX.Position = UDim2.new(0.22, 0, 0, s(2))
+coordX.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordX.Position = UDim2.new(0.02, 0, 0, s(2))
 coordX.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordX.BorderSizePixel = 0
 coordX.Text = "0"
@@ -1966,8 +1906,8 @@ coordX.TextSize = bigText(14)
 coordX.Parent = coordRow
 
 local coordY = Instance.new("TextBox")
-coordY.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordY.Position = UDim2.new(0.38, 0, 0, s(2))
+coordY.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordY.Position = UDim2.new(0.36, 0, 0, s(2))
 coordY.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordY.BorderSizePixel = 0
 coordY.Text = "0"
@@ -1977,8 +1917,8 @@ coordY.TextSize = bigText(14)
 coordY.Parent = coordRow
 
 local coordZ = Instance.new("TextBox")
-coordZ.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordZ.Position = UDim2.new(0.54, 0, 0, s(2))
+coordZ.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordZ.Position = UDim2.new(0.70, 0, 0, s(2))
 coordZ.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordZ.BorderSizePixel = 0
 coordZ.Text = "0"
@@ -1987,16 +1927,41 @@ coordZ.Font = Enum.Font.Gotham
 coordZ.TextSize = bigText(14)
 coordZ.Parent = coordRow
 
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(0.3, 0, 0, s(28))
+copyBtn.Position = UDim2.new(0.35, 0, 0.55, 0)
+copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
+copyBtn.BorderSizePixel = 0
+copyBtn.Text = "📋 Copy Pos"
+copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
+copyBtn.Font = Enum.Font.GothamBold
+copyBtn.TextSize = bigText(13)
+copyBtn.Parent = customContainer
+
+copyBtn.Activated:Connect(function()
+    local char = player.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local p = root.Position
+            coordX.Text = string.format("%.1f", p.X)
+            coordY.Text = string.format("%.1f", p.Y)
+            coordZ.Text = string.format("%.1f", p.Z)
+            status.Text = "Coordinates copied"
+        end
+    end
+end)
+
 local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0.4, 0, 0, s(36))
-teleportBtn.Position = UDim2.new(0.3, 0, 0, 0)
+teleportBtn.Size = UDim2.new(0.3, 0, 0, s(28))
+teleportBtn.Position = UDim2.new(0.35, 0, 0.8, 0)
 teleportBtn.BackgroundColor3 = Color3.fromRGB(60,120,200)
 teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "🚀 Tween Teleport"
+teleportBtn.Text = "🚀 Teleport"
 teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
 teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = bigText(15)
-teleportBtn.Parent = teleportScroller
+teleportBtn.TextSize = bigText(13)
+teleportBtn.Parent = customContainer
 
 teleportBtn.Activated:Connect(function()
     local x = tonumber(coordX.Text) or 0
@@ -2133,7 +2098,6 @@ local function startFarm()
             end
             
             if CONFIG.AutoLoot then
-                -- Auto loot - check for loot nearby and pick it up
                 local lootItem, lootDist = getNearestLoot()
                 if lootItem and lootDist < 30 then
                     instantLoot()
