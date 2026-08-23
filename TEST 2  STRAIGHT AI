@@ -1,4 +1,4 @@
---[[ POLY LOOT – COMPLETE WITH IMPROVED INVENTORY SYSTEM ]] 
+--[[ POLY LOOT – DELTA/POTASSIUM COMPATIBLE ]] 
 
 -- ============================================================
 -- SERVICES
@@ -14,38 +14,59 @@ local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ============================================================
--- FIND GUI PARENT - FIXED
+-- FIND GUI PARENT - DELTA/POTASSIUM FIX
 -- ============================================================
 local guiParent = nil
 
--- Try PlayerGui first
-if player and player:FindFirstChild("PlayerGui") then
-    guiParent = player.PlayerGui
-end
-
--- If not found, try gethui (for exploit environments)
-if not guiParent and gethui then
-    pcall(function()
+-- Try gethui first (works for Delta, Potassium, etc.)
+pcall(function()
+    if gethui then
         guiParent = gethui()
+    end
+end)
+
+-- If gethui failed, try PlayerGui
+if not guiParent then
+    pcall(function()
+        if player and player:FindFirstChild("PlayerGui") then
+            guiParent = player.PlayerGui
+        end
     end)
 end
 
--- If still not found, use CoreGui
+-- If both failed, use CoreGui
 if not guiParent then
-    guiParent = game:GetService("CoreGui")
+    pcall(function()
+        guiParent = game:GetService("CoreGui")
+    end)
 end
 
--- Create ScreenGui
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = guiParent
+-- ABSOLUTE FALLBACK - create our own
+if not guiParent then
+    guiParent = Instance.new("ScreenGui")
+    pcall(function()
+        guiParent.Parent = game:GetService("CoreGui")
+    end)
+end
+
+-- ============================================================
+-- WAIT FOR CHARACTER
+-- ============================================================
+local function waitForCharacter()
+    local char = player.Character
+    if not char or not char.Parent then
+        player.CharacterAdded:Wait()
+        task.wait(0.5)
+    end
+    return player.Character
+end
+
+waitForCharacter()
 
 -- ============================================================
 -- ITEM DATABASE
 -- ============================================================
 local ITEM_DB = {
-    -- COMMON
     ["Basic Sword"] = { rarity = "Common" },
     ["Leather Helmet"] = { rarity = "Common" },
     ["Basic Dagger"] = { rarity = "Common" },
@@ -62,7 +83,6 @@ local ITEM_DB = {
     ["Primal Axe"] = { rarity = "Common" },
     ["Leather ChestPlate"] = { rarity = "Common" },
     ["Cobweb"] = { rarity = "Common" },
-    -- RARE
     ["Iron Helmet"] = { rarity = "Rare" },
     ["Gold Helmet"] = { rarity = "Rare" },
     ["Iron Boots"] = { rarity = "Rare" },
@@ -76,14 +96,12 @@ local ITEM_DB = {
     ["Rune Sword"] = { rarity = "Rare" },
     ["Gold ChestPlate"] = { rarity = "Rare" },
     ["Blue Elemental"] = { rarity = "Rare" },
-    -- EPIC
     ["Rune Helmet"] = { rarity = "Epic" },
     ["Rune Boots"] = { rarity = "Epic" },
     ["Rune Leggings"] = { rarity = "Epic" },
     ["Rune Greatsword"] = { rarity = "Epic" },
     ["Rune ChestPlate"] = { rarity = "Epic" },
     ["Phantom Katana"] = { rarity = "Epic" },
-    -- LEGENDARY
     ["Spider Helmet"] = { rarity = "Legendary" },
     ["Spider Boots"] = { rarity = "Legendary" },
     ["Spider Leggings"] = { rarity = "Legendary" },
@@ -92,10 +110,8 @@ local ITEM_DB = {
     ["Amethyst Sword"] = { rarity = "Legendary" },
     ["Spider Dagger"] = { rarity = "Legendary" },
     ["Bone Sword"] = { rarity = "Legendary" },
-    -- MYTHIC
     ["Chicken Crown"] = { rarity = "Mythic" },
     ["Coffin Blade"] = { rarity = "Mythic" },
-    -- SECRET
     ["Galaxy Axe"] = { rarity = "Secret" },
     ["Galaxy Hammer"] = { rarity = "Secret" },
     ["Nether Boots"] = { rarity = "Secret" },
@@ -108,13 +124,9 @@ local ITEM_DB = {
     ["Nether Greatsword"] = { rarity = "Secret" },
     ["Hacker Scythe"] = { rarity = "Secret" },
     ["Rouxx Greatsword"] = { rarity = "Secret" },
-    -- UNKNOWN
     ["Nether Scythe"] = { rarity = "Unknown" },
 }
 
--- ============================================================
--- FAVORITE ITEMS
--- ============================================================
 local FAVORITE_ITEMS = {
     ["Basic Sword"] = true,
     ["Red Elemental"] = true,
@@ -178,13 +190,10 @@ local function refreshInventory()
     
     for itemName, data in pairs(ITEM_DB) do
         if not isFavorite(itemName) then
-            local withoutSpace = removeSpaces(itemName)
             local normalized = normalizeItemName(itemName)
             
             inventoryCache[normalized] = {
                 name = itemName,
-                withSpace = itemName,
-                withoutSpace = withoutSpace,
                 normalized = normalized,
                 rarity = data.rarity
             }
@@ -192,20 +201,10 @@ local function refreshInventory()
         end
     end
     
-    print("[Inventory] Ready:", count, "items loaded. Favorites skipped.")
     return inventoryCache
 end
 
-local function findItem(itemName)
-    if not itemName then return nil end
-    local normalizedName = normalizeItemName(itemName)
-    return inventoryCache[normalizedName]
-end
-
-local function getItemRarity(itemName)
-    local item = findItem(itemName)
-    return item and item.rarity or nil
-end
+refreshInventory()
 
 -- ============================================================
 -- REMOTE FUNCTIONS
@@ -233,22 +232,12 @@ local function sendRemote(remote, ...)
     return success and result == true
 end
 
--- ============================================================
--- SELL/DISMANTLE/UPGRADE FUNCTIONS
--- ============================================================
 local function sellItem(item)
-    if not item then return false end
-    if isFavorite(item) then
-        print("[Sell] Skipped favorite:", getItemName(item))
-        return false
-    end
+    if not item or isFavorite(item) then return false end
     
     local sellRemote = findRemote("Sell")
-    if sellRemote then
-        if sendRemote(sellRemote, item) then
-            print("[Sell] Sent:", getItemName(item))
-            return true
-        end
+    if sellRemote and sendRemote(sellRemote, item) then
+        return true
     end
     
     local inventoryEngine = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
@@ -256,7 +245,6 @@ local function sellItem(item)
         local sell = inventoryEngine:FindFirstChild("Sell", true)
         if sell and (sell:IsA("RemoteEvent") or sell:IsA("RemoteFunction")) then
             if sendRemote(sell, item) then
-                print("[Sell] Sent through Inventory_Engine:", getItemName(item))
                 return true
             end
         end
@@ -266,18 +254,11 @@ local function sellItem(item)
 end
 
 local function dismantleItem(item)
-    if not item then return false end
-    if isFavorite(item) then
-        print("[Dismantle] Skipped favorite:", getItemName(item))
-        return false
-    end
+    if not item or isFavorite(item) then return false end
     
     local dismantleRemote = findRemote("DismantleRequest")
-    if dismantleRemote then
-        if sendRemote(dismantleRemote, item) then
-            print("[Dismantle] Sent:", getItemName(item))
-            return true
-        end
+    if dismantleRemote and sendRemote(dismantleRemote, item) then
+        return true
     end
     
     local craftingEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
@@ -285,7 +266,6 @@ local function dismantleItem(item)
         local dismantle = craftingEngine:FindFirstChild("DismantleRequest", true)
         if dismantle and (dismantle:IsA("RemoteEvent") or dismantle:IsA("RemoteFunction")) then
             if sendRemote(dismantle, item) then
-                print("[Dismantle] Sent through Crafting_Engine:", getItemName(item))
                 return true
             end
         end
@@ -295,20 +275,13 @@ local function dismantleItem(item)
 end
 
 local function upgradeItem(item, stat)
-    if not item then return false end
-    if isFavorite(item) then
-        print("[Upgrade] Skipped favorite:", getItemName(item))
-        return false
-    end
+    if not item or isFavorite(item) then return false end
     
     stat = stat or "Damage"
     
     local upgradeRemote = findRemote("UpgradeRequest")
-    if upgradeRemote then
-        if sendRemote(upgradeRemote, item, stat) then
-            print("[Upgrade] Sent:", getItemName(item), "Stat:", stat)
-            return true
-        end
+    if upgradeRemote and sendRemote(upgradeRemote, item, stat) then
+        return true
     end
     
     local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
@@ -316,7 +289,6 @@ local function upgradeItem(item, stat)
         local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
         if upgrade and (upgrade:IsA("RemoteEvent") or upgrade:IsA("RemoteFunction")) then
             if sendRemote(upgrade, item, stat) then
-                print("[Upgrade] Sent through Upgrade_Engine:", getItemName(item), "Stat:", stat)
                 return true
             end
         end
@@ -324,39 +296,6 @@ local function upgradeItem(item, stat)
     
     return false
 end
-
--- ============================================================
--- GET ITEMS BY RARITY
--- ============================================================
-local function getItemsByRarity(rarity)
-    local results = {}
-    if not rarity then return results end
-    
-    local searchRarity = string.lower(tostring(rarity))
-    
-    for _, item in pairs(inventoryCache) do
-        if item.rarity and string.lower(item.rarity) == searchRarity then
-            if not isFavorite(item) then
-                table.insert(results, item)
-            end
-        end
-    end
-    
-    return results
-end
-
-local function getAllAvailableItems()
-    local items = {}
-    for _, item in pairs(inventoryCache) do
-        if not isFavorite(item) then
-            table.insert(items, item)
-        end
-    end
-    return items
-end
-
--- Initialize inventory
-refreshInventory()
 
 -- ============================================================
 -- CONFIG
@@ -406,7 +345,28 @@ local cheats = {
 }
 
 -- ============================================================
--- STATUS TEXT LABEL
+-- SCALING
+-- ============================================================
+local viewport = workspace.CurrentCamera.ViewportSize
+local scale = math.min(viewport.X, viewport.Y) / 1100
+scale = math.clamp(scale, 0.5, 1.4)
+
+local function s(value) return value * scale end
+local function bigText(size) return math.floor(size * scale * 1.4) end
+
+-- ============================================================
+-- CREATE SCREENGUI - DELTA/POTASSIUM SAFE
+-- ============================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "POLYLOOT"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
+
+-- Make sure it's visible
+screenGui.Enabled = true
+
+-- ============================================================
+-- STATUS TEXT
 -- ============================================================
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, 0, 0, 28)
@@ -418,61 +378,17 @@ status.TextSize = 18
 status.Parent = nil
 
 -- ============================================================
--- SCALING
+-- GUI CREATION
 -- ============================================================
-local viewport = workspace.CurrentCamera.ViewportSize
-local scale = math.min(viewport.X, viewport.Y) / 1100
-scale = math.clamp(scale, 0.5, 1.4)
-
-local function s(value)
-    return value * scale
-end
-
-local function bigText(size)
-    return math.floor(size * scale * 1.4)
-end
-
--- ============================================================
--- GUI CREATION - FIXED
--- ============================================================
-
--- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
 mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
 mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-mainFrame.BackgroundTransparency = 0.2
-mainFrame.BorderSizePixel = 0
+mainFrame.BackgroundTransparency = 0.15
+mainFrame.BorderSizePixel = 1
+mainFrame.BorderColor3 = Color3.fromRGB(0, 200, 255)
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
-
--- RAINBOW border
-local rainbowBorder = Instance.new("Frame")
-rainbowBorder.Size = UDim2.new(1, 8, 1, 8)
-rainbowBorder.Position = UDim2.new(0, -4, 0, -4)
-rainbowBorder.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-rainbowBorder.BackgroundTransparency = 0.5
-rainbowBorder.BorderSizePixel = 0
-rainbowBorder.ZIndex = 0
-rainbowBorder.Parent = mainFrame
-
-local rainbowTween = TweenService:Create(rainbowBorder, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
-    BackgroundColor3 = Color3.fromRGB(0, 255, 255)
-})
-rainbowTween:Play()
-
--- Gradient
-local gradient = Instance.new("Frame")
-gradient.Size = UDim2.new(1, 0, 1, 0)
-gradient.BackgroundColor3 = Color3.fromRGB(20, 0, 40)
-gradient.BackgroundTransparency = 0.6
-gradient.BorderSizePixel = 0
-gradient.Parent = mainFrame
-
-local gradientTween = TweenService:Create(gradient, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
-    BackgroundColor3 = Color3.fromRGB(0, 40, 60)
-})
-gradientTween:Play()
 
 -- Title bar
 local titleBar = Instance.new("Frame")
@@ -528,7 +444,7 @@ closeBtn.Parent = titleBar
 closeBtn.ZIndex = 10
 
 -- ============================================================
--- TAB BAR & SCROLLERS
+-- TAB BAR
 -- ============================================================
 local tabBar = Instance.new("Frame")
 tabBar.Size = UDim2.new(1, 0, 0, s(36))
@@ -1219,33 +1135,6 @@ end
 -- ============================================================
 -- PICKUP/LOOT FUNCTIONS
 -- ============================================================
-local function holdKey(keyCode, duration)
-    if VirtualInputManager then
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
-            task.wait(duration)
-            VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
-        end)
-    else
-        pcall(function()
-            local inputService = game:GetService("UserInputService")
-            if inputService then
-                local downInput = Instance.new("InputObject")
-                downInput.UserInputType = Enum.UserInputType.Keyboard
-                downInput.KeyCode = keyCode
-                downInput.UserInputState = Enum.UserInputState.Begin
-                inputService:FireInput(downInput)
-                task.wait(duration)
-                local upInput = Instance.new("InputObject")
-                upInput.UserInputType = Enum.UserInputType.Keyboard
-                upInput.KeyCode = keyCode
-                upInput.UserInputState = Enum.UserInputState.End
-                inputService:FireInput(upInput)
-            end
-        end)
-    end
-end
-
 local function getNearestLoot()
     local char = player.Character
     if not char then return nil end
@@ -1363,48 +1252,7 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Holding E to pick up... (checking for disappearance)"
-    
-    local remoteSuccess = false
-    pcall(function()
-        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
-        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
-            pickupRemote:FireServer(item)
-            remoteSuccess = true
-            return
-        end
-        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
-        if itemEngine then
-            local pickup = itemEngine:FindFirstChild("PickupItem", true)
-            if pickup and pickup:IsA("RemoteEvent") then
-                pickup:FireServer(item)
-                remoteSuccess = true
-                return
-            end
-        end
-        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
-        if remote and remote:IsA("RemoteEvent") then
-            remote:FireServer("Pickup", item)
-            remoteSuccess = true
-            return
-        end
-        local prompt = nil
-        if item.Parent then
-            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if not prompt then
-            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if prompt then
-            prompt:Fire(player)
-            remoteSuccess = true
-        end
-    end)
-    
-    if remoteSuccess then
-        status.Text = "Loot picked up via remote!"
-        return
-    end
+    status.Text = "Holding E to pick up..."
     
     local startTime = tick()
     local holdDuration = CONFIG.LootHoldSeconds or 5
@@ -1426,11 +1274,6 @@ local function instantLoot()
             status.Text = "Loot picked up! Cancelling E hold early."
             break
         end
-        local currentPos = root.Position
-        if (currentPos - targetPos).Magnitude > 10 then
-            status.Text = "Moved away from loot, cancelling..."
-            break
-        end
         task.wait(0.1)
     end
     
@@ -1445,8 +1288,6 @@ local function instantLoot()
             UserInputService:FireInput(upInput)
         end
     end)
-    
-    status.Text = "Loot attempt complete, moving to next..."
 end
 
 -- ============================================================
@@ -1625,20 +1466,18 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB
+-- FARM TAB CONTENT
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
 status.TextColor3 = Color3.fromRGB(255,100,100)
 status.Parent = farmScroller
 
--- Section 1: Gargoyle Farm
 local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
 gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
--- Section 2: Boss Farms
-local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms", 125)
 
 local bossFarmDefs = {
     {key = "King Chicken", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1679,18 +1518,14 @@ for _, def in ipairs(bossFarmDefs) do
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
     statusLabel.Parent = cell
     
-    local bossBtn = btn
-    local bossStatusLabel = statusLabel
-    local bossName = def.key
-    local bossSign = def.sign
-    local bossDisplay = def.display
-    
     btn.Activated:Connect(function()
-        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
+        toggleBossFarm(def.key, def.sign, def.display, btn, statusLabel)
     end)
 end
 
--- Section 3: Auto Controls
+-- ============================================================
+-- AUTO CONTROLS
+-- ============================================================
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
 
 local collectRow = Instance.new("Frame")
@@ -1794,42 +1629,8 @@ batchBtn.Activated:Connect(function()
     batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
 end)
 
-local teleportRow = Instance.new("Frame")
-teleportRow.Size = UDim2.new(1, 0, 0, s(38))
-teleportRow.Position = UDim2.new(0, 0, 0, s(120))
-teleportRow.BackgroundTransparency = 1
-teleportRow.Parent = autoContainer
-
-local teleportLabel = Instance.new("TextLabel")
-teleportLabel.Size = UDim2.new(0.5, 0, 1, 0)
-teleportLabel.BackgroundTransparency = 1
-teleportLabel.Text = "Teleport to Mine: OFF"
-teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
-teleportLabel.Font = Enum.Font.Gotham
-teleportLabel.TextSize = bigText(14)
-teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
-teleportLabel.Parent = teleportRow
-
-local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-teleportBtn.Position = UDim2.new(0.6, 0, 0, s(3))
-teleportBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "OFF"
-teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
-teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = bigText(14)
-teleportBtn.Parent = teleportRow
-
-teleportBtn.Activated:Connect(function()
-    CONFIG.CollectUseTeleport = not CONFIG.CollectUseTeleport
-    teleportBtn.Text = CONFIG.CollectUseTeleport and "ON" or "OFF"
-    teleportBtn.BackgroundColor3 = CONFIG.CollectUseTeleport and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    teleportLabel.Text = "Teleport to Mine: " .. (CONFIG.CollectUseTeleport and "ON" or "OFF")
-end)
-
 -- ============================================================
--- AUTO TAB (SELL, DISMANTLE, UPGRADE)
+-- AUTO TAB
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -1846,19 +1647,12 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
-    status.Text = "Inventory refreshed! (favorites skipped)"
+    status.Text = "Inventory refreshed!"
 end)
 
-local topSpacer = Instance.new("Frame")
-topSpacer.Size = UDim2.new(1, 0, 0, s(8))
-topSpacer.BackgroundTransparency = 1
-topSpacer.Parent = autoScroller
-
 for idx, action in ipairs(autoActions) do
-    local currentAction = action
-    
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, -s(10), 0, s(100))
+    box.Size = UDim2.new(1, -s(10), 0, s(80))
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
     box.BackgroundTransparency = 0.3
     box.BorderSizePixel = 1
@@ -1869,34 +1663,23 @@ for idx, action in ipairs(autoActions) do
     header.Size = UDim2.new(1, -s(8), 0, s(24))
     header.Position = UDim2.new(0, s(4), 0, s(4))
     header.BackgroundTransparency = 1
-    header.Text = "Auto-" .. currentAction .. ":"
+    header.Text = "Auto-" .. action .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
     header.TextSize = bigText(15)
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Size = UDim2.new(1, -s(8), 0, s(20))
-    infoLabel.Position = UDim2.new(0, s(4), 0, s(32))
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Skips favorites (Basic Sword, Red Elemental, etc)"
-    infoLabel.TextColor3 = Color3.fromRGB(150,150,180)
-    infoLabel.Font = Enum.Font.Gotham
-    infoLabel.TextSize = bigText(12)
-    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-    infoLabel.Parent = box
-    
     local toggleRow = Instance.new("Frame")
     toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
-    toggleRow.Position = UDim2.new(0, s(4), 0, s(55))
+    toggleRow.Position = UDim2.new(0, s(4), 0, s(32))
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = box
     
     local toggleLabel = Instance.new("TextLabel")
     toggleLabel.Size = UDim2.new(0.5, 0, 1, 0)
     toggleLabel.BackgroundTransparency = 1
-    toggleLabel.Text = currentAction .. ": OFF"
+    toggleLabel.Text = action .. ": OFF"
     toggleLabel.TextColor3 = Color3.fromRGB(200,200,220)
     toggleLabel.Font = Enum.Font.Gotham
     toggleLabel.TextSize = bigText(13)
@@ -1920,20 +1703,13 @@ for idx, action in ipairs(autoActions) do
         enabled = not enabled
         toggleBtn.Text = enabled and "ON" or "OFF"
         toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-        toggleLabel.Text = currentAction .. ": " .. (enabled and "ON" or "OFF")
+        toggleLabel.Text = action .. ": " .. (enabled and "ON" or "OFF")
     end)
     
-    actionToggles[currentAction] = {
+    actionToggles[action] = {
         enabled = function() return enabled end,
         toggleBtn = toggleBtn,
     }
-    
-    if idx < #autoActions then
-        local spacer = Instance.new("Frame")
-        spacer.Size = UDim2.new(1, 0, 0, s(8))
-        spacer.BackgroundTransparency = 1
-        spacer.Parent = autoScroller
-    end
 end
 
 -- ============================================================
@@ -1964,7 +1740,7 @@ local function addPlayerTabContent()
         CONFIG.AutoClickSpeed = val
     end)
     
-    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, speedSlider=speedSlider, flySlider=flySlider, acSpeedSlider=acSpeedSlider}
+    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle}
 end
 
 playerToggles = addPlayerTabContent()
@@ -1992,17 +1768,6 @@ miniTitle.Font = Enum.Font.GothamBold
 miniTitle.TextSize = bigText(14)
 miniTitle.TextXAlignment = Enum.TextXAlignment.Left
 miniTitle.Parent = miniBar
-
-local miniWatermark = Instance.new("TextLabel")
-miniWatermark.Size = UDim2.new(0.2, 0, 0.4, 0)
-miniWatermark.Position = UDim2.new(0, s(8), 0, s(22))
-miniWatermark.BackgroundTransparency = 1
-miniWatermark.Text = "by 19_GIRLVULTTURE"
-miniWatermark.TextColor3 = Color3.fromRGB(150, 180, 220)
-miniWatermark.Font = Enum.Font.Gotham
-miniWatermark.TextSize = bigText(9)
-miniWatermark.TextXAlignment = Enum.TextXAlignment.Left
-miniWatermark.Parent = miniBar
 
 local miniACBtn = Instance.new("TextButton")
 miniACBtn.Size = UDim2.new(0, s(140), 0.8, 0)
@@ -2057,21 +1822,6 @@ local function closeGUI()
         if data.timerConnection then
             data.timerConnection:Disconnect()
             data.timerConnection = nil
-        end
-        local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                for _, obj in ipairs(root:GetChildren()) do
-                    if obj:IsA("BodyPosition") or obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") then
-                        obj:Destroy()
-                    end
-                end
-            end
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.AutoRotate = true
-            end
         end
     end
     if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
@@ -2343,7 +2093,6 @@ local function updatePos()
 end
 
 RunService.Heartbeat:Connect(updatePos)
-player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
 
 local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 115)
 
@@ -2381,89 +2130,6 @@ for _, data in ipairs(shopButtons) do
         teleportToPosition(data.pos + Vector3.new(0,5,0))
     end)
 end
-
-local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 110)
-
-local coordRow = Instance.new("Frame")
-coordRow.Size = UDim2.new(1, 0, 0, s(36))
-coordRow.BackgroundTransparency = 1
-coordRow.Parent = customContainer
-
-local coordX = Instance.new("TextBox")
-coordX.Size = UDim2.new(0.28, 0, 1, -s(4))
-coordX.Position = UDim2.new(0.02, 0, 0, s(2))
-coordX.BackgroundColor3 = Color3.fromRGB(30,40,60)
-coordX.BorderSizePixel = 0
-coordX.Text = "0"
-coordX.TextColor3 = Color3.fromRGB(255,255,255)
-coordX.Font = Enum.Font.Gotham
-coordX.TextSize = bigText(14)
-coordX.Parent = coordRow
-
-local coordY = Instance.new("TextBox")
-coordY.Size = UDim2.new(0.28, 0, 1, -s(4))
-coordY.Position = UDim2.new(0.36, 0, 0, s(2))
-coordY.BackgroundColor3 = Color3.fromRGB(30,40,60)
-coordY.BorderSizePixel = 0
-coordY.Text = "0"
-coordY.TextColor3 = Color3.fromRGB(255,255,255)
-coordY.Font = Enum.Font.Gotham
-coordY.TextSize = bigText(14)
-coordY.Parent = coordRow
-
-local coordZ = Instance.new("TextBox")
-coordZ.Size = UDim2.new(0.28, 0, 1, -s(4))
-coordZ.Position = UDim2.new(0.70, 0, 0, s(2))
-coordZ.BackgroundColor3 = Color3.fromRGB(30,40,60)
-coordZ.BorderSizePixel = 0
-coordZ.Text = "0"
-coordZ.TextColor3 = Color3.fromRGB(255,255,255)
-coordZ.Font = Enum.Font.Gotham
-coordZ.TextSize = bigText(14)
-coordZ.Parent = coordRow
-
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.3, 0, 0, s(30))
-copyBtn.Position = UDim2.new(0.35, 0, 0.5, 0)
-copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
-copyBtn.BorderSizePixel = 0
-copyBtn.Text = "📋 Copy Pos"
-copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = bigText(13)
-copyBtn.Parent = customContainer
-
-copyBtn.Activated:Connect(function()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            coordX.Text = string.format("%.1f", p.X)
-            coordY.Text = string.format("%.1f", p.Y)
-            coordZ.Text = string.format("%.1f", p.Z)
-            status.Text = "Coordinates copied"
-        end
-    end
-end)
-
-local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0.3, 0, 0, s(30))
-teleportBtn.Position = UDim2.new(0.35, 0, 0.8, 0)
-teleportBtn.BackgroundColor3 = Color3.fromRGB(60,120,200)
-teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "🚀 Teleport"
-teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
-teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = bigText(13)
-teleportBtn.Parent = customContainer
-
-teleportBtn.Activated:Connect(function()
-    local x = tonumber(coordX.Text) or 0
-    local y = tonumber(coordY.Text) or 0
-    local z = tonumber(coordZ.Text) or 0
-    tweenToPosition(Vector3.new(x, y, z), 0.6)
-end)
 
 -- ============================================================
 -- FARM LOOP
@@ -2516,7 +2182,8 @@ local function collectGold()
         if collectRemote and collectRemote:IsA("RemoteEvent") then
             pcall(function()
                 collectRemote:FireServer(CONFIG.CollectAmount)
-                collectCount = collectCount + 1            end)
+                collectCount = collectCount + 1
+            end)
         end
         
         local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
@@ -2534,13 +2201,11 @@ local function collectGold()
     end
     
     isAtGoldMine = false
-    status.Text = "Gold collection complete (" .. collectCount .. " total)"
+    status.Text = "Gold collection complete"
     
     if CONFIG.CollectUseTeleport then
         status.Text = "Teleporting back..."
         teleportToPosition(originalPos)
-    else
-        status.Text = "Staying at Gold Mine"
     end
 end
 
@@ -2551,7 +2216,6 @@ local function performAction(action)
     end
     
     local processed = 0
-    local failed = 0
     
     for _, item in pairs(inventoryCache) do
         local success, result = pcall(function()
@@ -2565,8 +2229,6 @@ local function performAction(action)
         end)
         if success and result then
             processed = processed + 1
-        else
-            failed = failed + 1
         end
         if not CONFIG.BatchMode then
             task.wait(0.05)
@@ -2575,8 +2237,6 @@ local function performAction(action)
     
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
-    elseif failed > 0 then
-        status.Text = "Auto-" .. action .. " failed/skipped " .. failed .. " items"
     end
 end
 
@@ -2633,13 +2293,6 @@ local function startFarm()
     end)
 end
 
-local function stopFarm()
-    running = false
-    isAtGoldMine = false
-    status.Text = "Status: Stopped"
-    status.TextColor3 = Color3.fromRGB(255,100,100)
-end
-
 -- ============================================================
 -- CHARACTER RESET
 -- ============================================================
@@ -2684,9 +2337,10 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
--- Auto-start the farm
+-- ============================================================
+-- START
+-- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – COMPLETE (INSTANT LOCK + FACE DOWN, WALK TWEEN) loaded!")
-print("✅ Improved inventory system with favorite protection enabled!")
+print("✅ POLY LOOT loaded for Delta/Potassium!")
 print("✅ GUI should be visible now!")
