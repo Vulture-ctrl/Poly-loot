@@ -714,8 +714,7 @@ function toggleGargoyleFarm()
     if gargoyleStatusLabel then
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end
-    status.Text = "Gargoyle farming started"
+    end    status.Text = "Gargoyle farming started"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -815,7 +814,6 @@ end
 local function getBossRespawnTime(timerLabel)
     if not timerLabel then return 0 end
     local text = timerLabel.Text or ""
-    -- Extract ALL numbers (could be "4m 30s" or just "4s")
     local mins = tonumber(text:match("(%d+)m"))
     local secs = tonumber(text:match("(%d+)s"))
     
@@ -827,10 +825,8 @@ local function getBossRespawnTime(timerLabel)
         return secs
     end
     
-    -- Fallback: try to get any number
     local num = tonumber(text:match("(%d+)"))
     if num then
-        -- If the number is large, assume it's seconds (e.g., 270 = 4m 30s)
         if num > 60 then
             return num
         end
@@ -997,7 +993,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local respawnTime = getBossRespawnTime(timerLabel)
             local formattedTime = formatRespawnTime(respawnTime)
             
-            -- Update status label - show ALIVE or full timer
+            -- Update status label - show ALIVE or full timer (ALWAYS visible)
             if statusLabel then
                 if isAlive then
                     statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
@@ -1005,15 +1001,14 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 else
                     if respawnTime > 0 then
                         statusLabel.Text = bossDisplayName .. ": " .. formattedTime .. " ⏳"
+                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                     else
                         statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
                         statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                     end
-                    statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
             end
             
-            -- Try to find and follow the boss
             local mob = findBossModel(bossName)
             
             if mob then
@@ -1138,7 +1133,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (status + Gargoyle + Boss Farms - NO START BUTTON)
+--  FARM TAB (NO START BUTTON, NO COLLECT GOLD, NO LOOT NOW)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1149,7 +1144,7 @@ refreshInventory()
 
 -- GARGOYLE FARM SECTION
 local gargoyleSection = Instance.new("Frame")
-gargoyleSection.Size = UDim2.new(1, 0, 0, s(60))
+gargoyleSection.Size = UDim2.new(1, 0, 0, s(65))
 gargoyleSection.BackgroundTransparency = 1
 gargoyleSection.Parent = farmScroller
 
@@ -1164,20 +1159,20 @@ gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
 gargoyleHeader.Parent = gargoyleSection
 
 gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.6, 0, 0.4, 0)
-gargoyleBtn.Position = UDim2.new(0.2, 0, 0.2, 0)
+gargoyleBtn.Size = UDim2.new(0.5, 0, 0.4, 0)
+gargoyleBtn.Position = UDim2.new(0.25, 0, 0.1, 0)
 gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 gargoyleBtn.BorderSizePixel = 0
 gargoyleBtn.Text = "Gargoyle Farm (OFF)"
 gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
 gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(14)
+gargoyleBtn.TextSize = bigText(13)
 gargoyleBtn.Parent = gargoyleSection
 gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
 
 gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.3, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.65, 0)
+gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
+gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
 gargoyleStatusLabel.BackgroundTransparency = 1
 gargoyleStatusLabel.Text = "Gargoyle: OFF"
 gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
@@ -1188,7 +1183,7 @@ gargoyleStatusLabel.Parent = gargoyleSection
 
 -- BOSS FARMS SECTION
 local bossFarmSection = Instance.new("Frame")
-bossFarmSection.Size = UDim2.new(1, 0, 0, s(110))
+bossFarmSection.Size = UDim2.new(1, 0, 0, s(115))
 bossFarmSection.BackgroundTransparency = 1
 bossFarmSection.Parent = farmScroller
 
@@ -1210,7 +1205,7 @@ bossFarmGrid.Parent = bossFarmSection
 
 local bossFarmGridLayout = Instance.new("UIGridLayout")
 bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(48))
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(50))
 bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
 bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
@@ -1227,7 +1222,7 @@ for _, def in ipairs(bossFarmDefs) do
     
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0.45, 0)
-    btn.Position = UDim2.new(0, 0, 0.05, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
     btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
     btn.Text = def.display .. " Farm (OFF)"
@@ -1258,9 +1253,9 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Combat Controls (NO START BUTTON)
+-- Combat Controls (ONLY Auto-Collect Gold + Auto-Loot)
 local combatSection = Instance.new("Frame")
-combatSection.Size = UDim2.new(1, 0, 0, s(70))
+combatSection.Size = UDim2.new(1, 0, 0, s(80))
 combatSection.BackgroundTransparency = 1
 combatSection.Parent = farmScroller
 
@@ -1274,42 +1269,8 @@ combatHeader.TextSize = bigText(15)
 combatHeader.TextXAlignment = Enum.TextXAlignment.Left
 combatHeader.Parent = combatSection
 
-local combatGrid = Instance.new("Frame")
-combatGrid.Size = UDim2.new(1, 0, 1, -s(22))
-combatGrid.Position = UDim2.new(0, 0, 0, s(22))
-combatGrid.BackgroundTransparency = 1
-combatGrid.Parent = combatSection
-
-local combatGridLayout = Instance.new("UIGridLayout")
-combatGridLayout.Parent = combatGrid
-combatGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(28))
-combatGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-combatGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(1, 0, 1, 0)
-collectBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 60)
-collectBtn.BorderSizePixel = 0
-collectBtn.Text = "💰 Collect Gold"
-collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
-collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = bigText(13)
-collectBtn.Parent = combatGrid
-collectBtn.Activated:Connect(collectGold)
-
-local lootNowBtn = Instance.new("TextButton")
-lootNowBtn.Size = UDim2.new(1, 0, 1, 0)
-lootNowBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 160)
-lootNowBtn.BorderSizePixel = 0
-lootNowBtn.Text = "📦 Loot Now"
-lootNowBtn.TextColor3 = Color3.fromRGB(255,255,255)
-lootNowBtn.Font = Enum.Font.GothamBold
-lootNowBtn.TextSize = bigText(13)
-lootNowBtn.Parent = combatGrid
-lootNowBtn.Activated:Connect(instantLoot)
-
-local autoCollectToggle = addToggleRow(farmScroller, "Auto-Collect Gold", true)
-local autoLootToggle = addToggleRow(farmScroller, "Auto-Loot", false)
+local autoCollectToggle = addToggleRow(combatSection, "Auto-Collect Gold", true)
+local autoLootToggle = addToggleRow(combatSection, "Auto-Loot", false)
 
 -- ============================================================
 --  AUTO TAB (Sell, Upgrade, Dismantle)
@@ -1583,7 +1544,7 @@ miniCloseBtn.ZIndex = 10
 --  CLOSE HANDLER
 -- ============================================================
 local function closeGUI()
-    if running then running = false; if stopFarm then stopFarm() end end
+    if running then running = false end
     if cheats.fly then cheats.fly = false; if disableFly then disableFly() end end
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
@@ -2047,7 +2008,7 @@ end)
 RunService.Heartbeat:Connect(updateBossStatus)
 
 -- ============================================================
---  FARM LOOP (NO START BUTTON - runs automatically if enabled)
+--  FARM LOOP (Runs automatically)
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2139,7 +2100,6 @@ local function performRarityAction(action, rarityList)
     end
 end
 
--- Start farm automatically when script loads
 local function startFarm()
     if running then return end
     if not weaponAttack then
@@ -2172,8 +2132,12 @@ local function startFarm()
                 lastCollect = tick()
             end
             
-            if CONFIG.AutoLoot and tick() % 4 < 0.1 then
-                -- instantLoot defined below
+            if CONFIG.AutoLoot then
+                -- Auto loot - check for loot nearby and pick it up
+                local lootItem, lootDist = getNearestLoot()
+                if lootItem and lootDist < 30 then
+                    instantLoot()
+                end
             end
             
             for _, action in ipairs(autoActions) do
@@ -2226,7 +2190,7 @@ local function getNearestLoot()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = obj.Name:lower()
-            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") then
+            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
                 local d = (obj.Position - pos).Magnitude
                 if d < dist then
                     dist = d
@@ -2246,14 +2210,12 @@ local function instantLoot()
     
     local item, dist = getNearestLoot()
     if not item then
-        status.Text = "No loot found"
         return
     end
     
     local originalCF = root.CFrame
-    tweenToPosition(item.Position + Vector3.new(0, 2, 0), 0.4)
-    status.Text = "Looting..."
-    task.wait(0.5)
+    tweenToPosition(item.Position + Vector3.new(0, 2, 0), 0.3)
+    task.wait(0.3)
     
     local prompt = nil
     if item.Parent then
@@ -2265,32 +2227,15 @@ local function instantLoot()
     
     if prompt then
         prompt:Fire(player)
-        status.Text = "Proximity prompt triggered"
-    else
-        for _, gui in ipairs(player.PlayerGui:GetDescendants()) do
-            if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                local txt = (gui.Text or ""):lower()
-                if txt:match("collect") or txt:match("pickup") or txt:match("loot") or txt:match("take") then
-                    gui:Fire()
-                    gui.Activated:Fire()
-                    status.Text = "Collect button pressed"
-                    break
-                end
-            end
-        end
     end
     
     local pickupRemote = safeFind("Item_Engine", "Remotes", "PickupItem")
     if pickupRemote then
         pickupRemote:FireServer(item.Parent and item.Parent.Name or item.Name)
-        status.Text = "Pickup remote fired"
     end
     
-    task.wait(CONFIG.LootHoldSeconds)
-    tweenToPosition(originalCF.Position, 0.4)
-    status.Text = "Loot done"
     task.wait(0.5)
-    status.Text = running and "Status: Running" or "Status: Stopped"
+    tweenToPosition(originalCF.Position, 0.3)
 end
 
 -- ===== CHARACTER RESET =====
