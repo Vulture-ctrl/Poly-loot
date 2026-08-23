@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (GUI FIXED, gargoyle ABOVE 5.1 LOCKED, bosses, auto-click 730,300) ]]
+--[[ POLY LOOT – ULTIMATE (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW, lock 5.1) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -91,8 +91,8 @@ local cheats = {
 
 -- ===== BOSS TRACKER =====
 local bossData = {
-    Chicken = {modelName = "KingChicken", cooldown = 300, lastSeenAlive = 0, statusLabel = nil},
-    Spider = {modelName = "SpiderBoss", cooldown = 600, lastSeenAlive = 0, statusLabel = nil}
+    Chicken = {modelName = "King ChickenSpawn", cooldown = 300, lastSeenAlive = 0, statusLabel = nil},
+    Spider = {modelName = "SpiderSpawn", cooldown = 600, lastSeenAlive = 0, statusLabel = nil}
 }
 
 local function updateBossStatus()
@@ -131,8 +131,9 @@ local function updateBossStatus()
     end
 end
 
--- ===== ITEM DATABASE (full) =====
+-- ===== COMPLETE ITEM DATABASE (ALL ITEMS WITH RARITY) =====
 local ITEM_DB = {
+    -- Common
     ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
     ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
     ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
@@ -148,6 +149,8 @@ local ITEM_DB = {
     ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
     ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
     ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
+    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
+    -- Rare
     ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
     ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
     ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
@@ -161,12 +164,14 @@ local ITEM_DB = {
     ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
     ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
     ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
+    -- Epic
     ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
     ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
     ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
     ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
     ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
     ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
+    -- Legendary
     ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
     ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
     ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
@@ -175,8 +180,10 @@ local ITEM_DB = {
     ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
     ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
     ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
+    -- Mythic
     ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
     ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
+    -- Secret
     ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
     ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
     ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
@@ -189,9 +196,21 @@ local ITEM_DB = {
     ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
     ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
     ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
-    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
+    -- Unknown
     ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
 }
+
+-- Create reverse lookup for serial -> rarity
+local SERIAL_TO_RARITY = {}
+for name, data in pairs(ITEM_DB) do
+    SERIAL_TO_RARITY[data.serial] = data.rarity
+end
+
+-- Create reverse lookup for serial -> name
+local SERIAL_TO_NAME = {}
+for name, data in pairs(ITEM_DB) do
+    SERIAL_TO_NAME[data.serial] = name
+end
 
 -- ============================================================
 --  STATUS TEXT LABEL (must exist before any function uses it)
@@ -221,7 +240,7 @@ local function bigText(size)
 end
 
 -- ============================================================
---  GUI CREATION (FULL)
+--  GUI CREATION (FULL - CLEAN & ORGANIZED)
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "POLYLOOT"
@@ -229,8 +248,8 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, s(640), 0, s(920))
-mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(460))
+mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
+mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
 mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
 mainFrame.BackgroundTransparency = 0.2
 mainFrame.BorderSizePixel = 0
@@ -265,38 +284,6 @@ local gradientTween = TweenService:Create(gradient, TweenInfo.new(4, Enum.Easing
 })
 gradientTween:Play()
 
--- Particles
-local particleContainer = Instance.new("Frame")
-particleContainer.Size = UDim2.new(1, 0, 1, 0)
-particleContainer.BackgroundTransparency = 1
-particleContainer.Parent = mainFrame
-
-local emojis = {"✨", "⚡", "🚀", "💎", "🌟", "🔥"}
-for i = 1, 25 do
-    local dot = Instance.new("TextLabel")
-    dot.Size = UDim2.new(0, s(16), 0, s(16))
-    dot.Position = UDim2.new(math.random() * 0.9 + 0.05, 0, math.random() * 0.9 + 0.05, 0)
-    dot.BackgroundTransparency = 1
-    dot.Text = emojis[math.random(#emojis)]
-    dot.TextColor3 = Color3.fromRGB(200, 200, 255)
-    dot.TextSize = s(14)
-    dot.TextTransparency = 0.5
-    dot.Parent = particleContainer
-    task.spawn(function()
-        local startX = dot.Position.X.Scale
-        local startY = dot.Position.Y.Scale
-        local speedX = (math.random() - 0.5) * 0.003
-        local speedY = (math.random() - 0.5) * 0.003
-        while wait(0.05) do
-            local newX = dot.Position.X.Scale + speedX
-            local newY = dot.Position.Y.Scale + speedY
-            if newX > 1 or newX < 0 then speedX = -speedX end
-            if newY > 1 or newY < 0 then speedY = -speedY end
-            dot.Position = UDim2.new(newX, 0, newY, 0)
-        end
-    end)
-end
-
 -- Title bar
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, s(50))
@@ -327,18 +314,6 @@ watermark.TextSize = bigText(11)
 watermark.TextXAlignment = Enum.TextXAlignment.Left
 watermark.Parent = titleBar
 
-local glowTitle = titleLabel:Clone()
-glowTitle.TextColor3 = Color3.fromRGB(255,255,255)
-glowTitle.TextTransparency = 0.85
-glowTitle.Position = UDim2.new(0.005, s(12), 0, s(2))
-glowTitle.ZIndex = 0
-glowTitle.Parent = titleBar
-
-local pulseTween = TweenService:Create(titleLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-    TextSize = bigText(28)
-})
-pulseTween:Play()
-
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.new(0, s(28), 0, s(28))
 minBtn.Position = UDim2.new(1, -s(66), 0, s(11))
@@ -361,82 +336,6 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = bigText(16)
 closeBtn.Parent = titleBar
 closeBtn.ZIndex = 10
-
--- ============================================================
---  AIM CIRCLE (visual only)
--- ============================================================
-local aimCircle = Instance.new("Frame")
-aimCircle.Size = UDim2.new(0, 50, 0, 50)
-aimCircle.Position = UDim2.new(0.5, -25, 0.5, -25)
-aimCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-aimCircle.BackgroundTransparency = 0.7
-aimCircle.BorderSizePixel = 2
-aimCircle.BorderColor3 = Color3.fromRGB(0, 200, 255)
-aimCircle.ZIndex = 100
-aimCircle.Parent = screenGui
-
-local pulseCircle = TweenService:Create(aimCircle, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-    BackgroundTransparency = 0.4,
-    BorderSizePixel = 3,
-})
-pulseCircle:Play()
-
-local crossH = Instance.new("Frame")
-crossH.Size = UDim2.new(0.6, 0, 0, 3)
-crossH.Position = UDim2.new(0.2, 0, 0.5, -1.5)
-crossH.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-crossH.BorderSizePixel = 0
-crossH.ZIndex = 101
-crossH.Parent = aimCircle
-
-local crossV = Instance.new("Frame")
-crossV.Size = UDim2.new(0, 3, 0.6, 0)
-crossV.Position = UDim2.new(0.5, -1.5, 0.2, 0)
-crossV.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-crossV.BorderSizePixel = 0
-crossV.ZIndex = 101
-crossV.Parent = aimCircle
-
-local posLabel = Instance.new("TextLabel")
-posLabel.Size = UDim2.new(0, 120, 0, 24)
-posLabel.Position = UDim2.new(0.5, -60, 1, 6)
-posLabel.BackgroundTransparency = 1
-posLabel.Text = string.format("Click at (%.0f, %.0f)", CONFIG.AutoClickX, CONFIG.AutoClickY)
-posLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
-posLabel.Font = Enum.Font.GothamBold
-posLabel.TextSize = 14
-posLabel.ZIndex = 102
-posLabel.Parent = aimCircle
-
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
-aimCircle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = aimCircle.Position
-        aimCircle.BackgroundTransparency = 0.5
-    end
-end)
-
-aimCircle.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-        aimCircle.BackgroundTransparency = 0.7
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        local viewport = Camera.ViewportSize
-        local newX = math.clamp(startPos.X.Offset + delta.X, 0, viewport.X - 50)
-        local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, viewport.Y - 50)
-        aimCircle.Position = UDim2.new(0, newX, 0, newY)
-    end
-end)
 
 -- ============================================================
 --  TAB BAR & SCROLLERS
@@ -539,18 +438,76 @@ switchTab("farm")
 -- ============================================================
 --  HELPERS
 -- ============================================================
-local function addControl(parent, height)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, -s(10), 0, s(height))
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    return frame
+local function createSection(parent, title, height)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, -s(10), 0, s(height))
+    section.BackgroundTransparency = 1
+    section.Parent = parent
+    
+    local header = Instance.new("TextLabel")
+    header.Size = UDim2.new(1, 0, 0, s(24))
+    header.BackgroundTransparency = 1
+    header.Text = title
+    header.TextColor3 = Color3.fromRGB(255, 200, 100)
+    header.Font = Enum.Font.GothamBold
+    header.TextSize = bigText(16)
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    header.Parent = section
+    
+    local spacer = Instance.new("Frame")
+    spacer.Size = UDim2.new(1, 0, 0, s(6))
+    spacer.BackgroundTransparency = 1
+    spacer.Parent = section
+    
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 1, -s(30))
+    container.Position = UDim2.new(0, 0, 0, s(30))
+    container.BackgroundTransparency = 1
+    container.Parent = section
+    
+    return section, container
+end
+
+local function addButton(parent, text, color, callback, height)
+    height = height or s(34)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.6, 0, 0, height)
+    btn.Position = UDim2.new(0.2, 0, 0, 0)
+    btn.BackgroundColor3 = color
+    btn.BorderSizePixel = 0
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = bigText(14)
+    btn.Parent = parent
+    if callback then
+        btn.Activated:Connect(callback)
+    end
+    return btn
+end
+
+local function addStatusLabel(parent, text, yPos)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.8, 0, 0, s(22))
+    lbl.Position = UDim2.new(0.1, 0, yPos, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(200,200,200)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = bigText(13)
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.Parent = parent
+    return lbl
 end
 
 local function addToggleRow(parent, labelText, initial)
-    local row = addControl(parent, 32)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, s(34))
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+    
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
     lbl.TextColor3 = Color3.fromRGB(200,200,220)
@@ -560,8 +517,8 @@ local function addToggleRow(parent, labelText, initial)
     lbl.Parent = row
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, s(60), 1, -s(4))
-    btn.Position = UDim2.new(0.7, 0, 0, s(2))
+    btn.Size = UDim2.new(0, s(60), 1, -s(6))
+    btn.Position = UDim2.new(0.6, 0, 0, s(3))
     btn.BackgroundColor3 = initial and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
@@ -570,20 +527,17 @@ local function addToggleRow(parent, labelText, initial)
     btn.TextSize = bigText(14)
     btn.Parent = row
     
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-    end)
-    
-    return {label = lbl, button = btn, value = initial}
+    return {label = lbl, button = btn, value = initial, row = row}
 end
 
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
-    local row = addControl(parent, 48)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, s(48))
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+    
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.6, 0, 0, s(20))
+    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. string.format("%.2f", initVal) .. unit
     lbl.TextColor3 = Color3.fromRGB(200,200,220)
@@ -594,7 +548,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
     
     local slider = Instance.new("Frame")
     slider.Size = UDim2.new(0.35, 0, 0, s(16))
-    slider.Position = UDim2.new(0.6, 0, 0.5, -s(8))
+    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
     slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
     slider.BorderSizePixel = 0
     slider.Parent = row
@@ -673,13 +627,6 @@ local function teleportToPosition(targetPos)
     root.CFrame = CFrame.new(targetPos)
 end
 
-local function tweenAboveMob(mobModel)
-    local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
-    if not rootPart then return false end
-    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-    return tweenToPosition(targetPos, 0.4)
-end
-
 -- ============================================================
 --  AUTO CLICKER
 -- ============================================================
@@ -713,21 +660,16 @@ local function performClick()
         upInput.UserInputState = Enum.UserInputState.End
         UserInputService:FireInput(upInput)
     end)
-    aimCircle.BackgroundTransparency = 0.1
-    task.wait(0.05)
-    aimCircle.BackgroundTransparency = 0.3
 end
 
 -- ============================================================
---  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN
+--  GARGOYLE FARM
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
 local gargoyleBtn = nil
 local gargoyleStatusLabel = nil
 local currentGargoyleTarget = nil
-
--- BODY VELOCITY FOR LOCKED POSITION
 local gargoyleBodyVelocity = nil
 local gargoyleBodyPosition = nil
 
@@ -754,7 +696,6 @@ local function getNearestGargoyle()
     return nearest, nearestDist
 end
 
--- Function to lock character above a specific Gargoyle, facing DOWN
 local function lockAboveGargoyle(targetMob)
     if not targetMob then return end
     
@@ -766,10 +707,8 @@ local function lockAboveGargoyle(targetMob)
     local playerRoot = char:FindFirstChild("HumanoidRootPart")
     if not playerRoot then return end
     
-    -- Calculate position 5.1 studs above the Gargoyle
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Remove old locks
     if gargoyleBodyVelocity then
         gargoyleBodyVelocity:Destroy()
         gargoyleBodyVelocity = nil
@@ -779,16 +718,13 @@ local function lockAboveGargoyle(targetMob)
         gargoyleBodyPosition = nil
     end
     
-    -- Set PlatformStand to prevent walking
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.PlatformStand = true
     end
     
-    -- INSTANTLY move above the Gargoyle and face DOWN (looking at the Gargoyle)
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
-    -- BodyPosition to lock position
     gargoyleBodyPosition = Instance.new("BodyPosition")
     gargoyleBodyPosition.Position = targetPos
     gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
@@ -796,7 +732,6 @@ local function lockAboveGargoyle(targetMob)
     gargoyleBodyPosition.P = 20000
     gargoyleBodyPosition.Parent = playerRoot
     
-    -- BodyVelocity to stabilize
     gargoyleBodyVelocity = Instance.new("BodyVelocity")
     gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
     gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
@@ -806,14 +741,12 @@ local function lockAboveGargoyle(targetMob)
 end
 
 function toggleGargoyleFarm()
-    -- TURN OFF
     if gargoyleFarmRunning then
         gargoyleFarmRunning = false
         if gargoyleFarmThread then
             task.cancel(gargoyleFarmThread)
             gargoyleFarmThread = nil
         end
-        -- Remove locks
         if gargoyleBodyVelocity then
             gargoyleBodyVelocity:Destroy()
             gargoyleBodyVelocity = nil
@@ -823,7 +756,6 @@ function toggleGargoyleFarm()
             gargoyleBodyPosition = nil
         end
         currentGargoyleTarget = nil
-        -- Reset humanoid state
         local char = player.Character
         if char then
             local hum = char:FindFirstChild("Humanoid")
@@ -837,13 +769,12 @@ function toggleGargoyleFarm()
             gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
         end
         if gargoyleStatusLabel then
-            gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
+            gargoyleStatusLabel.Text = "Gargoyle: OFF"
             gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
         end
         return
     end
     
-    -- CHECK PLAYER
     local char = player.Character
     if not char then
         status.Text = "Character not loaded"
@@ -855,7 +786,6 @@ function toggleGargoyleFarm()
         return
     end
     
-    -- TURN ON
     gargoyleFarmRunning = true
     currentGargoyleTarget = nil
     if gargoyleBtn then
@@ -863,20 +793,17 @@ function toggleGargoyleFarm()
         gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (LOCKED above 5.1)"
+        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started – locked above 5.1, facing down"
+    status.Text = "Gargoyle farming started"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
-            -- FIND NEAREST GARGOYLE
             local mob, dist = getNearestGargoyle()
             
             if mob then
-                -- Only lock to a new Gargoyle if it's different from current
                 if currentGargoyleTarget ~= mob then
-                    -- Remove old locks before moving to new target
                     if gargoyleBodyVelocity then
                         gargoyleBodyVelocity:Destroy()
                         gargoyleBodyVelocity = nil
@@ -885,14 +812,19 @@ function toggleGargoyleFarm()
                         gargoyleBodyPosition:Destroy()
                         gargoyleBodyPosition = nil
                     end
-                    
-                    -- Lock above the new Gargoyle, facing DOWN
                     lockAboveGargoyle(mob)
                     status.Text = "🔒 Locked above Gargoyle (facing down, dist " .. math.floor(dist) .. ")"
+                    if gargoyleStatusLabel then
+                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
                 end
             else
-                status.Text = "No Gargoyle found, waiting..."
-                -- If no Gargoyle found, unlock
+                status.Text = "No Gargoyle found, scanning..."
+                if gargoyleStatusLabel then
+                    gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
+                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                end
                 if gargoyleBodyVelocity then
                     gargoyleBodyVelocity:Destroy()
                     gargoyleBodyVelocity = nil
@@ -904,127 +836,365 @@ function toggleGargoyleFarm()
                 currentGargoyleTarget = nil
                 task.wait(1)
             end
-            
-            -- Check every 0.2 seconds for target changes
-            task.wait(0.2)
+            task.wait(0.3)
         end
     end)
 end
 
 -- ============================================================
---  STAY ABOVE (bosses) - LOCKED
+--  BOSS FARM WITH TIMER
 -- ============================================================
-local stayAboveConnection = nil
-local stayAboveBodyVelocity = nil
-local stayAboveBodyPosition = nil
-local currentBossTarget = nil
 
-local function startStayAbove(mobName)
-    if stayAboveConnection then
-        stayAboveConnection:Disconnect()
+local function getBossTimerLabel(bossSignName)
+    local success, result = pcall(function()
+        local bossSign = Workspace:FindFirstChild(bossSignName)
+        if not bossSign then return nil end
+        
+        local sign = bossSign:FindFirstChild("Sign")
+        if sign then
+            local surfaceGui = sign:FindFirstChild("SurfaceGui")
+            if surfaceGui then
+                local template = surfaceGui:FindFirstChild("Template")
+                if template then
+                    local timer = template:FindFirstChild("TIMER")
+                    if timer then return timer end
+                end
+            end
+        end
+        
+        for _, child in ipairs(bossSign:GetDescendants()) do
+            if child:IsA("TextLabel") then
+                local name = string.upper(child.Name or "")
+                local text = string.upper(child.Text or "")
+                if name:find("TIMER") or text:find("ALIVE") or tonumber(text:match("(%d+)")) then
+                    return child
+                end
+            end
+        end
+        
+        return nil
+    end)
+    return success and result or nil
+end
+
+local function isBossAlive(timerLabel)
+    if not timerLabel then return true end
+    local text = string.upper(timerLabel.Text or "")
+    if string.find(text, "ALIVE") then
+        return true
     end
-    cheats.stayBehind = true
-    cheats.stayBehindTarget = mobName
+    local num = tonumber(text:match("(%d+)"))
+    if num then
+        return false
+    end
+    if text == "" then
+        return true
+    end
+    return false
+end
+
+local function getBossRespawnTime(timerLabel)
+    if not timerLabel then return 0 end
+    local text = timerLabel.Text or ""
+    local mins = tonumber(text:match("(%d+)m"))
+    local secs = tonumber(text:match("(%d+)s"))
     
-    stayAboveConnection = RunService.Heartbeat:Connect(function()
-        if not cheats.stayBehind then
-            stayAboveConnection:Disconnect()
-            stayAboveConnection = nil
-            return
+    if mins and secs then
+        return (mins * 60) + secs
+    elseif mins then
+        return mins * 60
+    elseif secs then
+        return secs
+    end
+    
+    local num = tonumber(text:match("(%d+)"))
+    if num then
+        if num > 60 then
+            return num
+        end
+        return num
+    end
+    return 0
+end
+
+local function formatRespawnTime(seconds)
+    if not seconds or seconds <= 0 then return "ALIVE 🟢" end
+    local mins = math.floor(seconds / 60)
+    local secs = seconds % 60
+    if mins > 0 then
+        if secs > 0 then
+            return string.format("%dm %ds", mins, secs)
+        else
+            return string.format("%dm", mins)
+        end
+    else
+        return string.format("%ds", secs)
+    end
+end
+
+local function findBossModel(bossName)
+    local direct = Workspace:FindFirstChild(bossName)
+    if direct and direct:IsA("Model") then return direct end
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == bossName then
+            return obj
+        end
+    end
+    
+    local lowerName = string.lower(bossName)
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            local objLower = string.lower(obj.Name)
+            if objLower:find(lowerName) then
+                return obj
+            end
+        end
+    end
+    
+    return nil
+end
+
+local bossFarms = {}
+local bossFarmThreads = {}
+
+function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabel)
+    local key = bossName
+    
+    if bossFarms[key] and bossFarms[key].running then
+        bossFarms[key].running = false
+        if bossFarmThreads[key] then
+            task.cancel(bossFarmThreads[key])
+            bossFarmThreads[key] = nil
+        end
+        if bossFarms[key].bodyVelocity then
+            bossFarms[key].bodyVelocity:Destroy()
+            bossFarms[key].bodyVelocity = nil
+        end
+        if bossFarms[key].bodyPosition then
+            bossFarms[key].bodyPosition:Destroy()
+            bossFarms[key].bodyPosition = nil
+        end
+        if bossFarms[key].timerConnection then
+            bossFarms[key].timerConnection:Disconnect()
+            bossFarms[key].timerConnection = nil
+        end
+        bossFarms[key].currentTarget = nil
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+            end
+        end
+        status.Text = bossDisplayName .. " farm stopped"
+        if btn then
+            btn.Text = bossDisplayName .. " Farm (OFF)"
+            btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        end
+        if statusLabel then
+            statusLabel.Text = bossDisplayName .. ": OFF"
+            statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        end
+        return
+    end
+    
+    local char = player.Character
+    if not char then
+        status.Text = "Character not loaded"
+        return
+    end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        status.Text = "RootPart not found"
+        return
+    end
+    
+    if not bossFarms[key] then
+        bossFarms[key] = {
+            running = false,
+            currentTarget = nil,
+            bodyVelocity = nil,
+            bodyPosition = nil,
+            isAlive = false,
+            timerLabel = nil,
+            timerConnection = nil,
+        }
+    end
+    
+    bossFarms[key].running = true
+    bossFarms[key].currentTarget = nil
+    bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
+    
+    if btn then
+        btn.Text = bossDisplayName .. " Farm (ON)"
+        btn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+    if statusLabel then
+        statusLabel.Text = bossDisplayName .. ": SCANNING 🔍"
+        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+    end
+    status.Text = bossDisplayName .. " farming started"
+    
+    local timerLabel = bossFarms[key].timerLabel
+    if timerLabel then
+        if bossFarms[key].timerConnection then
+            bossFarms[key].timerConnection:Disconnect()
+        end
+        bossFarms[key].timerConnection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
+            task.spawn(function()
+                local mob = findBossModel(bossName)
+                if mob then
+                    lockToBoss(key, mob, bossDisplayName, statusLabel)
+                end
+            end)
+        end)
+    end
+    
+    bossFarmThreads[key] = task.spawn(function()
+        while bossFarms[key] and bossFarms[key].running do
+            if not bossFarms[key].timerLabel then
+                bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
+                if bossFarms[key].timerLabel then
+                    if bossFarms[key].timerConnection then
+                        bossFarms[key].timerConnection:Disconnect()
+                    end
+                    bossFarms[key].timerConnection = bossFarms[key].timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
+                        task.spawn(function()
+                            local mob = findBossModel(bossName)
+                            if mob then
+                                lockToBoss(key, mob, bossDisplayName, statusLabel)
+                            end
+                        end)
+                    end)
+                end
+            end
+            
+            local timerLabel = bossFarms[key].timerLabel
+            local isAlive = isBossAlive(timerLabel)
+            local respawnTime = getBossRespawnTime(timerLabel)
+            local formattedTime = formatRespawnTime(respawnTime)
+            
+            if statusLabel then
+                if isAlive then
+                    statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
+                    statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                else
+                    if respawnTime > 0 then
+                        statusLabel.Text = bossDisplayName .. ": " .. formattedTime .. " ⏳"
+                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                    else
+                        statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
+                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
+                end
+            end
+            
+            local mob = findBossModel(bossName)
+            
+            if mob then
+                lockToBoss(key, mob, bossDisplayName, statusLabel)
+            else
+                if isAlive then
+                    task.wait(0.3)
+                else
+                    if bossFarms[key].bodyVelocity then
+                        bossFarms[key].bodyVelocity:Destroy()
+                        bossFarms[key].bodyVelocity = nil
+                    end
+                    if bossFarms[key].bodyPosition then
+                        bossFarms[key].bodyPosition:Destroy()
+                        bossFarms[key].bodyPosition = nil
+                    end
+                    bossFarms[key].currentTarget = nil
+                    bossFarms[key].isAlive = false
+                    
+                    if respawnTime > 0 then
+                        status.Text = bossDisplayName .. " respawning in " .. formattedTime
+                    else
+                        status.Text = bossDisplayName .. " waiting for respawn..."
+                    end
+                    task.wait(1)
+                end
+            end
+            
+            if mob then
+                task.wait(0.2)
+            elseif respawnTime > 0 and respawnTime < 10 then
+                task.wait(0.5)
+            else
+                task.wait(1)
+            end
+        end
+    end)
+end
+
+local function lockToBoss(key, mob, bossDisplayName, statusLabel)
+    if not mob or not bossFarms[key] then return end
+    
+    if bossFarms[key].currentTarget ~= mob then
+        if bossFarms[key].bodyVelocity then
+            bossFarms[key].bodyVelocity:Destroy()
+            bossFarms[key].bodyVelocity = nil
+        end
+        if bossFarms[key].bodyPosition then
+            bossFarms[key].bodyPosition:Destroy()
+            bossFarms[key].bodyPosition = nil
         end
         
-        local mobModel = Workspace:FindFirstChild(mobName)
-        if not mobModel then
-            status.Text = mobName .. " not found, stopping follow"
-            stopStayAbove()
-            return
-        end
-        
-        -- Only lock if target changed
-        if currentBossTarget ~= mobModel then
-            currentBossTarget = mobModel
-            
-            local rootPart = mobModel:FindFirstChild("HumanoidRootPart") or mobModel:FindFirstChildWhichIsA("BasePart")
-            if not rootPart then return end
-            
-            local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-            
+        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+        if rootPart then
             local char = player.Character
             if char then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    -- Remove old locks
-                    if stayAboveBodyPosition then
-                        stayAboveBodyPosition:Destroy()
-                        stayAboveBodyPosition = nil
-                    end
-                    if stayAboveBodyVelocity then
-                        stayAboveBodyVelocity:Destroy()
-                        stayAboveBodyVelocity = nil
-                    end
+                local playerRoot = char:FindFirstChild("HumanoidRootPart")
+                if playerRoot then
+                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
                     
                     local hum = char:FindFirstChild("Humanoid")
                     if hum then
                         hum.PlatformStand = true
                     end
                     
-                    -- Move above and face DOWN
-                    root.CFrame = CFrame.new(targetPos, rootPart.Position)
+                    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
                     
-                    stayAboveBodyPosition = Instance.new("BodyPosition")
-                    stayAboveBodyPosition.Position = targetPos
-                    stayAboveBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                    stayAboveBodyPosition.D = 5000
-                    stayAboveBodyPosition.P = 20000
-                    stayAboveBodyPosition.Parent = root
+                    bossFarms[key].bodyPosition = Instance.new("BodyPosition")
+                    bossFarms[key].bodyPosition.Position = targetPos
+                    bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    bossFarms[key].bodyPosition.D = 5000
+                    bossFarms[key].bodyPosition.P = 20000
+                    bossFarms[key].bodyPosition.Parent = playerRoot
                     
-                    stayAboveBodyVelocity = Instance.new("BodyVelocity")
-                    stayAboveBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                    stayAboveBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                    stayAboveBodyVelocity.Parent = root
+                    bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
+                    bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                    bossFarms[key].bodyVelocity.Parent = playerRoot
+                    
+                    bossFarms[key].currentTarget = mob
+                    bossFarms[key].isAlive = true
+                    status.Text = "🔒 Locked above " .. bossDisplayName
+                    
+                    if statusLabel then
+                        statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
+                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
                 end
             end
-            status.Text = "🔒 Locked above " .. mobName .. " (facing down)"
         end
-    end)
-    status.Text = "Following " .. mobName .. " (above 5.1 locked)"
-end
-
-local function stopStayAbove()
-    cheats.stayBehind = false
-    if stayAboveConnection then
-        stayAboveConnection:Disconnect()
-        stayAboveConnection = nil
-    end
-    if stayAboveBodyVelocity then
-        stayAboveBodyVelocity:Destroy()
-        stayAboveBodyVelocity = nil
-    end
-    if stayAboveBodyPosition then
-        stayAboveBodyPosition:Destroy()
-        stayAboveBodyPosition = nil
-    end
-    currentBossTarget = nil
-    local char = player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-        end
-    end
-    status.Text = "Stopped following"
-end
-
--- ============================================================
---  BOSS TELEPORT
--- ============================================================
-local function teleportToBoss(modelName, entrancePos)
-    local mobModel = Workspace:FindFirstChild(modelName)
-    if mobModel then
-        tweenAboveMob(mobModel)
     else
-        status.Text = modelName .. " not found – teleporting to entrance"
-        tweenToPosition(entrancePos + Vector3.new(0,5,0), 0.6)
+        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+        if rootPart then
+            local char = player.Character
+            if char then
+                local playerRoot = char:FindFirstChild("HumanoidRootPart")
+                if playerRoot then
+                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+                    if bossFarms[key].bodyPosition then
+                        bossFarms[key].bodyPosition.Position = targetPos
+                    end
+                    playerRoot.CFrame = CFrame.new(playerRoot.Position, rootPart.Position)
+                end
+            end
+        end
     end
 end
 
@@ -1035,16 +1205,17 @@ local inventoryCache = {}
 
 local function refreshInventory()
     inventoryCache = {}
+    -- Add all items from our database
     for name, data in pairs(ITEM_DB) do
         inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
     end
     if status then
-        status.Text = "Inventory ready: " .. #inventoryCache .. " items"
+        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded"
     end
 end
 
 -- ============================================================
---  FARM TAB (status is reused)
+--  FARM TAB
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1053,59 +1224,121 @@ status.Parent = farmScroller
 
 refreshInventory()
 
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, 0, 0, 24)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "Attack speed: 0.30s"
-infoLabel.TextColor3 = Color3.fromRGB(200,200,220)
-infoLabel.Font = Enum.Font.Gotham
-infoLabel.TextSize = bigText(14)
-infoLabel.TextXAlignment = Enum.TextXAlignment.Center
-infoLabel.Parent = farmScroller
+-- Section 1: Gargoyle Farm
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
+gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.8, 0, 0, s(40))
-toggleBtn.Position = UDim2.new(0.1, 0, 0, 0)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Text = "▶ Start"
-toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = bigText(18)
-toggleBtn.Parent = farmScroller
+-- Section 2: Boss Farms
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
 
-local row1 = addControl(farmScroller, 40)
-local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0.3, -s(5), 1, 0)
-collectBtn.Position = UDim2.new(0, 0, 0, 0)
-collectBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 60)
-collectBtn.BorderSizePixel = 0
-collectBtn.Text = "💰 Collect Gold"
-collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
-collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = bigText(13)
-collectBtn.Parent = row1
+local bossFarmDefs = {
+    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
+    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss"}
+}
 
-local lootNowBtn = Instance.new("TextButton")
-lootNowBtn.Size = UDim2.new(0.3, -s(5), 1, 0)
-lootNowBtn.Position = UDim2.new(0.35, 0, 0, 0)
-lootNowBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 160)
-lootNowBtn.BorderSizePixel = 0
-lootNowBtn.Text = "📦 Loot Now"
-lootNowBtn.TextColor3 = Color3.fromRGB(255,255,255)
-lootNowBtn.Font = Enum.Font.GothamBold
-lootNowBtn.TextSize = bigText(13)
-lootNowBtn.Parent = row1
+for _, def in ipairs(bossFarmDefs) do
+    local cell = Instance.new("Frame")
+    cell.Size = UDim2.new(0.45, 0, 0, s(55))
+    cell.BackgroundTransparency = 1
+    cell.Parent = bossContainer
+    
+    local gridLayout = Instance.new("UIGridLayout")
+    gridLayout.Parent = bossContainer
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
+    gridLayout.CellPadding = UDim2.new(0, s(10), 0, s(10))
+    gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0.5, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    btn.BorderSizePixel = 0
+    btn.Text = def.display .. " Farm (OFF)"
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = bigText(11)
+    btn.Parent = cell
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = def.display .. ": OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = bigText(11)
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = cell
+    
+    local bossBtn = btn
+    local bossStatusLabel = statusLabel
+    local bossName = def.key
+    local bossSign = def.sign
+    local bossDisplay = def.display
+    
+    btn.Activated:Connect(function()
+        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
+    end)
+end
 
-local autoCollectToggle = addToggleRow(farmScroller, "Auto-Collect Gold", true)
-local autoLootToggle = addToggleRow(farmScroller, "Auto-Loot", false)
+-- Section 3: Auto Controls
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 85)
+
+local autoCollectToggle = addToggleRow(autoContainer, "Auto-Collect Gold", true)
+
+local autoLootRow = Instance.new("Frame")
+autoLootRow.Size = UDim2.new(1, 0, 0, s(34))
+autoLootRow.BackgroundTransparency = 1
+autoLootRow.Parent = autoContainer
+
+local autoLootLabel = Instance.new("TextLabel")
+autoLootLabel.Size = UDim2.new(0.5, 0, 1, 0)
+autoLootLabel.BackgroundTransparency = 1
+autoLootLabel.Text = "Auto-Loot: OFF"
+autoLootLabel.TextColor3 = Color3.fromRGB(200,200,220)
+autoLootLabel.Font = Enum.Font.Gotham
+autoLootLabel.TextSize = bigText(14)
+autoLootLabel.TextXAlignment = Enum.TextXAlignment.Left
+autoLootLabel.Parent = autoLootRow
+
+local autoLootBtn = Instance.new("TextButton")
+autoLootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+autoLootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+autoLootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+autoLootBtn.BorderSizePixel = 0
+autoLootBtn.Text = "OFF"
+autoLootBtn.TextColor3 = Color3.fromRGB(255,255,255)
+autoLootBtn.Font = Enum.Font.GothamBold
+autoLootBtn.TextSize = bigText(14)
+autoLootBtn.Parent = autoLootRow
+
+autoLootBtn.Activated:Connect(function()
+    CONFIG.AutoLoot = not CONFIG.AutoLoot
+    autoLootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
+    autoLootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    autoLootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
+end)
 
 -- ============================================================
---  AUTO TAB (Sell, Upgrade, Dismantle)
+--  AUTO TAB (TWO COLUMN LAYOUT + FULL INVENTORY SCANNING)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Upgrade", "Dismantle"}
 
+-- Create a two-column grid container
+local autoGrid = Instance.new("Frame")
+autoGrid.Size = UDim2.new(1, 0, 1, 0)
+autoGrid.BackgroundTransparency = 1
+autoGrid.Parent = autoScroller
+
+local autoGridLayout = Instance.new("UIGridLayout")
+autoGridLayout.Parent = autoGrid
+autoGridLayout.CellSize = UDim2.new(0.48, 0, 0, s(160))
+autoGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
+autoGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+-- Refresh button at top
 local refreshBtn = Instance.new("TextButton")
 refreshBtn.Size = UDim2.new(0.6, 0, 0, s(36))
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
@@ -1118,29 +1351,39 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(refreshInventory)
 
+-- Create a cell for each action
 for idx, action in ipairs(autoActions) do
     local currentAction = action
     
+    -- Each action gets its own cell in the grid
+    local cell = Instance.new("Frame")
+    cell.Size = UDim2.new(1, 0, 1, 0)
+    cell.BackgroundTransparency = 1
+    cell.Parent = autoGrid
+    
+    -- Header
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 24)
+    header.Size = UDim2.new(1, 0, 0, s(24))
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. currentAction .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
     header.TextSize = bigText(15)
     header.TextXAlignment = Enum.TextXAlignment.Left
-    header.Parent = autoScroller
+    header.Parent = cell
     
+    -- Checkbox container
     local checkboxContainer = Instance.new("Frame")
-    checkboxContainer.Size = UDim2.new(1, -s(10), 0, s(72))
+    checkboxContainer.Size = UDim2.new(1, 0, 0, s(80))
+    checkboxContainer.Position = UDim2.new(0, 0, 0, s(24))
     checkboxContainer.BackgroundTransparency = 1
-    checkboxContainer.Parent = autoScroller
+    checkboxContainer.Parent = cell
     
     local grid = Instance.new("UIGridLayout")
     grid.Parent = checkboxContainer
-    grid.CellSize = UDim2.new(0, s(80), 0, s(34))
-    grid.CellPadding = UDim2.new(0, s(10), 0, s(4))
-    grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    grid.CellSize = UDim2.new(0, s(70), 0, s(30))
+    grid.CellPadding = UDim2.new(0, s(4), 0, s(2))
+    grid.HorizontalAlignment = Enum.HorizontalAlignment.Left
     grid.VerticalAlignment = Enum.VerticalAlignment.Top
     grid.FillDirection = Enum.FillDirection.Horizontal
     
@@ -1153,37 +1396,30 @@ for idx, action in ipairs(autoActions) do
     
     for _, rarity in ipairs(RARITY_LIST) do
         local cbContainer = Instance.new("Frame")
-        cbContainer.Size = UDim2.new(0, s(80), 0, s(34))
+        cbContainer.Size = UDim2.new(0, s(70), 0, s(30))
         cbContainer.BackgroundTransparency = 1
         cbContainer.Parent = checkboxContainer
         
         local checkBtn = Instance.new("TextButton")
-        checkBtn.Size = UDim2.new(0, s(28), 0, s(28))
-        checkBtn.Position = UDim2.new(0, 0, 0, s(3))
+        checkBtn.Size = UDim2.new(0, s(22), 0, s(22))
+        checkBtn.Position = UDim2.new(0, 0, 0, s(4))
         checkBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
         checkBtn.BorderSizePixel = 1
         checkBtn.BorderColor3 = Color3.fromRGB(100,100,150)
         checkBtn.Text = ""
         checkBtn.TextColor3 = Color3.fromRGB(255,255,255)
         checkBtn.Font = Enum.Font.GothamBold
-        checkBtn.TextSize = bigText(18)
+        checkBtn.TextSize = bigText(16)
         checkBtn.Parent = cbContainer
         
-        checkBtn.MouseEnter:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-        end)
-        checkBtn.MouseLeave:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-        end)
-        
         local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -s(32), 1, 0)
-        label.Position = UDim2.new(0, s(32), 0, 0)
+        label.Size = UDim2.new(1, -s(26), 1, 0)
+        label.Position = UDim2.new(0, s(26), 0, 0)
         label.BackgroundTransparency = 1
         label.Text = rarity
         label.TextColor3 = Color3.fromRGB(220,220,240)
         label.Font = Enum.Font.GothamBold
-        label.TextSize = bigText(13)
+        label.TextSize = bigText(11)
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = cbContainer
         
@@ -1236,35 +1472,66 @@ for idx, action in ipairs(autoActions) do
         end)
     end
     
-    local toggleRow = addToggleRow(autoScroller, currentAction .. " (toggle)", false)
+    -- Toggle row
+    local toggleRow = Instance.new("Frame")
+    toggleRow.Size = UDim2.new(1, 0, 0, s(34))
+    toggleRow.Position = UDim2.new(0, 0, 0, s(104))
+    toggleRow.BackgroundTransparency = 1
+    toggleRow.Parent = cell
+    
+    local toggleLabel = Instance.new("TextLabel")
+    toggleLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    toggleLabel.BackgroundTransparency = 1
+    toggleLabel.Text = currentAction .. ": OFF"
+    toggleLabel.TextColor3 = Color3.fromRGB(200,200,220)
+    toggleLabel.Font = Enum.Font.Gotham
+    toggleLabel.TextSize = bigText(13)
+    toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    toggleLabel.Parent = toggleRow
+    
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Size = UDim2.new(0, s(50), 1, -s(4))
+    toggleBtn.Position = UDim2.new(0.5, 0, 0, s(2))
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Text = "OFF"
+    toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = bigText(13)
+    toggleBtn.Parent = toggleRow
+    
     local enabled = false
     
-    toggleRow.button.MouseButton1Click:Connect(function()
+    toggleBtn.MouseButton1Click:Connect(function()
         enabled = not enabled
-        toggleRow.button.Text = enabled and "ON" or "OFF"
-        toggleRow.button.BackgroundColor3 = enabled and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-        toggleRow.label.Text = currentAction .. " (toggle): " .. (enabled and "ON" or "OFF")
+        toggleBtn.Text = enabled and "ON" or "OFF"
+        toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+        toggleLabel.Text = currentAction .. ": " .. (enabled and "ON" or "OFF")
     end)
     
     actionToggles[currentAction] = {
         enabled = function() return enabled end,
-        toggleBtn = toggleRow.button,
+        toggleBtn = toggleBtn,
         getRarities = function()
             local selected = {}
             for r, v in pairs(rarityStates) do
                 if v then table.insert(selected, r) end
             end
+            -- If "All" is selected, return all rarities
+            for _, r in ipairs(selected) do
+                if r == "All" then
+                    local allRarities = {}
+                    for _, rarity in ipairs(RARITY_LIST) do
+                        if rarity ~= "All" then
+                            table.insert(allRarities, rarity)
+                        end
+                    end
+                    return allRarities
+                end
+            end
             return selected
         end,
     }
-    
-    if idx < #autoActions then
-        local sep = Instance.new("Frame")
-        sep.Size = UDim2.new(1, 0, 0, s(2))
-        sep.BackgroundColor3 = Color3.fromRGB(60,60,80)
-        sep.BorderSizePixel = 0
-        sep.Parent = autoScroller
-    end
 end
 
 -- ============================================================
@@ -1372,16 +1639,36 @@ miniCloseBtn.ZIndex = 10
 --  CLOSE HANDLER
 -- ============================================================
 local function closeGUI()
-    if running then running = false; if stopFarm then stopFarm() end end
+    if running then running = false end
     if cheats.fly then cheats.fly = false; if disableFly then disableFly() end end
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
-    if stayAboveConnection then stayAboveConnection:Disconnect(); stayAboveConnection = nil end
     if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
     if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy(); gargoyleBodyVelocity = nil end
     if gargoyleBodyPosition then gargoyleBodyPosition:Destroy(); gargoyleBodyPosition = nil end
-    if stayAboveBodyVelocity then stayAboveBodyVelocity:Destroy(); stayAboveBodyVelocity = nil end
-    if stayAboveBodyPosition then stayAboveBodyPosition:Destroy(); stayAboveBodyPosition = nil end
+    
+    for key, data in pairs(bossFarms) do
+        if data.running then
+            data.running = false
+        end
+        if bossFarmThreads[key] then
+            task.cancel(bossFarmThreads[key])
+            bossFarmThreads[key] = nil
+        end
+        if data.bodyVelocity then
+            data.bodyVelocity:Destroy()
+            data.bodyVelocity = nil
+        end
+        if data.bodyPosition then
+            data.bodyPosition:Destroy()
+            data.bodyPosition = nil
+        end
+        if data.timerConnection then
+            data.timerConnection:Disconnect()
+            data.timerConnection = nil
+        end
+    end
+    
     local char = player.Character
     if char then
         local hum = char:FindFirstChild("Humanoid")
@@ -1417,7 +1704,6 @@ function toggleAutoClicker()
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,200,50)
         miniACBtn.Text = "AC: Wait"
         miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-        aimCircle.BackgroundTransparency = 0.3
     else
         cheats.autoClickStartTime = 0
         cheats.autoClickActive = false
@@ -1427,7 +1713,6 @@ function toggleAutoClicker()
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
         miniACBtn.Text = "AC: CD 2s"
         miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-        aimCircle.BackgroundTransparency = 0.7
     end
 end
 
@@ -1452,7 +1737,6 @@ RunService.Heartbeat:Connect(function()
             playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
             playerToggles.autoClickToggle.button.Text = "OFF"
             playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-            aimCircle.BackgroundTransparency = 0.7
         end
     elseif not cheats.autoClick and cheats.autoClickCooldown ~= 0 then
         cheats.autoClickCooldown = 0
@@ -1461,7 +1745,6 @@ RunService.Heartbeat:Connect(function()
         playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
         playerToggles.autoClickToggle.button.Text = "OFF"
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-        aimCircle.BackgroundTransparency = 0.7
     end
     
     if not cheats.autoClick then
@@ -1497,7 +1780,6 @@ RunService.Heartbeat:Connect(function()
                     playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(0,200,100)
                     miniACBtn.Text = "AC: ON"
                     miniACBtn.BackgroundColor3 = Color3.fromRGB(0,200,100)
-                    aimCircle.BackgroundTransparency = 0.2
                 end
             end
             
@@ -1644,25 +1926,18 @@ end)
 -- ============================================================
 --  TELEPORT TAB
 -- ============================================================
-local teleportLabel = Instance.new("TextLabel")
-teleportLabel.Size = UDim2.new(1, 0, 0, 24)
-teleportLabel.BackgroundTransparency = 1
-teleportLabel.Text = "Teleport to Location:"
-teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
-teleportLabel.Font = Enum.Font.Gotham
-teleportLabel.TextSize = bigText(15)
-teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
-teleportLabel.Parent = teleportScroller
 
+-- Section 1: Current Position
+local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
 local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 0, 34)
+posUpdate.Size = UDim2.new(1, 0, 0, s(34))
 posUpdate.BackgroundTransparency = 1
-posUpdate.Text = "Current Pos: 0.0, 0.0, 0.0"
+posUpdate.Text = "0.0, 0.0, 0.0"
 posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
 posUpdate.Font = Enum.Font.GothamBold
 posUpdate.TextSize = bigText(18)
-posUpdate.TextXAlignment = Enum.TextXAlignment.Left
-posUpdate.Parent = teleportScroller
+posUpdate.TextXAlignment = Enum.TextXAlignment.Center
+posUpdate.Parent = posContainer
 
 local function updatePos()
     local char = player.Character
@@ -1670,7 +1945,7 @@ local function updatePos()
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
             local p = root.Position
-            posUpdate.Text = string.format("Current Pos: %.1f, %.1f, %.1f", p.X, p.Y, p.Z)
+            posUpdate.Text = string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z)
         end
     end
 end
@@ -1678,82 +1953,18 @@ end
 RunService.Heartbeat:Connect(updatePos)
 player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
 
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.4, 0, 0, s(32))
-copyBtn.Position = UDim2.new(0.3, 0, 0, 0)
-copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
-copyBtn.BorderSizePixel = 0
-copyBtn.Text = "📋 Copy to Custom"
-copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = bigText(14)
-copyBtn.Parent = teleportScroller
-
-copyBtn.Activated:Connect(function()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            coordX.Text = string.format("%.1f", p.X)
-            coordY.Text = string.format("%.1f", p.Y)
-            coordZ.Text = string.format("%.1f", p.Z)
-            status.Text = "Coordinates copied to Custom"
-        end
-    end
-end)
-
--- Gargoyle farm toggle
-local gargoyleRow = addControl(teleportScroller, 72)
-gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.8, 0, 0.6, 0)
-gargoyleBtn.Position = UDim2.new(0.1, 0, 0, 0)
-gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-gargoyleBtn.BorderSizePixel = 0
-gargoyleBtn.Text = "🧛 Gargoyle Farm (OFF)"
-gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(15)
-gargoyleBtn.Parent = gargoyleRow
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
-
-gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.4, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
-gargoyleStatusLabel.BackgroundTransparency = 1
-gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
-gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-gargoyleStatusLabel.Font = Enum.Font.Gotham
-gargoyleStatusLabel.TextSize = bigText(13)
-gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-gargoyleStatusLabel.Parent = gargoyleRow
-
--- Shops & Locations (Instant TP)
-local shopSection = Instance.new("Frame")
-shopSection.Size = UDim2.new(1, 0, 0, s(120))
-shopSection.BackgroundTransparency = 1
-shopSection.Parent = teleportScroller
-
-local shopHeader = Instance.new("TextLabel")
-shopHeader.Size = UDim2.new(1, 0, 0, 22)
-shopHeader.BackgroundTransparency = 1
-shopHeader.Text = "🏪 Shops & Locations (Instant TP)"
-shopHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-shopHeader.Font = Enum.Font.GothamBold
-shopHeader.TextSize = bigText(15)
-shopHeader.TextXAlignment = Enum.TextXAlignment.Left
-shopHeader.Parent = shopSection
+-- Section 2: Shops & Locations
+local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 115)
 
 local shopGrid = Instance.new("Frame")
-shopGrid.Size = UDim2.new(1, 0, 1, -s(22))
-shopGrid.Position = UDim2.new(0, 0, 0, s(22))
+shopGrid.Size = UDim2.new(1, 0, 1, 0)
 shopGrid.BackgroundTransparency = 1
-shopGrid.Parent = shopSection
+shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(30))
-shopGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(32))
+shopGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
 shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 local shopButtons = {
@@ -1780,115 +1991,17 @@ for _, data in ipairs(shopButtons) do
     end)
 end
 
--- Mobs with Follow toggle (KingChicken and Spider)
-local mobSection = Instance.new("Frame")
-mobSection.Size = UDim2.new(1, 0, 0, s(200))
-mobSection.BackgroundTransparency = 1
-mobSection.Parent = teleportScroller
+-- Section 3: Custom Teleport
+local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 110)
 
-local mobHeader = Instance.new("TextLabel")
-mobHeader.Size = UDim2.new(1, 0, 0, 22)
-mobHeader.BackgroundTransparency = 1
-mobHeader.Text = "👾 Mobs (Teleport + Follow)"
-mobHeader.TextColor3 = Color3.fromRGB(255, 150, 150)
-mobHeader.Font = Enum.Font.GothamBold
-mobHeader.TextSize = bigText(15)
-mobHeader.TextXAlignment = Enum.TextXAlignment.Left
-mobHeader.Parent = mobSection
-
-local mobGrid = Instance.new("Frame")
-mobGrid.Size = UDim2.new(1, 0, 1, -s(22))
-mobGrid.Position = UDim2.new(0, 0, 0, s(22))
-mobGrid.BackgroundTransparency = 1
-mobGrid.Parent = mobSection
-
-local mobGridLayout = Instance.new("UIGridLayout")
-mobGridLayout.Parent = mobGrid
-mobGridLayout.CellSize = UDim2.new(0.4, 0, 0, s(34))
-mobGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-mobGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local mobDefs = {
-    {key = "Chicken", text = "🐔 King Chicken", color = Color3.fromRGB(200,180,80), entrance = CHICKEN_BOSS_ENTRANCE, modelName = "KingChicken"},
-    {key = "Spider", text = "🕷 Spider Boss", color = Color3.fromRGB(150,100,200), entrance = SPIDER_BOSS_ENTRANCE, modelName = "SpiderBoss"}
-}
-
-local followToggles = {}
-
-for _, def in ipairs(mobDefs) do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
-    cell.Parent = mobGrid
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.5, 0, 0.6, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
-    btn.BackgroundColor3 = def.color
-    btn.BorderSizePixel = 0
-    btn.Text = def.text
-    btn.TextColor3 = Color3.fromRGB(255,255,255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(12)
-    btn.Parent = cell
-    
-    btn.Activated:Connect(function()
-        teleportToBoss(def.modelName, def.entrance)
-    end)
-    
-    local followRow = addToggleRow(cell, "Follow", false)
-    followRow.button.Size = UDim2.new(0, s(50), 1, -s(4))
-    followRow.button.Position = UDim2.new(0.55, 0, 0, s(2))
-    followRow.label.Text = "Follow: OFF"
-    
-    followToggles[def.key] = followRow
-    
-    followRow.button.MouseButton1Click:Connect(function()
-        local newVal = not followRow.value
-        followRow.value = newVal
-        followRow.button.Text = newVal and "ON" or "OFF"
-        followRow.button.BackgroundColor3 = newVal and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-        followRow.label.Text = "Follow: " .. (newVal and "ON" or "OFF")
-        if newVal then
-            startStayAbove(def.modelName)
-        else
-            stopStayAbove()
-        end
-    end)
-    
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(0.7, 0, 0.4, 0)
-    statusLabel.Position = UDim2.new(0, 0, 0.6, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = "❓ Unknown"
-    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    statusLabel.Font = Enum.Font.GothamBold
-    statusLabel.TextSize = bigText(11)
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Parent = cell
-    
-    if def.key == "Chicken" then
-        bossData.Chicken.statusLabel = statusLabel
-    elseif def.key == "Spider" then
-        bossData.Spider.statusLabel = statusLabel
-    end
-end
-
--- Custom coords (Tween)
-local coordRow = addControl(teleportScroller, 50)
-local coordLabel = Instance.new("TextLabel")
-coordLabel.Size = UDim2.new(0.2, 0, 1, 0)
-coordLabel.BackgroundTransparency = 1
-coordLabel.Text = "Custom XYZ:"
-coordLabel.TextColor3 = Color3.fromRGB(200,200,220)
-coordLabel.Font = Enum.Font.Gotham
-coordLabel.TextSize = bigText(14)
-coordLabel.TextXAlignment = Enum.TextXAlignment.Right
-coordLabel.Parent = coordRow
+local coordRow = Instance.new("Frame")
+coordRow.Size = UDim2.new(1, 0, 0, s(36))
+coordRow.BackgroundTransparency = 1
+coordRow.Parent = customContainer
 
 local coordX = Instance.new("TextBox")
-coordX.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordX.Position = UDim2.new(0.22, 0, 0, s(2))
+coordX.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordX.Position = UDim2.new(0.02, 0, 0, s(2))
 coordX.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordX.BorderSizePixel = 0
 coordX.Text = "0"
@@ -1898,8 +2011,8 @@ coordX.TextSize = bigText(14)
 coordX.Parent = coordRow
 
 local coordY = Instance.new("TextBox")
-coordY.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordY.Position = UDim2.new(0.38, 0, 0, s(2))
+coordY.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordY.Position = UDim2.new(0.36, 0, 0, s(2))
 coordY.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordY.BorderSizePixel = 0
 coordY.Text = "0"
@@ -1909,8 +2022,8 @@ coordY.TextSize = bigText(14)
 coordY.Parent = coordRow
 
 local coordZ = Instance.new("TextBox")
-coordZ.Size = UDim2.new(0.15, 0, 1, -s(4))
-coordZ.Position = UDim2.new(0.54, 0, 0, s(2))
+coordZ.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordZ.Position = UDim2.new(0.70, 0, 0, s(2))
 coordZ.BackgroundColor3 = Color3.fromRGB(30,40,60)
 coordZ.BorderSizePixel = 0
 coordZ.Text = "0"
@@ -1919,16 +2032,41 @@ coordZ.Font = Enum.Font.Gotham
 coordZ.TextSize = bigText(14)
 coordZ.Parent = coordRow
 
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(0.3, 0, 0, s(30))
+copyBtn.Position = UDim2.new(0.35, 0, 0.5, 0)
+copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
+copyBtn.BorderSizePixel = 0
+copyBtn.Text = "📋 Copy Pos"
+copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
+copyBtn.Font = Enum.Font.GothamBold
+copyBtn.TextSize = bigText(13)
+copyBtn.Parent = customContainer
+
+copyBtn.Activated:Connect(function()
+    local char = player.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local p = root.Position
+            coordX.Text = string.format("%.1f", p.X)
+            coordY.Text = string.format("%.1f", p.Y)
+            coordZ.Text = string.format("%.1f", p.Z)
+            status.Text = "Coordinates copied"
+        end
+    end
+end)
+
 local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0.4, 0, 0, s(36))
-teleportBtn.Position = UDim2.new(0.3, 0, 0, 0)
+teleportBtn.Size = UDim2.new(0.3, 0, 0, s(30))
+teleportBtn.Position = UDim2.new(0.35, 0, 0.8, 0)
 teleportBtn.BackgroundColor3 = Color3.fromRGB(60,120,200)
 teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "🚀 Tween Teleport"
+teleportBtn.Text = "🚀 Teleport"
 teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
 teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = bigText(15)
-teleportBtn.Parent = teleportScroller
+teleportBtn.TextSize = bigText(13)
+teleportBtn.Parent = customContainer
 
 teleportBtn.Activated:Connect(function()
     local x = tonumber(coordX.Text) or 0
@@ -1993,12 +2131,37 @@ local function performRarityAction(action, rarityList)
     end
     
     local processed = 0
+    local totalItems = 0
+    
+    -- If no rarities selected or "All" is selected, process all items
+    if not rarityList or #rarityList == 0 then
+        for serial, item in pairs(inventoryCache) do
+            totalItems = totalItems + 1
+            if action == "Sell" and sellRequest then
+                sellRequest:FireServer({[serial] = 1})
+                processed = processed + 1
+            elseif action == "Upgrade" and upgradeRequest then
+                upgradeRequest:FireServer(serial)
+                processed = processed + 1
+            elseif action == "Dismantle" and dismantleRequest then
+                dismantleRequest:FireServer(serial)
+                processed = processed + 1
+            end
+            task.wait(0.05)
+        end
+        if processed > 0 then
+            status.Text = "Auto-" .. action .. " processed " .. processed .. "/" .. totalItems .. " items"
+        end
+        return
+    end
+    
     local processAll = false
     for _, r in ipairs(rarityList) do
         if r == "All" then processAll = true; break end
     end
     
     for serial, item in pairs(inventoryCache) do
+        totalItems = totalItems + 1
         local itemRarity = item.rarity or "Common"
         local shouldProcess = false
         
@@ -2024,6 +2187,7 @@ local function performRarityAction(action, rarityList)
                 dismantleRequest:FireServer(serial)
                 processed = processed + 1
             end
+            task.wait(0.05)
         end
     end
     
@@ -2039,8 +2203,6 @@ local function startFarm()
         return
     end
     running = true
-    toggleBtn.Text = "⏹ Stop"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
     status.Text = "Status: Running"
     status.TextColor3 = Color3.fromRGB(0,255,150)
     attackCount = 0
@@ -2048,75 +2210,52 @@ local function startFarm()
     lastCollect = tick()
     lastAFK = tick()
     
-    while running do
-        if CONFIG.EnableAttack then
-            weaponAttack:FireServer(0)
-            attackCount = attackCount + 1
-            if attackCount % 50 == 0 then
-                status.Text = "Status: "..attackCount.." attacks"
+    task.spawn(function()
+        while running do
+            if CONFIG.EnableAttack then
+                weaponAttack:FireServer(0)
+                attackCount = attackCount + 1
+                if attackCount % 50 == 0 then
+                    status.Text = "Status: "..attackCount.." attacks"
+                end
+            end
+            
+            local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
+            task.wait(delay)
+            
+            if CONFIG.EnableCollect and collectRequest and tick() - lastCollect > CONFIG.CollectInterval then
+                collectGold()
+                lastCollect = tick()
+            end
+            
+            if CONFIG.AutoLoot then
+                local lootItem, lootDist = getNearestLoot()
+                if lootItem and lootDist < 30 then
+                    instantLoot()
+                end
+            end
+            
+            for _, action in ipairs(autoActions) do
+                if actionToggles[action] and actionToggles[action].enabled() then
+                    local rarities = actionToggles[action].getRarities()
+                    performRarityAction(action, rarities)
+                    task.wait(0.3)
+                end
+            end
+            
+            if cheats.antiAFK and tick() - lastAFK > CONFIG.AntiAFKInterval then
+                doAntiAFK()
+                lastAFK = tick()
             end
         end
-        
-        local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
-        task.wait(delay)
-        
-        if CONFIG.EnableCollect and collectRequest and tick() - lastCollect > CONFIG.CollectInterval then
-            collectGold()
-            lastCollect = tick()
-        end
-        
-        if CONFIG.AutoLoot and tick() % 4 < 0.1 then
-            -- instantLoot defined below
-        end
-        
-        for _, action in ipairs(autoActions) do
-            if actionToggles[action] and actionToggles[action].enabled() then
-                local rarities = actionToggles[action].getRarities()
-                performRarityAction(action, rarities)
-                task.wait(0.3)
-            end
-        end
-        
-        if cheats.antiAFK and tick() - lastAFK > CONFIG.AntiAFKInterval then
-            doAntiAFK()
-            lastAFK = tick()
-        end
-    end
+    end)
 end
 
 local function stopFarm()
     running = false
-    toggleBtn.Text = "▶ Start"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(0,200,80)
     status.Text = "Status: Stopped"
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
-
-toggleBtn.Activated:Connect(function()
-    if running then
-        stopFarm()
-    else
-        startFarm()
-    end
-end)
-
-collectBtn.Activated:Connect(collectGold)
-
-autoCollectToggle.button.Activated:Connect(function()
-    CONFIG.EnableCollect = not CONFIG.EnableCollect
-    autoCollectToggle.value = CONFIG.EnableCollect
-    autoCollectToggle.button.Text = CONFIG.EnableCollect and "ON" or "OFF"
-    autoCollectToggle.button.BackgroundColor3 = CONFIG.EnableCollect and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    autoCollectToggle.label.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
-end)
-
-autoLootToggle.button.Activated:Connect(function()
-    CONFIG.AutoLoot = not CONFIG.AutoLoot
-    autoLootToggle.value = CONFIG.AutoLoot
-    autoLootToggle.button.Text = CONFIG.AutoLoot and "ON" or "OFF"
-    autoLootToggle.button.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    autoLootToggle.label.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
-end)
 
 -- ===== LOOT FUNCTION =====
 local function getNearestLoot()
@@ -2130,7 +2269,7 @@ local function getNearestLoot()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = obj.Name:lower()
-            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") then
+            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
                 local d = (obj.Position - pos).Magnitude
                 if d < dist then
                     dist = d
@@ -2150,14 +2289,12 @@ local function instantLoot()
     
     local item, dist = getNearestLoot()
     if not item then
-        status.Text = "No loot found"
         return
     end
     
     local originalCF = root.CFrame
-    tweenToPosition(item.Position + Vector3.new(0, 2, 0), 0.4)
-    status.Text = "Looting..."
-    task.wait(0.5)
+    tweenToPosition(item.Position + Vector3.new(0, 2, 0), 0.3)
+    task.wait(0.3)
     
     local prompt = nil
     if item.Parent then
@@ -2169,35 +2306,16 @@ local function instantLoot()
     
     if prompt then
         prompt:Fire(player)
-        status.Text = "Proximity prompt triggered"
-    else
-        for _, gui in ipairs(player.PlayerGui:GetDescendants()) do
-            if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                local txt = (gui.Text or ""):lower()
-                if txt:match("collect") or txt:match("pickup") or txt:match("loot") or txt:match("take") then
-                    gui:Fire()
-                    gui.Activated:Fire()
-                    status.Text = "Collect button pressed"
-                    break
-                end
-            end
-        end
     end
     
     local pickupRemote = safeFind("Item_Engine", "Remotes", "PickupItem")
     if pickupRemote then
         pickupRemote:FireServer(item.Parent and item.Parent.Name or item.Name)
-        status.Text = "Pickup remote fired"
     end
     
-    task.wait(CONFIG.LootHoldSeconds)
-    tweenToPosition(originalCF.Position, 0.4)
-    status.Text = "Loot done"
     task.wait(0.5)
-    status.Text = running and "Status: Running" or "Status: Stopped"
+    tweenToPosition(originalCF.Position, 0.3)
 end
-
-lootNowBtn.Activated:Connect(instantLoot)
 
 -- ===== CHARACTER RESET =====
 player.CharacterAdded:Connect(function(char)
@@ -2247,4 +2365,7 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
-print("✅ POLY LOOT – full script loaded (gargoyle ABOVE 5.1 LOCKED facing down, no return, bosses, auto-click 730,300).")
+-- Auto-start the farm
+startFarm()
+
+print("✅ POLY LOOT – ULTIMATE script loaded (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW)")
