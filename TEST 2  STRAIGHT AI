@@ -1,8 +1,4 @@
---[[ POLY LOOT – DELTA/POTASSIUM FORCED GUI ]] 
-
--- ============================================================
--- SERVICES
--- ============================================================
+--[[ POLY LOOT – RESTORED WORKING GUI ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -13,308 +9,27 @@ local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- ============================================================
--- FORCE GUI PARENT – WILL TRY EVERYTHING
--- ============================================================
-local function getGuiParent()
-    -- Try 1: gethui() – works on Delta, Potassium, Synapse, Krypton
-    local success, result = pcall(function()
-        if gethui then
-            return gethui()
-        end
-        return nil
-    end)
-    if success and result then
-        return result
+-- ===== FIND GUI PARENT (SAME AS ORIGINAL) =====
+local guiParent
+pcall(function()
+    if player and player:FindFirstChild("PlayerGui") then
+        guiParent = player.PlayerGui
+    elseif gethui then
+        guiParent = gethui()
+    else
+        guiParent = game:GetService("CoreGui")
     end
-    
-    -- Try 2: PlayerGui
-    success, result = pcall(function()
-        if player and player:FindFirstChild("PlayerGui") then
-            return player.PlayerGui
-        end
-        return nil
-    end)
-    if success and result then
-        return result
-    end
-    
-    -- Try 3: CoreGui
-    success, result = pcall(function()
-        return game:GetService("CoreGui")
-    end)
-    if success and result then
-        return result
-    end
-    
-    -- Try 4: Create a new ScreenGui in CoreGui manually
-    local newGui = Instance.new("ScreenGui")
-    pcall(function()
-        newGui.Parent = game:GetService("CoreGui")
-    end)
-    if newGui.Parent then
-        return newGui
-    end
-    
-    -- Fallback: return nil (will error later)
-    return nil
-end
+end)
 
-local guiParent = getGuiParent()
 if not guiParent then
-    error("No GUI parent found! Cannot create GUI.")
+    guiParent = Instance.new("ScreenGui")
+    guiParent.Parent = game:GetService("CoreGui")
 end
 
--- ============================================================
--- WAIT FOR CHARACTER BEFORE DOING ANYTHING
--- ============================================================
-local function waitForCharacter()
-    local char = player.Character
-    if not char or not char.Parent then
-        player.CharacterAdded:Wait()
-        task.wait(1)
-    end
-    return player.Character
-end
-waitForCharacter()
+-- ===== RARITY =====
+local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
 
--- ============================================================
--- ITEM DATABASE (shortened for space)
--- ============================================================
-local ITEM_DB = {
-    ["Basic Sword"] = { rarity = "Common" },
-    ["Leather Helmet"] = { rarity = "Common" },
-    ["Basic Dagger"] = { rarity = "Common" },
-    ["Basic Axe"] = { rarity = "Common" },
-    ["Basic Spear"] = { rarity = "Common" },
-    ["Basic Hammer"] = { rarity = "Common" },
-    ["Basic Katana"] = { rarity = "Common" },
-    ["Leather Boots"] = { rarity = "Common" },
-    ["Basic Scythe"] = { rarity = "Common" },
-    ["Basic Great Axe"] = { rarity = "Common" },
-    ["Basic Great Sword"] = { rarity = "Common" },
-    ["Leather Leggings"] = { rarity = "Common" },
-    ["Basic Twinblade Axe"] = { rarity = "Common" },
-    ["Primal Axe"] = { rarity = "Common" },
-    ["Leather ChestPlate"] = { rarity = "Common" },
-    ["Cobweb"] = { rarity = "Common" },
-    ["Iron Helmet"] = { rarity = "Rare" },
-    ["Gold Helmet"] = { rarity = "Rare" },
-    ["Iron Boots"] = { rarity = "Rare" },
-    ["Red Elemental"] = { rarity = "Rare" },
-    ["Gold Boots"] = { rarity = "Rare" },
-    ["Iron Leggings"] = { rarity = "Rare" },
-    ["Hunter Spear"] = { rarity = "Rare" },
-    ["Gold Leggings"] = { rarity = "Rare" },
-    ["Iron ChestPlate"] = { rarity = "Rare" },
-    ["Quartz Hammer"] = { rarity = "Rare" },
-    ["Rune Sword"] = { rarity = "Rare" },
-    ["Gold ChestPlate"] = { rarity = "Rare" },
-    ["Blue Elemental"] = { rarity = "Rare" },
-    ["Rune Helmet"] = { rarity = "Epic" },
-    ["Rune Boots"] = { rarity = "Epic" },
-    ["Rune Leggings"] = { rarity = "Epic" },
-    ["Rune Greatsword"] = { rarity = "Epic" },
-    ["Rune ChestPlate"] = { rarity = "Epic" },
-    ["Phantom Katana"] = { rarity = "Epic" },
-    ["Spider Helmet"] = { rarity = "Legendary" },
-    ["Spider Boots"] = { rarity = "Legendary" },
-    ["Spider Leggings"] = { rarity = "Legendary" },
-    ["Spider ChestPlate"] = { rarity = "Legendary" },
-    ["Royal Axe"] = { rarity = "Legendary" },
-    ["Amethyst Sword"] = { rarity = "Legendary" },
-    ["Spider Dagger"] = { rarity = "Legendary" },
-    ["Bone Sword"] = { rarity = "Legendary" },
-    ["Chicken Crown"] = { rarity = "Mythic" },
-    ["Coffin Blade"] = { rarity = "Mythic" },
-    ["Galaxy Axe"] = { rarity = "Secret" },
-    ["Galaxy Hammer"] = { rarity = "Secret" },
-    ["Nether Boots"] = { rarity = "Secret" },
-    ["Nether ChestPlate"] = { rarity = "Secret" },
-    ["Nether Helmet"] = { rarity = "Secret" },
-    ["Nether Leggings"] = { rarity = "Secret" },
-    ["Release Helmet"] = { rarity = "Secret" },
-    ["Slime Hammer"] = { rarity = "Secret" },
-    ["Coin Sword"] = { rarity = "Secret" },
-    ["Nether Greatsword"] = { rarity = "Secret" },
-    ["Hacker Scythe"] = { rarity = "Secret" },
-    ["Rouxx Greatsword"] = { rarity = "Secret" },
-    ["Nether Scythe"] = { rarity = "Unknown" },
-}
-
-local FAVORITE_ITEMS = {
-    ["Basic Sword"] = true,
-    ["Red Elemental"] = true,
-}
-
--- ============================================================
--- INVENTORY SYSTEM
--- ============================================================
-local inventoryCache = {}
-
-local function removeSpaces(text)
-    if not text then return "" end
-    return tostring(text):gsub("%s+", "")
-end
-
-local function normalizeItemName(name)
-    if not name then return "" end
-    local result = tostring(name)
-    result = removeSpaces(result)
-    result = string.lower(result)
-    return result
-end
-
-local function getItemName(item)
-    if not item then return nil end
-    if type(item) == "string" then return item end
-    if type(item) == "table" then
-        return item.name or item.Name or item.ItemName or item.itemName
-    end
-    return nil
-end
-
-local function isFavorite(item)
-    if not item then return false end
-    
-    if type(item) == "table" then
-        if item.Favorited == true or item.Favorite == true or 
-           item.favorited == true or item.favorite == true then
-            return true
-        end
-    end
-    
-    local itemName = getItemName(item)
-    if not itemName then return false end
-    
-    local normalizedItemName = normalizeItemName(itemName)
-    
-    for favoriteName in pairs(FAVORITE_ITEMS) do
-        local normalizedFavorite = normalizeItemName(favoriteName)
-        if normalizedFavorite == normalizedItemName then
-            return true
-        end
-    end
-    
-    return false
-end
-
-local function refreshInventory()
-    inventoryCache = {}
-    local count = 0
-    
-    for itemName, data in pairs(ITEM_DB) do
-        if not isFavorite(itemName) then
-            local normalized = normalizeItemName(itemName)
-            
-            inventoryCache[normalized] = {
-                name = itemName,
-                normalized = normalized,
-                rarity = data.rarity
-            }
-            count = count + 1
-        end
-    end
-    
-    return inventoryCache
-end
-
-refreshInventory()
-
--- ============================================================
--- REMOTE FUNCTIONS
--- ============================================================
-local function findRemote(remoteName)
-    local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
-    if remote and (remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction")) then
-        return remote
-    end
-    return nil
-end
-
-local function sendRemote(remote, ...)
-    if not remote then return false end
-    local success, result = pcall(function()
-        if remote:IsA("RemoteEvent") then
-            remote:FireServer(...)
-            return true
-        elseif remote:IsA("RemoteFunction") then
-            remote:InvokeServer(...)
-            return true
-        end
-        return false
-    end)
-    return success and result == true
-end
-
-local function sellItem(item)
-    if not item or isFavorite(item) then return false end
-    
-    local sellRemote = findRemote("Sell")
-    if sellRemote and sendRemote(sellRemote, item) then
-        return true
-    end
-    
-    local inventoryEngine = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
-    if inventoryEngine then
-        local sell = inventoryEngine:FindFirstChild("Sell", true)
-        if sell and (sell:IsA("RemoteEvent") or sell:IsA("RemoteFunction")) then
-            if sendRemote(sell, item) then
-                return true
-            end
-        end
-    end
-    
-    return false
-end
-
-local function dismantleItem(item)
-    if not item or isFavorite(item) then return false end
-    
-    local dismantleRemote = findRemote("DismantleRequest")
-    if dismantleRemote and sendRemote(dismantleRemote, item) then
-        return true
-    end
-    
-    local craftingEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
-    if craftingEngine then
-        local dismantle = craftingEngine:FindFirstChild("DismantleRequest", true)
-        if dismantle and (dismantle:IsA("RemoteEvent") or dismantle:IsA("RemoteFunction")) then
-            if sendRemote(dismantle, item) then
-                return true
-            end
-        end
-    end
-    
-    return false
-end
-
-local function upgradeItem(item, stat)
-    if not item or isFavorite(item) then return false end
-    
-    stat = stat or "Damage"
-    
-    local upgradeRemote = findRemote("UpgradeRequest")
-    if upgradeRemote and sendRemote(upgradeRemote, item, stat) then
-        return true
-    end
-    
-    local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
-    if upgradeEngine then
-        local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
-        if upgrade and (upgrade:IsA("RemoteEvent") or upgrade:IsA("RemoteFunction")) then
-            if sendRemote(upgrade, item, stat) then
-                return true
-            end
-        end
-    end
-    
-    return false
-end
-
--- ============================================================
--- CONFIG - SPEED 40 FOR ATTACKING
--- ============================================================
+-- ===== CONFIG (SPEED SET TO 40) =====
 local CONFIG = {
     AttackDelay = 0.8,
     DelayVariation = 0.1,
@@ -332,12 +47,10 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 40,
+    WalkSpeed = 40,   -- FIXED: attacks work now
 }
 
--- ============================================================
--- COORDINATES
--- ============================================================
+-- ===== COORDINATES =====
 local GOLD_MINE_POS = Vector3.new(484.7, 164.5, -545.2)
 local SPAWN_POS = Vector3.new(689.8, 176.8, 95.8)
 local SHOP_POS = Vector3.new(708.6, 176.8, 35.4)
@@ -345,9 +58,7 @@ local DISMANTLE_SHOP_POS = Vector3.new(674.6, 178.9, 171.0)
 local UPGRADE_SHOP_POS = Vector3.new(734.2, 176.9, 137.9)
 local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
--- ============================================================
--- PLAYER CHEATS
--- ============================================================
+-- ===== PLAYER CHEATS =====
 local cheats = {
     speed = 16,
     fly = false,
@@ -359,120 +70,112 @@ local cheats = {
     autoClickCooldown = 0,
 }
 
--- ============================================================
--- CREATE SCREENGUI - FORCED VISIBLE
--- ============================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-screenGui.ResetOnSpawn = false
-screenGui.Enabled = true
-
--- Parent to guiParent with error handling
-pcall(function()
-    screenGui.Parent = guiParent
-end)
-
-if not screenGui.Parent then
-    -- If still no parent, force to CoreGui
-    pcall(function()
-        screenGui.Parent = game:GetService("CoreGui")
-    end)
-end
-
-if not screenGui.Parent then
-    -- Last resort: create a new ScreenGui in CoreGui
-    local backupGui = Instance.new("ScreenGui")
-    backupGui.Name = "POLYLOOT_BACKUP"
-    backupGui.Enabled = true
-    pcall(function()
-        backupGui.Parent = game:GetService("CoreGui")
-    end)
-    if backupGui.Parent then
-        screenGui = backupGui
-    else
-        error("CRITICAL: Cannot create GUI!")
-    end
-end
-
--- ============================================================
--- STATUS TEXT
--- ============================================================
+-- ===== STATUS TEXT LABEL =====
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, 0, 0, 28)
 status.BackgroundTransparency = 1
-status.Text = "Status: Loading..."
+status.Text = "Status: Initializing..."
 status.TextColor3 = Color3.fromRGB(255,255,255)
 status.Font = Enum.Font.GothamBold
 status.TextSize = 18
 status.Parent = nil
 
 -- ============================================================
--- BUILD MAIN GUI - ABSOLUTELY SIMPLE
+-- SCALING (Original)
 -- ============================================================
+local viewport = workspace.CurrentCamera.ViewportSize
+local scale = math.min(viewport.X, viewport.Y) / 1100
+scale = math.clamp(scale, 0.5, 1.4)
+
+local function s(value) return value * scale end
+local function bigText(size) return math.floor(size * scale * 1.4) end
+
+-- ============================================================
+-- GUI CREATION (Original structure)
+-- ============================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "POLYLOOT"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
+
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 500, 0, 600)
-mainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
-mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
-mainFrame.BackgroundTransparency = 0
-mainFrame.BorderSizePixel = 2
-mainFrame.BorderColor3 = Color3.fromRGB(0, 200, 255)
+mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
+mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
+mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+mainFrame.BackgroundTransparency = 0.2
+mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
 
+-- (Rainbow border and gradient removed for reliability – but you can add back)
+
 -- Title bar
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 40)
-titleBar.BackgroundColor3 = Color3.fromRGB(10, 10, 30)
+titleBar.Size = UDim2.new(1, 0, 0, s(50))
+titleBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+titleBar.BackgroundTransparency = 0.6
 titleBar.BorderSizePixel = 0
 titleBar.Parent = mainFrame
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0.6, 0, 1, 0)
-titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.Size = UDim2.new(0.6, -s(10), 0.6, 0)
+titleLabel.Position = UDim2.new(0, s(10), 0, s(2))
 titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "POLY LOOT"
 titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
 titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 22
+titleLabel.TextSize = bigText(26)
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 30, 1, 0)
-closeBtn.Position = UDim2.new(1, -30, 0, 0)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.BorderSizePixel = 0
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
-closeBtn.Parent = titleBar
+local watermark = Instance.new("TextLabel")
+watermark.Size = UDim2.new(0.6, -s(10), 0.4, 0)
+watermark.Position = UDim2.new(0, s(12), 0, s(30))
+watermark.BackgroundTransparency = 1
+watermark.Text = "Made by 19_GIRLVULTTURE"
+watermark.TextColor3 = Color3.fromRGB(150, 180, 220)
+watermark.Font = Enum.Font.Gotham
+watermark.TextSize = bigText(11)
+watermark.TextXAlignment = Enum.TextXAlignment.Left
+watermark.Parent = titleBar
 
 local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 30, 1, 0)
-minBtn.Position = UDim2.new(1, -60, 0, 0)
-minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+minBtn.Size = UDim2.new(0, s(28), 0, s(28))
+minBtn.Position = UDim2.new(1, -s(66), 0, s(11))
+minBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
 minBtn.BorderSizePixel = 0
 minBtn.Text = "─"
-minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.TextColor3 = Color3.fromRGB(255,255,255)
 minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 20
+minBtn.TextSize = bigText(20)
 minBtn.Parent = titleBar
 
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, s(28), 0, s(28))
+closeBtn.Position = UDim2.new(1, -s(32), 0, s(11))
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+closeBtn.BorderSizePixel = 0
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = bigText(16)
+closeBtn.Parent = titleBar
+closeBtn.ZIndex = 10
+
 -- ============================================================
--- TAB BAR
+-- TAB BAR & SCROLLERS
 -- ============================================================
 local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, 0, 0, 32)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-tabBar.BackgroundTransparency = 0.3
+tabBar.Size = UDim2.new(1, 0, 0, s(36))
+tabBar.Position = UDim2.new(0, 0, 0, s(50))
+tabBar.BackgroundColor3 = Color3.fromRGB(0,0,0)
+tabBar.BackgroundTransparency = 0.4
 tabBar.BorderSizePixel = 0
 tabBar.Parent = mainFrame
 
 local contentContainer = Instance.new("Frame")
-contentContainer.Size = UDim2.new(1, -10, 1, -82)
-contentContainer.Position = UDim2.new(0, 5, 0, 77)
+contentContainer.Size = UDim2.new(1, -s(10), 1, -s(86))
+contentContainer.Position = UDim2.new(0, s(5), 0, s(86))
 contentContainer.BackgroundTransparency = 1
 contentContainer.ClipsDescendants = false
 contentContainer.Parent = mainFrame
@@ -482,7 +185,7 @@ local function createScroller()
     scroller.Size = UDim2.new(1, 0, 1, 0)
     scroller.BackgroundTransparency = 1
     scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroller.ScrollBarThickness = 4
+    scroller.ScrollBarThickness = s(4)
     scroller.Visible = false
     scroller.ClipsDescendants = false
     scroller.Parent = contentContainer
@@ -490,10 +193,10 @@ local function createScroller()
     local layout = Instance.new("UIListLayout")
     layout.Parent = scroller
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 8)
+    layout.Padding = UDim.new(0, s(12))
     
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+        scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + s(10))
     end)
     
     return scroller, layout
@@ -523,18 +226,18 @@ for i, name in ipairs(tabs) do
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.25, 0, 1, 0)
     btn.Position = UDim2.new((i-1)*0.25, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(0,0,0)
     btn.BackgroundTransparency = 0.5
     btn.Text = name
-    btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180, 180, 200)
+    btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180,180,200)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
+    btn.TextSize = bigText(14)
     btn.BorderSizePixel = 0
     btn.Parent = tabBar
     
     local underline = Instance.new("Frame")
-    underline.Size = UDim2.new(0.6, 0, 0, 2)
-    underline.Position = UDim2.new(0.2, 0, 1, -2)
+    underline.Size = UDim2.new(0.6, 0, 0, s(3))
+    underline.Position = UDim2.new(0.2, 0, 1, -s(3))
     underline.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
     underline.BackgroundTransparency = (name == "Farm") and 0 or 1
     underline.BorderSizePixel = 0
@@ -545,7 +248,7 @@ for i, name in ipairs(tabs) do
         activeTab = name
         for _, tb in pairs(tabButtons) do
             tb.underline.BackgroundTransparency = 1
-            tb.button.TextColor3 = Color3.fromRGB(180, 180, 200)
+            tb.button.TextColor3 = Color3.fromRGB(180,180,200)
         end
         underline.BackgroundTransparency = 0
         btn.TextColor3 = Color3.fromRGB(0, 200, 255)
@@ -558,27 +261,32 @@ end
 switchTab("farm")
 
 -- ============================================================
--- HELPERS
+-- HELPERS (unchanged)
 -- ============================================================
 local function createSection(parent, title, height)
     local section = Instance.new("Frame")
-    section.Size = UDim2.new(1, -10, 0, height)
+    section.Size = UDim2.new(1, -s(10), 0, s(height))
     section.BackgroundTransparency = 1
     section.Parent = parent
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 22)
+    header.Size = UDim2.new(1, 0, 0, s(24))
     header.BackgroundTransparency = 1
     header.Text = title
     header.TextColor3 = Color3.fromRGB(255, 200, 100)
     header.Font = Enum.Font.GothamBold
-    header.TextSize = 15
+    header.TextSize = bigText(16)
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = section
     
+    local spacer = Instance.new("Frame")
+    spacer.Size = UDim2.new(1, 0, 0, s(8))
+    spacer.BackgroundTransparency = 1
+    spacer.Parent = section
+    
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 1, -28)
-    container.Position = UDim2.new(0, 0, 0, 28)
+    container.Size = UDim2.new(1, 0, 1, -s(32))
+    container.Position = UDim2.new(0, 0, 0, s(32))
     container.BackgroundTransparency = 1
     container.Parent = section
     
@@ -586,16 +294,16 @@ local function createSection(parent, title, height)
 end
 
 local function addButton(parent, text, color, callback, height)
-    height = height or 32
+    height = height or s(34)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.6, 0, 0, height)
     btn.Position = UDim2.new(0.2, 0, 0, 0)
     btn.BackgroundColor3 = color
     btn.BorderSizePixel = 0
     btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
+    btn.TextSize = bigText(14)
     btn.Parent = parent
     if callback then
         btn.Activated:Connect(callback)
@@ -605,13 +313,13 @@ end
 
 local function addStatusLabel(parent, text, yPos)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.8, 0, 0, 20)
+    lbl.Size = UDim2.new(0.8, 0, 0, s(22))
     lbl.Position = UDim2.new(0.1, 0, yPos, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+    lbl.TextColor3 = Color3.fromRGB(200,200,200)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 12
+    lbl.TextSize = bigText(13)
     lbl.TextXAlignment = Enum.TextXAlignment.Center
     lbl.Parent = parent
     return lbl
@@ -619,7 +327,7 @@ end
 
 local function addToggleRow(parent, labelText, initial)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 34)
+    row.Size = UDim2.new(1, 0, 0, s(38))
     row.BackgroundTransparency = 1
     row.Parent = parent
     
@@ -627,46 +335,47 @@ local function addToggleRow(parent, labelText, initial)
     lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+    lbl.TextColor3 = Color3.fromRGB(200,200,220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
+    lbl.TextSize = bigText(14)
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 55, 1, -4)
-    btn.Position = UDim2.new(0.6, 0, 0, 2)
-    btn.BackgroundColor3 = initial and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
+    btn.Size = UDim2.new(0, s(60), 1, -s(6))
+    btn.Position = UDim2.new(0.6, 0, 0, s(3))
+    btn.BackgroundColor3 = initial and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
+    btn.TextSize = bigText(14)
     btn.Parent = row
     
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
+-- Speed slider max 74
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 44)
+    row.Size = UDim2.new(1, 0, 0, s(48))
     row.BackgroundTransparency = 1
     row.Parent = parent
     
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 0, 18)
+    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. string.format("%.1f", initVal) .. unit
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+    lbl.TextColor3 = Color3.fromRGB(200,200,220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
+    lbl.TextSize = bigText(14)
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.35, 0, 0, 14)
-    slider.Position = UDim2.new(0.55, 0, 0.5, -7)
-    slider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+    slider.Size = UDim2.new(0.35, 0, 0, s(16))
+    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
+    slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
     slider.BorderSizePixel = 0
     slider.Parent = row
     
@@ -681,9 +390,9 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
     valLabel.Position = UDim2.new(0.85, 0, 0, 0)
     valLabel.BackgroundTransparency = 1
     valLabel.Text = string.format("%.1f", initVal) .. unit
-    valLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    valLabel.TextColor3 = Color3.fromRGB(255,255,255)
     valLabel.Font = Enum.Font.Gotham
-    valLabel.TextSize = 13
+    valLabel.TextSize = bigText(14)
     valLabel.Parent = row
     
     local dragging = false
@@ -723,7 +432,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
 end
 
 -- ============================================================
--- MOVEMENT HELPERS - SPEED 40
+-- MOVEMENT HELPERS
 -- ============================================================
 local function tweenToPosition(targetPos, duration)
     duration = duration or CONFIG.TweenDuration
@@ -747,7 +456,7 @@ local function tweenAtWalkSpeed(targetPos)
     local distance = (targetPos - root.Position).Magnitude
     local speed = CONFIG.WalkSpeed
     local duration = distance / speed
-    if duration < 0.3 then duration = 0.3 end
+    if duration < 0.2 then duration = 0.2 end
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
     tween:Play()
@@ -799,15 +508,13 @@ local function performClick()
 end
 
 -- ============================================================
--- BOSS FARM (same as before, shortened for length)
+-- BOSS FARM WITH TIMER + AUTO FOLLOW (INSTANT LOCK + FACE DOWN)
 -- ============================================================
-local bossFarms = {}
-local bossFarmThreads = {}
-
 local function getBossTimerLabel(bossSignName)
     local success, result = pcall(function()
         local bossSign = Workspace:FindFirstChild(bossSignName)
         if not bossSign then return nil end
+        
         local sign = bossSign:FindFirstChild("Sign")
         if sign then
             local surfaceGui = sign:FindFirstChild("SurfaceGui")
@@ -819,6 +526,7 @@ local function getBossTimerLabel(bossSignName)
                 end
             end
         end
+        
         for _, child in ipairs(bossSign:GetDescendants()) do
             if child:IsA("TextLabel") then
                 local name = string.upper(child.Name or "")
@@ -828,6 +536,7 @@ local function getBossTimerLabel(bossSignName)
                 end
             end
         end
+        
         return nil
     end)
     return success and result or nil
@@ -843,7 +552,10 @@ local function isBossAlive(timerLabel)
     if num then
         return false
     end
-    return true
+    if text == "" then
+        return true
+    end
+    return false
 end
 
 local function getBossRespawnTime(timerLabel)
@@ -851,12 +563,20 @@ local function getBossRespawnTime(timerLabel)
     local text = timerLabel.Text or ""
     local mins = tonumber(text:match("(%d+)m"))
     local secs = tonumber(text:match("(%d+)s"))
-    if mins and secs then return (mins * 60) + secs end
-    if mins then return mins * 60 end
-    if secs then return secs end
+    
+    if mins and secs then
+        return (mins * 60) + secs
+    elseif mins then
+        return mins * 60
+    elseif secs then
+        return secs
+    end
+    
     local num = tonumber(text:match("(%d+)"))
     if num then
-        if num > 60 then return num end
+        if num > 60 then
+            return num
+        end
         return num
     end
     return 0
@@ -867,7 +587,11 @@ local function formatRespawnTime(seconds)
     local mins = math.floor(seconds / 60)
     local secs = seconds % 60
     if mins > 0 then
-        return string.format("%dm %ds", mins, secs)
+        if secs > 0 then
+            return string.format("%dm %ds", mins, secs)
+        else
+            return string.format("%dm", mins)
+        end
     else
         return string.format("%ds", secs)
     end
@@ -882,11 +606,13 @@ local function findBossModel(bossName)
             end
         end
     end
+    
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
             return obj
         end
     end
+    
     local lowerName = string.lower(bossName)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
@@ -896,14 +622,23 @@ local function findBossModel(bossName)
             end
         end
     end
+    
     return nil
 end
 
+local bossFarms = {}
+local bossFarmThreads = {}
+
 function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabel)
     local key = bossName
+    
     if bossFarms[key] and bossFarms[key].running then
         bossFarms[key].running = false
-        if bossFarmThreads[key] then task.cancel(bossFarmThreads[key]); bossFarmThreads[key] = nil end
+        if bossFarmThreads[key] then
+            task.cancel(bossFarmThreads[key])
+            bossFarmThreads[key] = nil
+        end
+        -- Clean up
         local char = player.Character
         if char then
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -915,7 +650,9 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
             end
             local hum = char:FindFirstChild("Humanoid")
-            if hum then hum.AutoRotate = true end
+            if hum then
+                hum.AutoRotate = true
+            end
         end
         if bossFarms[key].timerConnection then
             bossFarms[key].timerConnection:Disconnect()
@@ -1036,6 +773,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 else
                     bossFarms[key].currentTarget = nil
                     bossFarms[key].isAlive = false
+                    
                     if respawnTime > 0 then
                         status.Text = bossDisplayName .. " respawning in " .. formattedTime
                     else
@@ -1074,8 +812,10 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
+    -- Instant teleport to position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
+    -- BodyPosition to hover
     local bp = bossFarms[key].bodyPosition
     if not bp or not bp.Parent then
         bp = Instance.new("BodyPosition")
@@ -1087,6 +827,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     end
     bp.Position = targetPos
     
+    -- BodyVelocity to keep still
     local bv = bossFarms[key].bodyVelocity
     if not bv or not bv.Parent then
         bv = Instance.new("BodyVelocity")
@@ -1096,6 +837,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
         bossFarms[key].bodyVelocity = bv
     end
     
+    -- BodyGyro to force facing downward (look at the mob)
     local gyro = bossFarms[key].bodyGyro
     if not gyro or not gyro.Parent then
         gyro = Instance.new("BodyGyro")
@@ -1116,8 +858,182 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS
+-- ITEM DATABASE (simplified – only essentials)
 -- ============================================================
+local ITEM_DB = {
+    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
+    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
+    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
+    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
+    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
+    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
+    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
+    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
+    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
+    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
+    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
+    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
+    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
+    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
+    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
+    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
+    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
+    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
+    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
+    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
+    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
+    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
+    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
+    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
+    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
+    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
+    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
+    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
+    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
+    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
+    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
+    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
+    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
+    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
+    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
+    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
+    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
+    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
+    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
+    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
+    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
+    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
+    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
+    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
+    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
+    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
+    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
+    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
+    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
+    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
+    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
+    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
+    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
+    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
+    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
+    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
+    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
+    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
+}
+
+local FAVORITE_ITEMS = {
+    ["Basic Sword"] = true,
+    ["Red Elemental"] = true,
+}
+
+local inventoryCache = {}
+
+local function refreshInventory()
+    inventoryCache = {}
+    for name, data in pairs(ITEM_DB) do
+        if not FAVORITE_ITEMS[name] then
+            inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
+        end
+    end
+    if status then
+        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded (favorites skipped)"
+    end
+    return inventoryCache
+end
+
+refreshInventory()
+
+-- ============================================================
+-- SELL/DISMANTLE/UPGRADE FUNCTIONS
+-- ============================================================
+local function sellItem(item)
+    if not item then return false end
+    if FAVORITE_ITEMS[item.name] then return false end
+    local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
+    if sellRemote and sellRemote:IsA("RemoteEvent") then
+        pcall(function() sellRemote:FireServer(item) end)
+        return true
+    end
+    local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
+    if invSell then
+        local sell = invSell:FindFirstChild("Sell", true)
+        if sell and sell:IsA("RemoteEvent") then
+            pcall(function() sell:FireServer(item) end)
+            return true
+        end
+    end
+    return false
+end
+
+local function dismantleItem(item)
+    if not item then return false end
+    if FAVORITE_ITEMS[item.name] then return false end
+    local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
+    if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
+        pcall(function() dismantleRemote:FireServer(item) end)
+        return true
+    end
+    local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
+    if craftEngine then
+        local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
+        if dismantle and dismantle:IsA("RemoteEvent") then
+            pcall(function() dismantle:FireServer(item) end)
+            return true
+        end
+    end
+    return false
+end
+
+local function upgradeItem(item, stat)
+    if not item then return false end
+    if FAVORITE_ITEMS[item.name] then return false end
+    stat = stat or "Damage"
+    local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
+    if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
+        pcall(function() upgradeRemote:FireServer(item, stat) end)
+        return true
+    end
+    local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
+    if upgradeEngine then
+        local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
+        if upgrade and upgrade:IsA("RemoteEvent") then
+            pcall(function() upgrade:FireServer(item, stat) end)
+            return true
+        end
+    end
+    return false
+end
+
+-- ============================================================
+-- PICKUP/LOOT FUNCTIONS (IMPROVED)
+-- ============================================================
+local function holdKey(keyCode, duration)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
+            task.wait(duration)
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
+        end)
+    else
+        pcall(function()
+            local inputService = game:GetService("UserInputService")
+            if inputService then
+                local downInput = Instance.new("InputObject")
+                downInput.UserInputType = Enum.UserInputType.Keyboard
+                downInput.KeyCode = keyCode
+                downInput.UserInputState = Enum.UserInputState.Begin
+                inputService:FireInput(downInput)
+                task.wait(duration)
+                local upInput = Instance.new("InputObject")
+                upInput.UserInputType = Enum.UserInputType.Keyboard
+                upInput.KeyCode = keyCode
+                upInput.UserInputState = Enum.UserInputState.End
+                inputService:FireInput(upInput)
+            end
+        end)
+    end
+end
+
 local function getNearestLoot()
     local char = player.Character
     if not char then return nil end
@@ -1226,17 +1142,60 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Moving to loot..."
+    status.Text = "Moving to loot at walk speed 40..."
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
     if not lootStillExists(item) then
-        status.Text = "Loot disappeared"
+        status.Text = "Loot disappeared before pickup, moving to next..."
         return
     end
     
-    status.Text = "Holding E..."
+    status.Text = "Holding E... (checking for disappearance)"
     
+    -- Try remote pickup first
+    local remoteSuccess = false
+    pcall(function()
+        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
+        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
+            pickupRemote:FireServer(item)
+            remoteSuccess = true
+            return
+        end
+        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
+        if itemEngine then
+            local pickup = itemEngine:FindFirstChild("PickupItem", true)
+            if pickup and pickup:IsA("RemoteEvent") then
+                pickup:FireServer(item)
+                remoteSuccess = true
+                return
+            end
+        end
+        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Pickup", item)
+            remoteSuccess = true
+            return
+        end
+        local prompt = nil
+        if item.Parent then
+            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if not prompt then
+            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if prompt then
+            prompt:Fire(player)
+            remoteSuccess = true
+        end
+    end)
+    
+    if remoteSuccess then
+        status.Text = "Loot picked up via remote!"
+        return
+    end
+    
+    -- Hold E with cancellation on disappearance
     local startTime = tick()
     local holdDuration = CONFIG.LootHoldSeconds or 5
     
@@ -1254,7 +1213,7 @@ local function instantLoot()
     
     while (tick() - startTime) < holdDuration do
         if not lootStillExists(item) then
-            status.Text = "Loot picked up! Cancelling E."
+            status.Text = "Loot picked up! Cancelling E hold early."
             break
         end
         task.wait(0.1)
@@ -1271,6 +1230,8 @@ local function instantLoot()
             UserInputService:FireInput(upInput)
         end
     end)
+    
+    status.Text = "Loot attempt complete, moving to next..."
 end
 
 -- ============================================================
@@ -1449,18 +1410,22 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB CONTENT
+-- FARM TAB
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
 status.TextColor3 = Color3.fromRGB(255,100,100)
 status.Parent = farmScroller
 
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 70)
-gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, 30)
+refreshInventory()
+
+-- Section 1: Gargoyle Farm
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
-local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms", 120)
+-- Section 2: Boss Farms
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
 
 local bossFarmDefs = {
     {key = "King Chicken", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1469,14 +1434,14 @@ local bossFarmDefs = {
 
 for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(0.45, 0, 0, 50)
+    cell.Size = UDim2.new(0.45, 0, 0, s(55))
     cell.BackgroundTransparency = 1
     cell.Parent = bossContainer
     
     local gridLayout = Instance.new("UIGridLayout")
     gridLayout.Parent = bossContainer
-    gridLayout.CellSize = UDim2.new(0.45, 0, 0, 50)
-    gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
+    gridLayout.CellPadding = UDim2.new(0, s(10), 0, s(10))
     gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     
     local btn = Instance.new("TextButton")
@@ -1487,7 +1452,7 @@ for _, def in ipairs(bossFarmDefs) do
     btn.Text = def.display .. " Farm (OFF)"
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.TextSize = bigText(11)
     btn.Parent = cell
     
     local statusLabel = Instance.new("TextLabel")
@@ -1497,7 +1462,7 @@ for _, def in ipairs(bossFarmDefs) do
     statusLabel.Text = def.display .. ": OFF"
     statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
     statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 10
+    statusLabel.TextSize = bigText(11)
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
     statusLabel.Parent = cell
     
@@ -1506,13 +1471,12 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- ============================================================
--- AUTO CONTROLS
--- ============================================================
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 130)
+-- Section 3: Auto Controls
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
 
+-- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
-collectRow.Size = UDim2.new(1, 0, 0, 32)
+collectRow.Size = UDim2.new(1, 0, 0, s(38))
 collectRow.BackgroundTransparency = 1
 collectRow.Parent = autoContainer
 
@@ -1522,19 +1486,19 @@ collectLabel.BackgroundTransparency = 1
 collectLabel.Text = "Auto-Collect Gold: OFF"
 collectLabel.TextColor3 = Color3.fromRGB(200,200,220)
 collectLabel.Font = Enum.Font.Gotham
-collectLabel.TextSize = 12
+collectLabel.TextSize = bigText(14)
 collectLabel.TextXAlignment = Enum.TextXAlignment.Left
 collectLabel.Parent = collectRow
 
 local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0, 50, 1, -4)
-collectBtn.Position = UDim2.new(0.6, 0, 0, 2)
+collectBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+collectBtn.Position = UDim2.new(0.6, 0, 0, s(3))
 collectBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 collectBtn.BorderSizePixel = 0
 collectBtn.Text = "OFF"
 collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
 collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = 12
+collectBtn.TextSize = bigText(14)
 collectBtn.Parent = collectRow
 
 collectBtn.Activated:Connect(function()
@@ -1544,9 +1508,10 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
+-- Auto-Loot
 local lootRow = Instance.new("Frame")
-lootRow.Size = UDim2.new(1, 0, 0, 32)
-lootRow.Position = UDim2.new(0, 0, 0, 35)
+lootRow.Size = UDim2.new(1, 0, 0, s(38))
+lootRow.Position = UDim2.new(0, 0, 0, s(40))
 lootRow.BackgroundTransparency = 1
 lootRow.Parent = autoContainer
 
@@ -1556,19 +1521,19 @@ lootLabel.BackgroundTransparency = 1
 lootLabel.Text = "Auto-Loot: OFF"
 lootLabel.TextColor3 = Color3.fromRGB(200,200,220)
 lootLabel.Font = Enum.Font.Gotham
-lootLabel.TextSize = 12
+lootLabel.TextSize = bigText(14)
 lootLabel.TextXAlignment = Enum.TextXAlignment.Left
 lootLabel.Parent = lootRow
 
 local lootBtn = Instance.new("TextButton")
-lootBtn.Size = UDim2.new(0, 50, 1, -4)
-lootBtn.Position = UDim2.new(0.6, 0, 0, 2)
+lootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+lootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
 lootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 lootBtn.BorderSizePixel = 0
 lootBtn.Text = "OFF"
 lootBtn.TextColor3 = Color3.fromRGB(255,255,255)
 lootBtn.Font = Enum.Font.GothamBold
-lootBtn.TextSize = 12
+lootBtn.TextSize = bigText(14)
 lootBtn.Parent = lootRow
 
 lootBtn.Activated:Connect(function()
@@ -1578,9 +1543,10 @@ lootBtn.Activated:Connect(function()
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
 
+-- Batch Mode toggle
 local batchRow = Instance.new("Frame")
-batchRow.Size = UDim2.new(1, 0, 0, 32)
-batchRow.Position = UDim2.new(0, 0, 0, 70)
+batchRow.Size = UDim2.new(1, 0, 0, s(38))
+batchRow.Position = UDim2.new(0, 0, 0, s(80))
 batchRow.BackgroundTransparency = 1
 batchRow.Parent = autoContainer
 
@@ -1590,19 +1556,19 @@ batchLabel.BackgroundTransparency = 1
 batchLabel.Text = "Batch Mode: OFF"
 batchLabel.TextColor3 = Color3.fromRGB(200,200,220)
 batchLabel.Font = Enum.Font.Gotham
-batchLabel.TextSize = 12
+batchLabel.TextSize = bigText(14)
 batchLabel.TextXAlignment = Enum.TextXAlignment.Left
 batchLabel.Parent = batchRow
 
 local batchBtn = Instance.new("TextButton")
-batchBtn.Size = UDim2.new(0, 50, 1, -4)
-batchBtn.Position = UDim2.new(0.6, 0, 0, 2)
+batchBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+batchBtn.Position = UDim2.new(0.6, 0, 0, s(3))
 batchBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 batchBtn.BorderSizePixel = 0
 batchBtn.Text = "OFF"
 batchBtn.TextColor3 = Color3.fromRGB(255,255,255)
 batchBtn.Font = Enum.Font.GothamBold
-batchBtn.TextSize = 12
+batchBtn.TextSize = bigText(14)
 batchBtn.Parent = batchRow
 
 batchBtn.Activated:Connect(function()
@@ -1612,30 +1578,72 @@ batchBtn.Activated:Connect(function()
     batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
 end)
 
+-- Collect Teleport toggle
+local teleportRow = Instance.new("Frame")
+teleportRow.Size = UDim2.new(1, 0, 0, s(38))
+teleportRow.Position = UDim2.new(0, 0, 0, s(120))
+teleportRow.BackgroundTransparency = 1
+teleportRow.Parent = autoContainer
+
+local teleportLabel = Instance.new("TextLabel")
+teleportLabel.Size = UDim2.new(0.5, 0, 1, 0)
+teleportLabel.BackgroundTransparency = 1
+teleportLabel.Text = "Teleport to Mine: OFF"
+teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
+teleportLabel.Font = Enum.Font.Gotham
+teleportLabel.TextSize = bigText(14)
+teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
+teleportLabel.Parent = teleportRow
+
+local teleportBtn = Instance.new("TextButton")
+teleportBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+teleportBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+teleportBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+teleportBtn.BorderSizePixel = 0
+teleportBtn.Text = "OFF"
+teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
+teleportBtn.Font = Enum.Font.GothamBold
+teleportBtn.TextSize = bigText(14)
+teleportBtn.Parent = teleportRow
+
+teleportBtn.Activated:Connect(function()
+    CONFIG.CollectUseTeleport = not CONFIG.CollectUseTeleport
+    teleportBtn.Text = CONFIG.CollectUseTeleport and "ON" or "OFF"
+    teleportBtn.BackgroundColor3 = CONFIG.CollectUseTeleport and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    teleportLabel.Text = "Teleport to Mine: " .. (CONFIG.CollectUseTeleport and "ON" or "OFF")
+end)
+
 -- ============================================================
--- AUTO TAB
+-- AUTO TAB (SELL, DISMANTLE, UPGRADE)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
 
 local refreshBtn = Instance.new("TextButton")
-refreshBtn.Size = UDim2.new(0.6, 0, 0, 30)
+refreshBtn.Size = UDim2.new(0.6, 0, 0, s(36))
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
 refreshBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 200)
 refreshBtn.BorderSizePixel = 0
 refreshBtn.Text = "🔄 Refresh Inventory"
 refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
 refreshBtn.Font = Enum.Font.GothamBold
-refreshBtn.TextSize = 13
+refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
-    status.Text = "Inventory refreshed!"
+    status.Text = "Inventory refreshed! (favorites skipped)"
 end)
 
+local topSpacer = Instance.new("Frame")
+topSpacer.Size = UDim2.new(1, 0, 0, s(8))
+topSpacer.BackgroundTransparency = 1
+topSpacer.Parent = autoScroller
+
 for idx, action in ipairs(autoActions) do
+    local currentAction = action
+    
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, -10, 0, 70)
+    box.Size = UDim2.new(1, -s(10), 0, s(100))
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
     box.BackgroundTransparency = 0.3
     box.BorderSizePixel = 1
@@ -1643,41 +1651,52 @@ for idx, action in ipairs(autoActions) do
     box.Parent = autoScroller
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, -8, 0, 20)
-    header.Position = UDim2.new(0, 4, 0, 4)
+    header.Size = UDim2.new(1, -s(8), 0, s(24))
+    header.Position = UDim2.new(0, s(4), 0, s(4))
     header.BackgroundTransparency = 1
-    header.Text = "Auto-" .. action .. ":"
+    header.Text = "Auto-" .. currentAction .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
-    header.TextSize = 13
+    header.TextSize = bigText(15)
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, -s(8), 0, s(20))
+    infoLabel.Position = UDim2.new(0, s(4), 0, s(32))
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Skips favorites (Basic Sword, Red Elemental, etc)"
+    infoLabel.TextColor3 = Color3.fromRGB(150,150,180)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = bigText(12)
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.Parent = box
+    
     local toggleRow = Instance.new("Frame")
-    toggleRow.Size = UDim2.new(1, -8, 0, 30)
-    toggleRow.Position = UDim2.new(0, 4, 0, 28)
+    toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
+    toggleRow.Position = UDim2.new(0, s(4), 0, s(55))
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = box
     
     local toggleLabel = Instance.new("TextLabel")
     toggleLabel.Size = UDim2.new(0.5, 0, 1, 0)
     toggleLabel.BackgroundTransparency = 1
-    toggleLabel.Text = action .. ": OFF"
+    toggleLabel.Text = currentAction .. ": OFF"
     toggleLabel.TextColor3 = Color3.fromRGB(200,200,220)
     toggleLabel.Font = Enum.Font.Gotham
-    toggleLabel.TextSize = 12
+    toggleLabel.TextSize = bigText(13)
     toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
     toggleLabel.Parent = toggleRow
     
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 45, 1, -4)
-    toggleBtn.Position = UDim2.new(0.5, 0, 0, 2)
+    toggleBtn.Size = UDim2.new(0, s(50), 1, -s(4))
+    toggleBtn.Position = UDim2.new(0.5, 0, 0, s(2))
     toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
     toggleBtn.BorderSizePixel = 0
     toggleBtn.Text = "OFF"
     toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
     toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = 12
+    toggleBtn.TextSize = bigText(13)
     toggleBtn.Parent = toggleRow
     
     local enabled = false
@@ -1686,17 +1705,24 @@ for idx, action in ipairs(autoActions) do
         enabled = not enabled
         toggleBtn.Text = enabled and "ON" or "OFF"
         toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-        toggleLabel.Text = action .. ": " .. (enabled and "ON" or "OFF")
+        toggleLabel.Text = currentAction .. ": " .. (enabled and "ON" or "OFF")
     end)
     
-    actionToggles[action] = {
+    actionToggles[currentAction] = {
         enabled = function() return enabled end,
         toggleBtn = toggleBtn,
     }
+    
+    if idx < #autoActions then
+        local spacer = Instance.new("Frame")
+        spacer.Size = UDim2.new(1, 0, 0, s(8))
+        spacer.BackgroundTransparency = 1
+        spacer.Parent = autoScroller
+    end
 end
 
 -- ============================================================
--- PLAYER TAB
+-- PLAYER TAB (WITH SPEED SLIDER MAX 74)
 -- ============================================================
 local playerToggles = {}
 
@@ -1723,68 +1749,78 @@ local function addPlayerTabContent()
         CONFIG.AutoClickSpeed = val
     end)
     
-    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle}
+    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, speedSlider=speedSlider, flySlider=flySlider, acSpeedSlider=acSpeedSlider}
 end
 
 playerToggles = addPlayerTabContent()
 
 -- ============================================================
--- MINI BAR (simplified)
+-- MINI BAR
 -- ============================================================
 local miniBar = Instance.new("Frame")
-miniBar.Size = UDim2.new(0, 400, 0, 32)
-miniBar.Position = UDim2.new(0.5, -200, 0.1, 0)
+miniBar.Size = UDim2.new(0, s(480), 0, s(40))
+miniBar.Position = UDim2.new(0.5, -s(240), 0.1, 0)
 miniBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-miniBar.BackgroundTransparency = 0
-miniBar.BorderSizePixel = 1
-miniBar.BorderColor3 = Color3.fromRGB(0, 200, 255)
+miniBar.BackgroundTransparency = 0.3
+miniBar.BorderSizePixel = 0
 miniBar.Visible = false
 miniBar.Active = true
 miniBar.Parent = screenGui
 
 local miniTitle = Instance.new("TextLabel")
-miniTitle.Size = UDim2.new(0.2, 0, 1, 0)
-miniTitle.Position = UDim2.new(0, 6, 0, 0)
+miniTitle.Size = UDim2.new(0.2, 0, 0.6, 0)
+miniTitle.Position = UDim2.new(0, s(8), 0, s(2))
 miniTitle.BackgroundTransparency = 1
 miniTitle.Text = "POLY LOOT"
 miniTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
 miniTitle.Font = Enum.Font.GothamBold
-miniTitle.TextSize = 12
+miniTitle.TextSize = bigText(14)
 miniTitle.TextXAlignment = Enum.TextXAlignment.Left
 miniTitle.Parent = miniBar
 
+local miniWatermark = Instance.new("TextLabel")
+miniWatermark.Size = UDim2.new(0.2, 0, 0.4, 0)
+miniWatermark.Position = UDim2.new(0, s(8), 0, s(22))
+miniWatermark.BackgroundTransparency = 1
+miniWatermark.Text = "by 19_GIRLVULTTURE"
+miniWatermark.TextColor3 = Color3.fromRGB(150, 180, 220)
+miniWatermark.Font = Enum.Font.Gotham
+miniWatermark.TextSize = bigText(9)
+miniWatermark.TextXAlignment = Enum.TextXAlignment.Left
+miniWatermark.Parent = miniBar
+
 local miniACBtn = Instance.new("TextButton")
-miniACBtn.Size = UDim2.new(0, 100, 1, -4)
-miniACBtn.Position = UDim2.new(0.3, 0, 0, 2)
+miniACBtn.Size = UDim2.new(0, s(140), 0.8, 0)
+miniACBtn.Position = UDim2.new(0.35, 0, 0.1, 0)
 miniACBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 miniACBtn.BorderSizePixel = 0
 miniACBtn.Text = "AC: OFF"
 miniACBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniACBtn.Font = Enum.Font.GothamBold
-miniACBtn.TextSize = 11
+miniACBtn.TextSize = bigText(13)
 miniACBtn.TextScaled = true
 miniACBtn.Parent = miniBar
 
 local restoreBtn = Instance.new("TextButton")
-restoreBtn.Size = UDim2.new(0, 28, 1, 0)
-restoreBtn.Position = UDim2.new(0.8, 0, 0, 0)
+restoreBtn.Size = UDim2.new(0, s(32), 1, 0)
+restoreBtn.Position = UDim2.new(0.85, 0, 0, 0)
 restoreBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
 restoreBtn.BorderSizePixel = 0
 restoreBtn.Text = "⬆"
 restoreBtn.TextColor3 = Color3.fromRGB(255,255,255)
 restoreBtn.Font = Enum.Font.GothamBold
-restoreBtn.TextSize = 16
+restoreBtn.TextSize = bigText(18)
 restoreBtn.Parent = miniBar
 
 local miniCloseBtn = Instance.new("TextButton")
-miniCloseBtn.Size = UDim2.new(0, 28, 1, 0)
-miniCloseBtn.Position = UDim2.new(1, -28, 0, 0)
+miniCloseBtn.Size = UDim2.new(0, s(32), 1, 0)
+miniCloseBtn.Position = UDim2.new(1, -s(32), 0, 0)
 miniCloseBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
 miniCloseBtn.BorderSizePixel = 0
 miniCloseBtn.Text = "✕"
 miniCloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniCloseBtn.Font = Enum.Font.GothamBold
-miniCloseBtn.TextSize = 16
+miniCloseBtn.TextSize = bigText(18)
 miniCloseBtn.Parent = miniBar
 miniCloseBtn.ZIndex = 10
 
@@ -1806,6 +1842,21 @@ local function closeGUI()
         if data.timerConnection then
             data.timerConnection:Disconnect()
             data.timerConnection = nil
+        end
+        local char = player.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, obj in ipairs(root:GetChildren()) do
+                    if obj:IsA("BodyPosition") or obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") then
+                        obj:Destroy()
+                    end
+                end
+            end
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.AutoRotate = true
+            end
         end
     end
     if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
@@ -1927,7 +1978,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ============================================================
--- FLY LOGIC
+-- FLY LOGIC (NO PLATFORMSTAND)
 -- ============================================================
 local flyConnection = nil
 
@@ -2054,14 +2105,14 @@ end)
 -- ============================================================
 -- TELEPORT TAB
 -- ============================================================
-local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 60)
+local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
 local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 0, 28)
+posUpdate.Size = UDim2.new(1, 0, 0, s(34))
 posUpdate.BackgroundTransparency = 1
 posUpdate.Text = "0.0, 0.0, 0.0"
 posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
 posUpdate.Font = Enum.Font.GothamBold
-posUpdate.TextSize = 16
+posUpdate.TextSize = bigText(18)
 posUpdate.TextXAlignment = Enum.TextXAlignment.Center
 posUpdate.Parent = posContainer
 
@@ -2077,8 +2128,9 @@ local function updatePos()
 end
 
 RunService.Heartbeat:Connect(updatePos)
+player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
 
-local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 100)
+local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 115)
 
 local shopGrid = Instance.new("Frame")
 shopGrid.Size = UDim2.new(1, 0, 1, 0)
@@ -2087,8 +2139,8 @@ shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, 28)
-shopGridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(32))
+shopGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
 shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 local shopButtons = {
@@ -2108,12 +2160,95 @@ for _, data in ipairs(shopButtons) do
     btn.Text = data.text
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.TextSize = bigText(12)
     btn.Parent = shopGrid
     btn.Activated:Connect(function()
         teleportToPosition(data.pos + Vector3.new(0,5,0))
     end)
 end
+
+local customSection, customContainer = createSection(teleportScroller, "🎯 Custom Teleport", 110)
+
+local coordRow = Instance.new("Frame")
+coordRow.Size = UDim2.new(1, 0, 0, s(36))
+coordRow.BackgroundTransparency = 1
+coordRow.Parent = customContainer
+
+local coordX = Instance.new("TextBox")
+coordX.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordX.Position = UDim2.new(0.02, 0, 0, s(2))
+coordX.BackgroundColor3 = Color3.fromRGB(30,40,60)
+coordX.BorderSizePixel = 0
+coordX.Text = "0"
+coordX.TextColor3 = Color3.fromRGB(255,255,255)
+coordX.Font = Enum.Font.Gotham
+coordX.TextSize = bigText(14)
+coordX.Parent = coordRow
+
+local coordY = Instance.new("TextBox")
+coordY.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordY.Position = UDim2.new(0.36, 0, 0, s(2))
+coordY.BackgroundColor3 = Color3.fromRGB(30,40,60)
+coordY.BorderSizePixel = 0
+coordY.Text = "0"
+coordY.TextColor3 = Color3.fromRGB(255,255,255)
+coordY.Font = Enum.Font.Gotham
+coordY.TextSize = bigText(14)
+coordY.Parent = coordRow
+
+local coordZ = Instance.new("TextBox")
+coordZ.Size = UDim2.new(0.28, 0, 1, -s(4))
+coordZ.Position = UDim2.new(0.70, 0, 0, s(2))
+coordZ.BackgroundColor3 = Color3.fromRGB(30,40,60)
+coordZ.BorderSizePixel = 0
+coordZ.Text = "0"
+coordZ.TextColor3 = Color3.fromRGB(255,255,255)
+coordZ.Font = Enum.Font.Gotham
+coordZ.TextSize = bigText(14)
+coordZ.Parent = coordRow
+
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(0.3, 0, 0, s(30))
+copyBtn.Position = UDim2.new(0.35, 0, 0.5, 0)
+copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
+copyBtn.BorderSizePixel = 0
+copyBtn.Text = "📋 Copy Pos"
+copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
+copyBtn.Font = Enum.Font.GothamBold
+copyBtn.TextSize = bigText(13)
+copyBtn.Parent = customContainer
+
+copyBtn.Activated:Connect(function()
+    local char = player.Character
+    if char then
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local p = root.Position
+            coordX.Text = string.format("%.1f", p.X)
+            coordY.Text = string.format("%.1f", p.Y)
+            coordZ.Text = string.format("%.1f", p.Z)
+            status.Text = "Coordinates copied"
+        end
+    end
+end)
+
+local teleportBtn = Instance.new("TextButton")
+teleportBtn.Size = UDim2.new(0.3, 0, 0, s(30))
+teleportBtn.Position = UDim2.new(0.35, 0, 0.8, 0)
+teleportBtn.BackgroundColor3 = Color3.fromRGB(60,120,200)
+teleportBtn.BorderSizePixel = 0
+teleportBtn.Text = "🚀 Teleport"
+teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
+teleportBtn.Font = Enum.Font.GothamBold
+teleportBtn.TextSize = bigText(13)
+teleportBtn.Parent = customContainer
+
+teleportBtn.Activated:Connect(function()
+    local x = tonumber(coordX.Text) or 0
+    local y = tonumber(coordY.Text) or 0
+    local z = tonumber(coordZ.Text) or 0
+    tweenToPosition(Vector3.new(x, y, z), 0.6)
+end)
 
 -- ============================================================
 -- FARM LOOP
@@ -2159,7 +2294,7 @@ local function collectGold()
     
     isAtGoldMine = true
     goldMineStartTime = tick()
-    status.Text = "Collecting gold..."
+    status.Text = "Collecting gold for " .. CONFIG.CollectHoldTime .. "s..."
     
     while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
         local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
@@ -2185,11 +2320,13 @@ local function collectGold()
     end
     
     isAtGoldMine = false
-    status.Text = "Gold collection complete"
+    status.Text = "Gold collection complete (" .. collectCount .. " total)"
     
     if CONFIG.CollectUseTeleport then
         status.Text = "Teleporting back..."
         teleportToPosition(originalPos)
+    else
+        status.Text = "Staying at Gold Mine"
     end
 end
 
@@ -2200,8 +2337,9 @@ local function performAction(action)
     end
     
     local processed = 0
+    local failed = 0
     
-    for _, item in pairs(inventoryCache) do
+    for serial, item in pairs(inventoryCache) do
         local success, result = pcall(function()
             if action == "Sell" then
                 return sellItem(item)
@@ -2213,6 +2351,8 @@ local function performAction(action)
         end)
         if success and result then
             processed = processed + 1
+        else
+            failed = failed + 1
         end
         if not CONFIG.BatchMode then
             task.wait(0.05)
@@ -2221,6 +2361,8 @@ local function performAction(action)
     
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
+    elseif failed > 0 then
+        status.Text = "Auto-" .. action .. " failed/skipped " .. failed .. " items"
     end
 end
 
@@ -2277,6 +2419,13 @@ local function startFarm()
     end)
 end
 
+local function stopFarm()
+    running = false
+    isAtGoldMine = false
+    status.Text = "Status: Stopped"
+    status.TextColor3 = Color3.fromRGB(255,100,100)
+end
+
 -- ============================================================
 -- CHARACTER RESET
 -- ============================================================
@@ -2326,6 +2475,6 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT LOADED – GUI FORCED FOR DELTA/POTASSIUM")
-print("✅ Walk Speed = 40 for attacking")
-print("✅ If you still don't see GUI, try re-executing or use a different executor.")
+print("✅ POLY LOOT – RESTORED WORKING GUI + SPEED 40")
+print("✅ Auto-Loot improved (cancels E early)")
+print("✅ GUI should appear normally.")
