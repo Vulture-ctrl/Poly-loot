@@ -1,4 +1,4 @@
---[[ POLY LOOT – RESTORED WORKING GUI ]] 
+--[[ POLY LOOT – RESTORED WORKING GUI + SPEED 40 + SMOOTH AUTO-LOOT ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,7 +9,7 @@ local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- ===== FIND GUI PARENT (SAME AS ORIGINAL) =====
+-- ===== FIND GUI PARENT =====
 local guiParent
 pcall(function()
     if player and player:FindFirstChild("PlayerGui") then
@@ -29,7 +29,7 @@ end
 -- ===== RARITY =====
 local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
 
--- ===== CONFIG (SPEED SET TO 40) =====
+-- ===== CONFIG (SPEED 40) =====
 local CONFIG = {
     AttackDelay = 0.8,
     DelayVariation = 0.1,
@@ -47,7 +47,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 40,   -- FIXED: attacks work now
+    WalkSpeed = 40,
 }
 
 -- ===== COORDINATES =====
@@ -81,7 +81,7 @@ status.TextSize = 18
 status.Parent = nil
 
 -- ============================================================
--- SCALING (Original)
+-- SCALING
 -- ============================================================
 local viewport = workspace.CurrentCamera.ViewportSize
 local scale = math.min(viewport.X, viewport.Y) / 1100
@@ -91,7 +91,7 @@ local function s(value) return value * scale end
 local function bigText(size) return math.floor(size * scale * 1.4) end
 
 -- ============================================================
--- GUI CREATION (Original structure)
+-- GUI CREATION (original working version)
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "POLYLOOT"
@@ -106,8 +106,6 @@ mainFrame.BackgroundTransparency = 0.2
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
-
--- (Rainbow border and gradient removed for reliability – but you can add back)
 
 -- Title bar
 local titleBar = Instance.new("Frame")
@@ -355,7 +353,6 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
--- Speed slider max 74
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, s(48))
@@ -508,7 +505,7 @@ local function performClick()
 end
 
 -- ============================================================
--- BOSS FARM WITH TIMER + AUTO FOLLOW (INSTANT LOCK + FACE DOWN)
+-- BOSS FARM (unchanged)
 -- ============================================================
 local function getBossTimerLabel(bossSignName)
     local success, result = pcall(function()
@@ -638,7 +635,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             task.cancel(bossFarmThreads[key])
             bossFarmThreads[key] = nil
         end
-        -- Clean up
         local char = player.Character
         if char then
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -812,10 +808,8 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Instant teleport to position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
-    -- BodyPosition to hover
     local bp = bossFarms[key].bodyPosition
     if not bp or not bp.Parent then
         bp = Instance.new("BodyPosition")
@@ -827,7 +821,6 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     end
     bp.Position = targetPos
     
-    -- BodyVelocity to keep still
     local bv = bossFarms[key].bodyVelocity
     if not bv or not bv.Parent then
         bv = Instance.new("BodyVelocity")
@@ -837,7 +830,6 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
         bossFarms[key].bodyVelocity = bv
     end
     
-    -- BodyGyro to force facing downward (look at the mob)
     local gyro = bossFarms[key].bodyGyro
     if not gyro or not gyro.Parent then
         gyro = Instance.new("BodyGyro")
@@ -858,7 +850,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
--- ITEM DATABASE (simplified – only essentials)
+-- ITEM DATABASE (shortened)
 -- ============================================================
 local ITEM_DB = {
     ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
@@ -944,7 +936,7 @@ end
 refreshInventory()
 
 -- ============================================================
--- SELL/DISMANTLE/UPGRADE FUNCTIONS
+-- SELL/DISMANTLE/UPGRADE
 -- ============================================================
 local function sellItem(item)
     if not item then return false end
@@ -1005,7 +997,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS (IMPROVED)
+-- PICKUP/LOOT FUNCTIONS (FIXED – NO STUTTER)
 -- ============================================================
 local function holdKey(keyCode, duration)
     if VirtualInputManager then
@@ -1124,6 +1116,7 @@ local function getLootPosition(item)
     return nil
 end
 
+-- FIXED: smoother hold, less frequent checks
 local function instantLoot()
     local char = player.Character
     if not char then return end
@@ -1142,18 +1135,16 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Moving to loot at walk speed 40..."
+    status.Text = "Moving to loot..."
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
     if not lootStillExists(item) then
-        status.Text = "Loot disappeared before pickup, moving to next..."
+        status.Text = "Loot disappeared, skipping"
         return
     end
     
-    status.Text = "Holding E... (checking for disappearance)"
-    
-    -- Try remote pickup first
+    -- Try remote pickup first (quick)
     local remoteSuccess = false
     pcall(function()
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
@@ -1191,14 +1182,16 @@ local function instantLoot()
     end)
     
     if remoteSuccess then
-        status.Text = "Loot picked up via remote!"
+        status.Text = "Picked up via remote!"
         return
     end
     
-    -- Hold E with cancellation on disappearance
+    -- Hold E with early cancel if loot disappears
+    status.Text = "Holding E for pickup..."
     local startTime = tick()
     local holdDuration = CONFIG.LootHoldSeconds or 5
     
+    -- Send key down
     pcall(function()
         if VirtualInputManager then
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
@@ -1211,14 +1204,16 @@ local function instantLoot()
         end
     end)
     
+    -- Check every 0.2s instead of 0.1 to reduce stutter
     while (tick() - startTime) < holdDuration do
         if not lootStillExists(item) then
-            status.Text = "Loot picked up! Cancelling E hold early."
+            status.Text = "Loot picked up! Cancelling E."
             break
         end
-        task.wait(0.1)
+        task.wait(0.2)
     end
     
+    -- Release E
     pcall(function()
         if VirtualInputManager then
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
@@ -1231,11 +1226,11 @@ local function instantLoot()
         end
     end)
     
-    status.Text = "Loot attempt complete, moving to next..."
+    status.Text = "Loot attempt done."
 end
 
 -- ============================================================
--- GARGOYLE FARM
+-- GARGOYLE FARM (unchanged)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1410,7 +1405,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB
+-- FARM TAB (unchanged)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1419,12 +1414,10 @@ status.Parent = farmScroller
 
 refreshInventory()
 
--- Section 1: Gargoyle Farm
 local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
 gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
--- Section 2: Boss Farms
 local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
 
 local bossFarmDefs = {
@@ -1471,10 +1464,9 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Auto Controls
+-- ===== Auto Controls =====
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
 
--- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
 collectRow.Size = UDim2.new(1, 0, 0, s(38))
 collectRow.BackgroundTransparency = 1
@@ -1508,7 +1500,6 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
--- Auto-Loot
 local lootRow = Instance.new("Frame")
 lootRow.Size = UDim2.new(1, 0, 0, s(38))
 lootRow.Position = UDim2.new(0, 0, 0, s(40))
@@ -1543,7 +1534,6 @@ lootBtn.Activated:Connect(function()
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
 
--- Batch Mode toggle
 local batchRow = Instance.new("Frame")
 batchRow.Size = UDim2.new(1, 0, 0, s(38))
 batchRow.Position = UDim2.new(0, 0, 0, s(80))
@@ -1578,7 +1568,6 @@ batchBtn.Activated:Connect(function()
     batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
 end)
 
--- Collect Teleport toggle
 local teleportRow = Instance.new("Frame")
 teleportRow.Size = UDim2.new(1, 0, 0, s(38))
 teleportRow.Position = UDim2.new(0, 0, 0, s(120))
@@ -1614,7 +1603,7 @@ teleportBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- AUTO TAB (SELL, DISMANTLE, UPGRADE)
+-- AUTO TAB (unchanged)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -1722,7 +1711,7 @@ for idx, action in ipairs(autoActions) do
 end
 
 -- ============================================================
--- PLAYER TAB (WITH SPEED SLIDER MAX 74)
+-- PLAYER TAB (unchanged)
 -- ============================================================
 local playerToggles = {}
 
@@ -1978,7 +1967,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ============================================================
--- FLY LOGIC (NO PLATFORMSTAND)
+-- FLY LOGIC (unchanged)
 -- ============================================================
 local flyConnection = nil
 
@@ -2103,7 +2092,7 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
--- TELEPORT TAB
+-- TELEPORT TAB (unchanged)
 -- ============================================================
 local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
 local posUpdate = Instance.new("TextLabel")
@@ -2251,7 +2240,7 @@ teleportBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- FARM LOOP
+-- FARM LOOP (unchanged)
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2475,6 +2464,5 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – RESTORED WORKING GUI + SPEED 40")
-print("✅ Auto-Loot improved (cancels E early)")
-print("✅ GUI should appear normally.")
+print("✅ POLY LOOT – RESTORED WORKING GUI + SPEED 40 + SMOOTH LOOT")
+print("✅ Auto-Loot now holds E without stutter (check every 0.2s)")
