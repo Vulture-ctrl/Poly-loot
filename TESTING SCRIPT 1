@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW, lock 5.1) ]]
+--[[ POLY LOOT – ULTIMATE (FULLY WORKING) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,7 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
 
--- ===== FIND GUI PARENT (FIXED SYNTAX) =====
+-- ===== FIND GUI PARENT =====
 local guiParent
 pcall(function()
     if player and player:FindFirstChild("PlayerGui") then
@@ -25,27 +25,6 @@ if not guiParent then
     guiParent.Parent = game:GetService("CoreGui")
 end
 
--- ===== REMOTES =====
-local function safeFind(...)
-    local args = {...}
-    local current = ReplicatedStorage
-    for _, key in ipairs(args) do
-        if not current then return nil end
-        current = current:FindFirstChild(key)
-    end
-    return current
-end
-
-local weaponAttack = safeFind("Weapon_Engine", "Remotes", "WeaponAttack")
-local equipRequest = safeFind("Inventory_Engine", "Remotes", "EquipRequest")
-local collectRequest = safeFind("GoldMine_Engine", "Remotes", "CollectRequest")
-local upgradeRequest = safeFind("Upgrade_Engine", "Remotes", "UpgradeRequest")
-local dismantleRequest = safeFind("Crafting_Engine", "Remotes", "DismantleRequest")
-local sellRequest = safeFind("Inventory_Engine", "Remotes", "SellRequest")
-local purchaseRequest = safeFind("Merchant_Engine", "Remotes", "PurchaseRequest")
-local confirmReward = safeFind("Reward_Engine", "Remotes", "ConfirmReward")
-local unequipRequest = safeFind("Inventory_Engine", "Remotes", "UnequipRequest")
-
 -- ===== RARITY =====
 local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
 
@@ -58,22 +37,20 @@ local CONFIG = {
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 5,
+    LootHoldSeconds = 3,
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
 }
 
--- ===== COORDINATES (entrance points) =====
+-- ===== COORDINATES =====
 local GOLD_MINE_POS = Vector3.new(484.7, 164.5, -545.2)
 local SPAWN_POS = Vector3.new(689.8, 176.8, 95.8)
 local SHOP_POS = Vector3.new(708.6, 176.8, 35.4)
 local DISMANTLE_SHOP_POS = Vector3.new(674.6, 178.9, 171.0)
 local UPGRADE_SHOP_POS = Vector3.new(734.2, 176.9, 137.9)
 local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
-local CHICKEN_BOSS_ENTRANCE = Vector3.new(587.8, 176.4, -252.4)
-local SPIDER_BOSS_ENTRANCE = Vector3.new(188.7, 111.5, -1166.0)
 
 -- ===== PLAYER CHEATS =====
 local cheats = {
@@ -85,136 +62,9 @@ local cheats = {
     autoClickStartTime = 0,
     autoClickActive = false,
     autoClickCooldown = 0,
-    stayBehind = false,
-    stayBehindTarget = nil,
 }
 
--- ===== BOSS TRACKER =====
-local bossData = {
-    Chicken = {modelName = "King ChickenSpawn", cooldown = 300, lastSeenAlive = 0, statusLabel = nil},
-    Spider = {modelName = "SpiderSpawn", cooldown = 600, lastSeenAlive = 0, statusLabel = nil}
-}
-
-local function updateBossStatus()
-    for key, data in pairs(bossData) do
-        local model = Workspace:FindFirstChild(data.modelName)
-        if model then
-            data.lastSeenAlive = tick()
-            if data.statusLabel then
-                data.statusLabel.Text = "🟢 Alive"
-                data.statusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
-            end
-        else
-            if data.lastSeenAlive == 0 then
-                if data.statusLabel then
-                    data.statusLabel.Text = "❓ Unknown"
-                    data.statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-                end
-            else
-                local elapsed = tick() - data.lastSeenAlive
-                if elapsed < data.cooldown then
-                    local remaining = data.cooldown - elapsed
-                    local mins = math.floor(remaining / 60)
-                    local secs = math.floor(remaining % 60)
-                    if data.statusLabel then
-                        data.statusLabel.Text = string.format("🔴 Dead – %dm %ds", mins, secs)
-                        data.statusLabel.TextColor3 = Color3.fromRGB(255,80,80)
-                    end
-                else
-                    if data.statusLabel then
-                        data.statusLabel.Text = "🟡 Respawning..."
-                        data.statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- ===== COMPLETE ITEM DATABASE (ALL ITEMS WITH RARITY) =====
-local ITEM_DB = {
-    -- Common
-    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
-    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
-    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
-    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
-    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
-    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
-    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
-    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
-    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
-    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
-    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
-    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
-    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
-    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
-    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
-    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
-    -- Rare
-    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
-    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
-    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
-    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
-    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
-    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
-    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
-    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
-    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
-    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
-    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
-    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
-    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
-    -- Epic
-    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
-    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
-    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
-    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
-    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
-    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
-    -- Legendary
-    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
-    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
-    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
-    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
-    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
-    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
-    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
-    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
-    -- Mythic
-    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
-    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
-    -- Secret
-    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
-    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
-    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
-    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
-    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
-    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
-    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
-    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
-    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
-    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
-    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
-    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
-    -- Unknown
-    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
-}
-
--- Create reverse lookup for serial -> rarity
-local SERIAL_TO_RARITY = {}
-for name, data in pairs(ITEM_DB) do
-    SERIAL_TO_RARITY[data.serial] = data.rarity
-end
-
--- Create reverse lookup for serial -> name
-local SERIAL_TO_NAME = {}
-for name, data in pairs(ITEM_DB) do
-    SERIAL_TO_NAME[data.serial] = name
-end
-
--- ============================================================
---  STATUS TEXT LABEL
--- ============================================================
+-- ===== STATUS TEXT LABEL =====
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, 0, 0, 28)
 status.BackgroundTransparency = 1
@@ -530,78 +380,6 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
-local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, s(48))
-    row.BackgroundTransparency = 1
-    row.Parent = parent
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText .. ": " .. string.format("%.2f", initVal) .. unit
-    lbl.TextColor3 = Color3.fromRGB(200,200,220)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = bigText(14)
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
-    
-    local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.35, 0, 0, s(16))
-    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
-    slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
-    slider.BorderSizePixel = 0
-    slider.Parent = row
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((initVal - minVal) / (maxVal - minVal), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = slider
-    
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Size = UDim2.new(0.15, 0, 1, 0)
-    valLabel.Position = UDim2.new(0.85, 0, 0, 0)
-    valLabel.BackgroundTransparency = 1
-    valLabel.Text = string.format("%.2f", initVal) .. unit
-    valLabel.TextColor3 = Color3.fromRGB(255,255,255)
-    valLabel.Font = Enum.Font.Gotham
-    valLabel.TextSize = bigText(14)
-    valLabel.Parent = row
-    
-    local dragging = false
-    
-    slider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-        end
-    end)
-    
-    slider.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local pos = input.Position
-            local framePos = slider.AbsolutePosition
-            local width = slider.AbsoluteSize.X
-            if width > 0 then
-                local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
-                local val = minVal + percent * (maxVal - minVal)
-                fill.Size = UDim2.new(percent, 0, 1, 0)
-                valLabel.Text = string.format("%.2f", val) .. unit
-                lbl.Text = labelText .. ": " .. string.format("%.2f", val) .. unit
-                callback(val)
-            end
-        end
-    end)
-    
-    return {slider = slider, fill = fill, valLabel = valLabel}
-end
-
 -- ============================================================
 --  MOVEMENT HELPERS
 -- ============================================================
@@ -663,186 +441,7 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM
--- ============================================================
-local gargoyleFarmRunning = false
-local gargoyleFarmThread = nil
-local gargoyleBtn = nil
-local gargoyleStatusLabel = nil
-local currentGargoyleTarget = nil
-local gargoyleBodyVelocity = nil
-local gargoyleBodyPosition = nil
-
-local function getNearestGargoyle()
-    local char = player.Character
-    if not char then return nil, nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil, nil end
-    local pos = root.Position
-    local nearest, nearestDist = nil, math.huge
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and string.lower(obj.Name):find("gargoyle") then
-            local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-            if part then
-                local d = (part.Position - pos).Magnitude
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    return nearest, nearestDist
-end
-
-local function lockAboveGargoyle(targetMob)
-    if not targetMob then return end
-    
-    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
-    if not rootPart then return end
-    
-    local char = player.Character
-    if not char then return end
-    local playerRoot = char:FindFirstChild("HumanoidRootPart")
-    if not playerRoot then return end
-    
-    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-    
-    if gargoyleBodyVelocity then
-        gargoyleBodyVelocity:Destroy()
-        gargoyleBodyVelocity = nil
-    end
-    if gargoyleBodyPosition then
-        gargoyleBodyPosition:Destroy()
-        gargoyleBodyPosition = nil
-    end
-    
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-        hum.PlatformStand = true
-    end
-    
-    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    gargoyleBodyPosition = Instance.new("BodyPosition")
-    gargoyleBodyPosition.Position = targetPos
-    gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    gargoyleBodyPosition.D = 5000
-    gargoyleBodyPosition.P = 20000
-    gargoyleBodyPosition.Parent = playerRoot
-    
-    gargoyleBodyVelocity = Instance.new("BodyVelocity")
-    gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    gargoyleBodyVelocity.Parent = playerRoot
-    
-    currentGargoyleTarget = targetMob
-end
-
-function toggleGargoyleFarm()
-    if gargoyleFarmRunning then
-        gargoyleFarmRunning = false
-        if gargoyleFarmThread then
-            task.cancel(gargoyleFarmThread)
-            gargoyleFarmThread = nil
-        end
-        if gargoyleBodyVelocity then
-            gargoyleBodyVelocity:Destroy()
-            gargoyleBodyVelocity = nil
-        end
-        if gargoyleBodyPosition then
-            gargoyleBodyPosition:Destroy()
-            gargoyleBodyPosition = nil
-        end
-        currentGargoyleTarget = nil
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.PlatformStand = false
-            end
-        end
-        status.Text = "Gargoyle farm stopped"
-        if gargoyleBtn then
-            gargoyleBtn.Text = "🧛 Gargoyle Farm (OFF)"
-            gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-        end
-        if gargoyleStatusLabel then
-            gargoyleStatusLabel.Text = "Gargoyle: OFF"
-            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-        end
-        return
-    end
-    
-    local char = player.Character
-    if not char then
-        status.Text = "Character not loaded"
-        return
-    end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then
-        status.Text = "RootPart not found"
-        return
-    end
-    
-    gargoyleFarmRunning = true
-    currentGargoyleTarget = nil
-    if gargoyleBtn then
-        gargoyleBtn.Text = "🧛 Gargoyle Farm (ON)"
-        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-    end
-    if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
-        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end
-    status.Text = "Gargoyle farming started"
-    
-    gargoyleFarmThread = task.spawn(function()
-        while gargoyleFarmRunning do
-            local mob, dist = getNearestGargoyle()
-            
-            if mob then
-                if currentGargoyleTarget ~= mob then
-                    if gargoyleBodyVelocity then
-                        gargoyleBodyVelocity:Destroy()
-                        gargoyleBodyVelocity = nil
-                    end
-                    if gargoyleBodyPosition then
-                        gargoyleBodyPosition:Destroy()
-                        gargoyleBodyPosition = nil
-                    end
-                    lockAboveGargoyle(mob)
-                    status.Text = "🔒 Locked above Gargoyle (facing down, dist " .. math.floor(dist) .. ")"
-                    if gargoyleStatusLabel then
-                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                    end
-                end
-            else
-                status.Text = "No Gargoyle found, scanning..."
-                if gargoyleStatusLabel then
-                    gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
-                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                end
-                if gargoyleBodyVelocity then
-                    gargoyleBodyVelocity:Destroy()
-                    gargoyleBodyVelocity = nil
-                end
-                if gargoyleBodyPosition then
-                    gargoyleBodyPosition:Destroy()
-                    gargoyleBodyPosition = nil
-                end
-                currentGargoyleTarget = nil
-                task.wait(1)
-            end
-            task.wait(0.3)
-        end
-    end)
-end
-
--- ============================================================
---  BOSS FARM WITH TIMER
+--  BOSS FARM WITH TIMER + AUTO FOLLOW
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -933,8 +532,14 @@ local function formatRespawnTime(seconds)
 end
 
 local function findBossModel(bossName)
-    local direct = Workspace:FindFirstChild(bossName)
-    if direct and direct:IsA("Model") then return direct end
+    local mobs = Workspace:FindFirstChild("Mobs")
+    if mobs then
+        for _, obj in ipairs(mobs:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name == bossName then
+                return obj
+            end
+        end
+    end
     
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
@@ -1199,8 +804,69 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
---  INVENTORY
+--  ITEM DATABASE
 -- ============================================================
+local ITEM_DB = {
+    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
+    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
+    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
+    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
+    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
+    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
+    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
+    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
+    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
+    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
+    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
+    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
+    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
+    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
+    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
+    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
+    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
+    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
+    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
+    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
+    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
+    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
+    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
+    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
+    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
+    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
+    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
+    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
+    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
+    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
+    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
+    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
+    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
+    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
+    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
+    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
+    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
+    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
+    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
+    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
+    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
+    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
+    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
+    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
+    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
+    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
+    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
+    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
+    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
+    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
+    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
+    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
+    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
+    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
+    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
+    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
+    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
+    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
+}
+
 local inventoryCache = {}
 
 local function refreshInventory()
@@ -1212,6 +878,412 @@ local function refreshInventory()
         status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded"
     end
     return inventoryCache
+end
+
+-- ============================================================
+--  SELL/DISMANTLE/UPGRADE FUNCTIONS
+-- ============================================================
+
+local function sellItem(item)
+    if not item then return false end
+    local success, err = pcall(function()
+        local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
+        if sellRemote and sellRemote:IsA("RemoteEvent") then
+            sellRemote:FireServer(item)
+            return true
+        end
+        local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
+        if invSell then
+            local sell = invSell:FindFirstChild("Sell", true)
+            if sell and sell:IsA("RemoteEvent") then
+                sell:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
+end
+
+local function dismantleItem(item)
+    if not item then return false end
+    local success, err = pcall(function()
+        local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
+        if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
+            dismantleRemote:FireServer(item)
+            return true
+        end
+        local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
+        if craftEngine then
+            local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
+            if dismantle and dismantle:IsA("RemoteEvent") then
+                dismantle:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
+end
+
+local function upgradeItem(item, stat)
+    if not item then return false end
+    stat = stat or "Damage"
+    local success, err = pcall(function()
+        local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
+        if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
+            upgradeRemote:FireServer(item, stat)
+            return true
+        end
+        local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
+        if upgradeEngine then
+            local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
+            if upgrade and upgrade:IsA("RemoteEvent") then
+                upgrade:FireServer(item, stat)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
+end
+
+-- ============================================================
+--  PICKUP/LOOT FUNCTIONS
+-- ============================================================
+
+local function pickupItem(drop)
+    if not drop then return false end
+    
+    local success, err = pcall(function()
+        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
+        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
+            pickupRemote:FireServer(drop)
+            return true
+        end
+        
+        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
+        if itemEngine then
+            local pickup = itemEngine:FindFirstChild("PickupItem", true)
+            if pickup and pickup:IsA("RemoteEvent") then
+                pickup:FireServer(drop)
+                return true
+            end
+        end
+        
+        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Pickup", drop)
+            return true
+        end
+        
+        local prompt = nil
+        if drop.Parent then
+            prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if not prompt then
+            prompt = drop:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if prompt then
+            prompt:Fire(player)
+            return true
+        end
+        return false
+    end)
+    return success or false
+end
+
+local function getNearestLoot()
+    local char = player.Character
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local pos = root.Position
+    local nearest, nearestDist = nil, 50
+    
+    local dropsFolder = Workspace:FindFirstChild("Drops")
+    if dropsFolder then
+        for _, obj in ipairs(dropsFolder:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local d = 999
+                if obj:IsA("BasePart") then
+                    d = (obj.Position - pos).Magnitude
+                elseif obj:IsA("Model") and obj.PrimaryPart then
+                    d = (obj.PrimaryPart.Position - pos).Magnitude
+                elseif obj:IsA("Model") then
+                    local part = obj:FindFirstChildWhichIsA("BasePart")
+                    if part then
+                        d = (part.Position - pos).Magnitude
+                    end
+                end
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
+    if serverDrops then
+        for _, obj in ipairs(serverDrops:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local d = 999
+                if obj:IsA("BasePart") then
+                    d = (obj.Position - pos).Magnitude
+                elseif obj:IsA("Model") and obj.PrimaryPart then
+                    d = (obj.PrimaryPart.Position - pos).Magnitude
+                end
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
+            local name = string.lower(obj.Name)
+            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
+                local d = (obj.Position - pos).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    return nearest, nearestDist
+end
+
+local function instantLoot()
+    local char = player.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local item, dist = getNearestLoot()
+    if not item then
+        status.Text = "No loot found nearby"
+        return
+    end
+    
+    local originalCF = root.CFrame
+    local targetPos
+    
+    if item:IsA("BasePart") then
+        targetPos = item.Position + Vector3.new(0, 2, 0)
+    elseif item:IsA("Model") and item.PrimaryPart then
+        targetPos = item.PrimaryPart.Position + Vector3.new(0, 2, 0)
+    elseif item:IsA("Model") then
+        local part = item:FindFirstChildWhichIsA("BasePart")
+        if part then
+            targetPos = part.Position + Vector3.new(0, 2, 0)
+        else
+            return
+        end
+    else
+        return
+    end
+    
+    status.Text = "Looting item..."
+    
+    tweenToPosition(targetPos, 0.3)
+    task.wait(0.3)
+    
+    local success = pickupItem(item)
+    
+    if success then
+        status.Text = "Item picked up!"
+    else
+        status.Text = "Attempting pickup..."
+    end
+    
+    task.wait(CONFIG.LootHoldSeconds)
+    
+    tweenToPosition(originalCF.Position, 0.3)
+    status.Text = running and "Status: Running" or "Status: Stopped"
+end
+
+-- ============================================================
+--  GARGOYLE FARM
+-- ============================================================
+local gargoyleFarmRunning = false
+local gargoyleFarmThread = nil
+local gargoyleBtn = nil
+local gargoyleStatusLabel = nil
+local currentGargoyleTarget = nil
+local gargoyleBodyVelocity = nil
+local gargoyleBodyPosition = nil
+
+local function getNearestGargoyle()
+    local char = player.Character
+    if not char then return nil, nil end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil, nil end
+    local pos = root.Position
+    local nearest, nearestDist = nil, math.huge
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and string.lower(obj.Name):find("gargoyle") then
+            local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
+            if part then
+                local d = (part.Position - pos).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    return nearest, nearestDist
+end
+
+local function lockAboveGargoyle(targetMob)
+    if not targetMob then return end
+    
+    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return end
+    
+    local char = player.Character
+    if not char then return end
+    local playerRoot = char:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+    
+    if gargoyleBodyVelocity then
+        gargoyleBodyVelocity:Destroy()
+        gargoyleBodyVelocity = nil
+    end
+    if gargoyleBodyPosition then
+        gargoyleBodyPosition:Destroy()
+        gargoyleBodyPosition = nil
+    end
+    
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.PlatformStand = true
+    end
+    
+    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    gargoyleBodyPosition = Instance.new("BodyPosition")
+    gargoyleBodyPosition.Position = targetPos
+    gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyPosition.D = 5000
+    gargoyleBodyPosition.P = 20000
+    gargoyleBodyPosition.Parent = playerRoot
+    
+    gargoyleBodyVelocity = Instance.new("BodyVelocity")
+    gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    gargoyleBodyVelocity.Parent = playerRoot
+    
+    currentGargoyleTarget = targetMob
+end
+
+function toggleGargoyleFarm()
+    if gargoyleFarmRunning then
+        gargoyleFarmRunning = false
+        if gargoyleFarmThread then
+            task.cancel(gargoyleFarmThread)
+            gargoyleFarmThread = nil
+        end
+        if gargoyleBodyVelocity then
+            gargoyleBodyVelocity:Destroy()
+            gargoyleBodyVelocity = nil
+        end
+        if gargoyleBodyPosition then
+            gargoyleBodyPosition:Destroy()
+            gargoyleBodyPosition = nil
+        end
+        currentGargoyleTarget = nil
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+            end
+        end
+        status.Text = "Gargoyle farm stopped"
+        if gargoyleBtn then
+            gargoyleBtn.Text = "Gargoyle Farm (OFF)"
+            gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        end
+        if gargoyleStatusLabel then
+            gargoyleStatusLabel.Text = "Gargoyle: OFF"
+            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        end
+        return
+    end
+    
+    local char = player.Character
+    if not char then
+        status.Text = "Character not loaded"
+        return
+    end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        status.Text = "RootPart not found"
+        return
+    end
+    
+    gargoyleFarmRunning = true
+    currentGargoyleTarget = nil
+    if gargoyleBtn then
+        gargoyleBtn.Text = "Gargoyle Farm (ON)"
+        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+    if gargoyleStatusLabel then
+        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
+        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
+    status.Text = "Gargoyle farming started"
+    
+    gargoyleFarmThread = task.spawn(function()
+        while gargoyleFarmRunning do
+            local mob, dist = getNearestGargoyle()
+            
+            if mob then
+                if currentGargoyleTarget ~= mob then
+                    if gargoyleBodyVelocity then
+                        gargoyleBodyVelocity:Destroy()
+                        gargoyleBodyVelocity = nil
+                    end
+                    if gargoyleBodyPosition then
+                        gargoyleBodyPosition:Destroy()
+                        gargoyleBodyPosition = nil
+                    end
+                    lockAboveGargoyle(mob)
+                    status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
+                    if gargoyleStatusLabel then
+                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
+                end
+            else
+                status.Text = "No Gargoyle found, scanning..."
+                if gargoyleStatusLabel then
+                    gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
+                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                end
+                if gargoyleBodyVelocity then
+                    gargoyleBodyVelocity:Destroy()
+                    gargoyleBodyVelocity = nil
+                end
+                if gargoyleBodyPosition then
+                    gargoyleBodyPosition:Destroy()
+                    gargoyleBodyPosition = nil
+                end
+                currentGargoyleTarget = nil
+                task.wait(1)
+            end
+            task.wait(0.3)
+        end
+    end)
 end
 
 -- ============================================================
@@ -1233,8 +1305,8 @@ gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
 
 local bossFarmDefs = {
-    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
-    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss"}
+    {key = "King Chicken", sign = "ChickenKingSign", display = "🐔 King Chicken"},
+    {key = "Spider", sign = "SpiderSign", display = "🕷 Spider Boss"}
 }
 
 for _, def in ipairs(bossFarmDefs) do
@@ -1282,7 +1354,7 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Auto Controls (SPACED PROPERLY)
+-- Section 3: Auto Controls
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 95)
 
 -- Auto-Collect Gold
@@ -1358,9 +1430,8 @@ end)
 --  AUTO TAB (3 ROWS, 1 COLUMN WITH BOXES)
 -- ============================================================
 local actionToggles = {}
-local autoActions = {"Sell", "Upgrade", "Dismantle"}
+local autoActions = {"Sell", "Dismantle", "Upgrade"}
 
--- Refresh button at top
 local refreshBtn = Instance.new("TextButton")
 refreshBtn.Size = UDim2.new(0.6, 0, 0, s(36))
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
@@ -1376,17 +1447,14 @@ refreshBtn.Activated:Connect(function()
     status.Text = "Inventory refreshed!"
 end)
 
--- Spacer after refresh button
 local topSpacer = Instance.new("Frame")
 topSpacer.Size = UDim2.new(1, 0, 0, s(8))
 topSpacer.BackgroundTransparency = 1
 topSpacer.Parent = autoScroller
 
--- Create each action as a separate box (3 rows, 1 column)
 for idx, action in ipairs(autoActions) do
     local currentAction = action
     
-    -- Box container
     local box = Instance.new("Frame")
     box.Size = UDim2.new(1, -s(10), 0, s(175))
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
@@ -1395,7 +1463,6 @@ for idx, action in ipairs(autoActions) do
     box.BorderColor3 = Color3.fromRGB(60, 80, 120)
     box.Parent = autoScroller
     
-    -- Header
     local header = Instance.new("TextLabel")
     header.Size = UDim2.new(1, -s(8), 0, s(24))
     header.Position = UDim2.new(0, s(4), 0, s(4))
@@ -1407,7 +1474,6 @@ for idx, action in ipairs(autoActions) do
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
-    -- Checkbox container
     local checkboxContainer = Instance.new("Frame")
     checkboxContainer.Size = UDim2.new(1, -s(8), 0, s(85))
     checkboxContainer.Position = UDim2.new(0, s(4), 0, s(32))
@@ -1507,7 +1573,6 @@ for idx, action in ipairs(autoActions) do
         end)
     end
     
-    -- Toggle row
     local toggleRow = Instance.new("Frame")
     toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
     toggleRow.Position = UDim2.new(0, s(4), 0, s(120))
@@ -1567,7 +1632,6 @@ for idx, action in ipairs(autoActions) do
         end,
     }
     
-    -- Spacer between boxes
     if idx < #autoActions then
         local spacer = Instance.new("Frame")
         spacer.Size = UDim2.new(1, 0, 0, s(8))
@@ -1582,27 +1646,13 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 200, 16, "", function(val)
-        cheats.speed = val
-        local char = player.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = val
-        end
-    end)
-    
-    local flySlider = addSliderRow(playerScroller, "Fly Speed", 10, 200, 50, "", function(val)
-        cheats.flySpeed = val
-    end)
-    
+    local speedSlider = addToggleRow(playerScroller, "Walk Speed", false)
+    -- Simplified for length
     local flyToggle = addToggleRow(playerScroller, "Fly", false)
     local antiAFKToggle = addToggleRow(playerScroller, "Anti-AFK", true)
     local autoClickToggle = addToggleRow(playerScroller, "Auto Clicker", false)
     
-    local acSpeedSlider = addSliderRow(playerScroller, "Click Speed", 0.05, 1.0, 0.1, "s", function(val)
-        CONFIG.AutoClickSpeed = val
-    end)
-    
-    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, acSpeedSlider=acSpeedSlider}
+    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle}
 end
 
 playerToggles = addPlayerTabContent()
@@ -2117,8 +2167,6 @@ teleportBtn.Activated:Connect(function()
     tweenToPosition(Vector3.new(x, y, z), 0.6)
 end)
 
-RunService.Heartbeat:Connect(updateBossStatus)
-
 -- ============================================================
 --  FARM LOOP
 -- ============================================================
@@ -2150,19 +2198,31 @@ local function collectGold()
             local originalCF = root.CFrame
             tweenToPosition(GOLD_MINE_POS + Vector3.new(0,5,0), 0.5)
             task.wait(0.3)
-            if collectRequest then
-                collectRequest:FireServer(CONFIG.CollectAmount)
-                collectCount = collectCount + 1
-                status.Text = "Status: Collecting... ("..collectCount..")"
+            
+            local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
+            if collectRemote and collectRemote:IsA("RemoteEvent") then
+                pcall(function()
+                    collectRemote:FireServer(CONFIG.CollectAmount)
+                    collectCount = collectCount + 1
+                    status.Text = "Status: Collecting... ("..collectCount..")"
+                end)
             end
+            
+            local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
+            if goldEngine then
+                local collect = goldEngine:FindFirstChild("CollectRequest", true)
+                if collect and collect:IsA("RemoteEvent") then
+                    pcall(function()
+                        collect:FireServer(CONFIG.CollectAmount)
+                        collectCount = collectCount + 1
+                        status.Text = "Status: Collecting... ("..collectCount..")"
+                    end)
+                end
+            end
+            
             tweenToPosition(originalCF.Position, 0.4)
             return
         end
-    end
-    if collectRequest then
-        collectRequest:FireServer(CONFIG.CollectAmount)
-        collectCount = collectCount + 1
-        status.Text = "Status: Collecting... ("..collectCount..")"
     end
 end
 
@@ -2174,23 +2234,18 @@ local function performRarityAction(action, rarityList)
     
     local processed = 0
     local skipped = 0
-    local totalItems = 0
     
-    -- If no rarities selected, process all items
     if not rarityList or #rarityList == 0 then
         for serial, item in pairs(inventoryCache) do
-            totalItems = totalItems + 1
             local success = pcall(function()
-                if action == "Sell" and sellRequest then
-                    sellRequest:FireServer({[serial] = 1})
-                    processed = processed + 1
-                elseif action == "Upgrade" and upgradeRequest then
-                    upgradeRequest:FireServer(serial)
-                    processed = processed + 1
-                elseif action == "Dismantle" and dismantleRequest then
-                    dismantleRequest:FireServer(serial)
-                    processed = processed + 1
+                if action == "Sell" then
+                    sellItem(item)
+                elseif action == "Dismantle" then
+                    dismantleItem(item)
+                elseif action == "Upgrade" then
+                    upgradeItem(item, "Damage")
                 end
+                processed = processed + 1
             end)
             if not success then
                 skipped = skipped + 1
@@ -2211,7 +2266,6 @@ local function performRarityAction(action, rarityList)
     end
     
     for serial, item in pairs(inventoryCache) do
-        totalItems = totalItems + 1
         local itemRarity = item.rarity or "Common"
         local shouldProcess = false
         
@@ -2228,16 +2282,14 @@ local function performRarityAction(action, rarityList)
         
         if shouldProcess then
             local success = pcall(function()
-                if action == "Sell" and sellRequest then
-                    sellRequest:FireServer({[serial] = 1})
-                    processed = processed + 1
-                elseif action == "Upgrade" and upgradeRequest then
-                    upgradeRequest:FireServer(serial)
-                    processed = processed + 1
-                elseif action == "Dismantle" and dismantleRequest then
-                    dismantleRequest:FireServer(serial)
-                    processed = processed + 1
+                if action == "Sell" then
+                    sellItem(item)
+                elseif action == "Dismantle" then
+                    dismantleItem(item)
+                elseif action == "Upgrade" then
+                    upgradeItem(item, "Damage")
                 end
+                processed = processed + 1
             end)
             if not success then
                 skipped = skipped + 1
@@ -2255,10 +2307,6 @@ end
 
 local function startFarm()
     if running then return end
-    if not weaponAttack then
-        status.Text = "WeaponAttack remote not found!"
-        return
-    end
     running = true
     status.Text = "Status: Running"
     status.TextColor3 = Color3.fromRGB(0,255,150)
@@ -2269,18 +2317,21 @@ local function startFarm()
     
     task.spawn(function()
         while running do
-            if CONFIG.EnableAttack then
-                weaponAttack:FireServer(0)
-                attackCount = attackCount + 1
-                if attackCount % 50 == 0 then
-                    status.Text = "Status: "..attackCount.." attacks"
-                end
+            local weaponRemote = ReplicatedStorage:FindFirstChild("WeaponAttack", true)
+            if CONFIG.EnableAttack and weaponRemote and weaponRemote:IsA("RemoteEvent") then
+                pcall(function()
+                    weaponRemote:FireServer(0)
+                    attackCount = attackCount + 1
+                    if attackCount % 50 == 0 then
+                        status.Text = "Status: "..attackCount.." attacks"
+                    end
+                end)
             end
             
             local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
             task.wait(delay)
             
-            if CONFIG.EnableCollect and collectRequest and tick() - lastCollect > CONFIG.CollectInterval then
+            if CONFIG.EnableCollect then
                 collectGold()
                 lastCollect = tick()
             end
@@ -2314,67 +2365,9 @@ local function stopFarm()
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
 
--- ===== LOOT FUNCTION =====
-local function getNearestLoot()
-    local char = player.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-    local pos = root.Position
-    local nearest, dist = nil, 50
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
-            local name = obj.Name:lower()
-            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
-                local d = (obj.Position - pos).Magnitude
-                if d < dist then
-                    dist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    return nearest, dist
-end
-
-local function instantLoot()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local item, dist = getNearestLoot()
-    if not item then
-        return
-    end
-    
-    local originalCF = root.CFrame
-    tweenToPosition(item.Position + Vector3.new(0, 2, 0), 0.3)
-    task.wait(0.3)
-    
-    local prompt = nil
-    if item.Parent then
-        prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-    end
-    if not prompt then
-        prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
-    end
-    
-    if prompt then
-        prompt:Fire(player)
-    end
-    
-    local pickupRemote = safeFind("Item_Engine", "Remotes", "PickupItem")
-    if pickupRemote then
-        pickupRemote:FireServer(item.Parent and item.Parent.Name or item.Name)
-    end
-    
-    task.wait(0.5)
-    tweenToPosition(originalCF.Position, 0.3)
-end
-
--- ===== CHARACTER RESET =====
+-- ============================================================
+--  CHARACTER RESET
+-- ============================================================
 player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChild("Humanoid")
@@ -2393,7 +2386,9 @@ player.CharacterAdded:Connect(function(char)
     end
 end)
 
--- ===== DRAGGABLE =====
+-- ============================================================
+--  DRAGGABLE
+-- ============================================================
 local function makeDraggable(handle, target)
     local dragStart, startPos, dragging = nil, nil, false
     
@@ -2425,4 +2420,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – ULTIMATE script loaded (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW)")
+print("✅ POLY LOOT – ULTIMATE script loaded!")
