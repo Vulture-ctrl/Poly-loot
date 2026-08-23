@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (SAFE MODE) ]] 
+--[[ POLY LOOT – ULTIMATE (SPEED CAPPED AT 74) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +31,7 @@ local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Se
 
 -- ===== CONFIG =====
 local CONFIG = {
-    AttackDelay = 0.8,            -- increased to avoid rate‑limiting
+    AttackDelay = 0.8,            -- safe to avoid rate‑limiting
     DelayVariation = 0.1,
     CollectInterval = 30,
     CollectAmount = 1119,
@@ -384,6 +384,7 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
+-- Speed slider max is now 74 (safe limit)
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, s(48))
@@ -445,6 +446,10 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
             if width > 0 then
                 local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
                 local val = minVal + percent * (maxVal - minVal)
+                -- Clamp value for speed if this is the speed slider (labelText contains "Walk Speed")
+                if labelText == "Walk Speed" then
+                    val = math.min(val, 74) -- enforce safe cap
+                end
                 fill.Size = UDim2.new(percent, 0, 1, 0)
                 valLabel.Text = string.format("%.1f", val) .. unit
                 lbl.Text = labelText .. ": " .. string.format("%.1f", val) .. unit
@@ -661,7 +666,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             bossFarms[key].timerConnection = nil
         end
         bossFarms[key].currentTarget = nil
-        -- REMOVED: no PlatformStand reset needed
         status.Text = bossDisplayName .. " farm stopped"
         if btn then
             btn.Text = bossDisplayName .. " Farm (OFF)"
@@ -1306,7 +1310,6 @@ function toggleGargoyleFarm()
             gargoyleBodyPosition = nil
         end
         currentGargoyleTarget = nil
-        -- No PlatformStand to reset
         status.Text = "Gargoyle farm stopped"
         if gargoyleBtn then
             gargoyleBtn.Text = "Gargoyle Farm (OFF)"
@@ -1704,12 +1707,15 @@ for idx, action in ipairs(autoActions) do
 end
 
 -- ============================================================
---  PLAYER TAB (WITH SPEED SLIDER)
+--  PLAYER TAB (WITH SPEED SLIDER MAX 74)
 -- ============================================================
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 200, 16, "", function(val)
+    -- Speed slider now max = 74 (safe limit)
+    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 16, "", function(val)
+        -- Clamp again just in case
+        val = math.min(val, 74)
         cheats.speed = val
         local char = player.Character
         if char and char:FindFirstChild("Humanoid") then
@@ -1838,7 +1844,6 @@ local function closeGUI()
         end
     end
     
-    -- No PlatformStand to reset
     pcall(function() screenGui:Destroy() end)
 end
 
@@ -1962,7 +1967,6 @@ local flyConnection = nil
 local function enableFly()
     local char = player.Character
     if char then
-        -- No PlatformStand – player can attack
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
             local bv = root:FindFirstChild("FlyVelocity")
@@ -2066,7 +2070,9 @@ RunService.Heartbeat:Connect(function()
     if char then
         local hum = char:FindFirstChild("Humanoid")
         if hum and hum.WalkSpeed ~= cheats.speed then
-            hum.WalkSpeed = cheats.speed
+            -- Clamp to 74 just in case
+            local safeSpeed = math.min(cheats.speed, 74)
+            hum.WalkSpeed = safeSpeed
         end
     end
 end)
@@ -2336,7 +2342,7 @@ local function performAction(action)
             failed = failed + 1
         end
         if not CONFIG.BatchMode then
-            task.wait(0.05) -- slight delay to avoid flooding
+            task.wait(0.05)
         end
     end
     
@@ -2414,8 +2420,7 @@ player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.WalkSpeed = cheats.speed
-        -- No PlatformStand for fly – handled by enableFly/disableFly
+        hum.WalkSpeed = math.min(cheats.speed, 74) -- enforce cap
     end
 end)
 
@@ -2453,4 +2458,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – SAFE MODE loaded!")
+print("✅ POLY LOOT – SPEED CAPPED AT 74 loaded!")
