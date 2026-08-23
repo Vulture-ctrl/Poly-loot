@@ -33,9 +33,9 @@ local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Se
 local CONFIG = {
     AttackDelay = 0.3,
     DelayVariation = 0.1,
-    CollectInterval = 20,  -- Changed to 20 seconds
+    CollectInterval = 30,  -- 30 second cooldown
     CollectAmount = 1119,
-    CollectHoldTime = 5,    -- Stay at gold mine for 5 seconds
+    CollectHoldTime = 2,    -- Stay for 2 seconds
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
@@ -941,25 +941,39 @@ local ITEM_DB = {
     ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
 }
 
+-- List of favorite items to skip (add any item names here that should be ignored)
+local FAVORITE_ITEMS = {
+    ["Basic Sword"] = true,
+    ["Red Elemental"] = true,
+    -- Add more favorite items here
+}
+
 local inventoryCache = {}
 
 local function refreshInventory()
     inventoryCache = {}
     for name, data in pairs(ITEM_DB) do
-        inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
+        -- Skip favorite items
+        if not FAVORITE_ITEMS[name] then
+            inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
+        end
     end
     if status then
-        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded"
+        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded (favorites skipped)"
     end
     return inventoryCache
 end
 
 -- ============================================================
---  SELL/DISMANTLE/UPGRADE FUNCTIONS (ALL ITEMS - NO RARITY FILTER)
+--  SELL/DISMANTLE/UPGRADE FUNCTIONS (SKIPS FAVORITES)
 -- ============================================================
 
 local function sellItem(item)
     if not item then return false end
+    -- Check if item is favorite
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     local success, err = pcall(function()
         local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
         if sellRemote and sellRemote:IsA("RemoteEvent") then
@@ -981,6 +995,9 @@ end
 
 local function dismantleItem(item)
     if not item then return false end
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     local success, err = pcall(function()
         local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
         if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
@@ -1002,6 +1019,9 @@ end
 
 local function upgradeItem(item, stat)
     if not item then return false end
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     stat = stat or "Damage"
     local success, err = pcall(function()
         local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
@@ -1034,18 +1054,15 @@ local function holdKey(keyCode, duration)
             VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
         end)
     else
-        -- Fallback using simulated input
         pcall(function()
             local inputService = game:GetService("UserInputService")
             if inputService then
-                -- Simulate key down
                 local downInput = Instance.new("InputObject")
                 downInput.UserInputType = Enum.UserInputType.Keyboard
                 downInput.KeyCode = keyCode
                 downInput.UserInputState = Enum.UserInputState.Begin
                 inputService:FireInput(downInput)
                 task.wait(duration)
-                -- Simulate key up
                 local upInput = Instance.new("InputObject")
                 upInput.UserInputType = Enum.UserInputType.Keyboard
                 upInput.KeyCode = keyCode
@@ -1060,10 +1077,8 @@ local function pickupItem(drop)
     if not drop then return false end
     
     local success, err = pcall(function()
-        -- Try using the E key first (hold for 1 second)
         holdKey(Enum.KeyCode.E, 1)
         
-        -- Then try remotes
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
         if pickupRemote and pickupRemote:IsA("RemoteEvent") then
             pickupRemote:FireServer(drop)
@@ -1085,7 +1100,6 @@ local function pickupItem(drop)
             return true
         end
         
-        -- Try proximity prompt
         local prompt = nil
         if drop.Parent then
             prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
@@ -1202,7 +1216,6 @@ local function instantLoot()
     tweenToPosition(targetPos, 0.3)
     task.wait(0.3)
     
-    -- Hold E for 1 second to pickup
     holdKey(Enum.KeyCode.E, 1)
     
     local success = pickupItem(item)
@@ -1539,7 +1552,7 @@ lootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
---  AUTO TAB (SELL, DISMANTLE, UPGRADE - NO RARITY FILTER)
+--  AUTO TAB (SELL, DISMANTLE, UPGRADE - SKIPS FAVORITES)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -1556,7 +1569,7 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
-    status.Text = "Inventory refreshed!"
+    status.Text = "Inventory refreshed! (favorites skipped)"
 end)
 
 local topSpacer = Instance.new("Frame")
@@ -1590,7 +1603,7 @@ for idx, action in ipairs(autoActions) do
     infoLabel.Size = UDim2.new(1, -s(8), 0, s(20))
     infoLabel.Position = UDim2.new(0, s(4), 0, s(32))
     infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Processes ALL items (no rarity filter)"
+    infoLabel.Text = "Skips favorites (Basic Sword, Red Elemental, etc)"
     infoLabel.TextColor3 = Color3.fromRGB(150,150,180)
     infoLabel.Font = Enum.Font.Gotham
     infoLabel.TextSize = bigText(12)
@@ -1652,7 +1665,6 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    -- Speed Slider
     local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 200, 16, "", function(val)
         cheats.speed = val
         local char = player.Character
@@ -1661,17 +1673,14 @@ local function addPlayerTabContent()
         end
     end)
     
-    -- Fly Speed Slider
     local flySlider = addSliderRow(playerScroller, "Fly Speed", 10, 200, 50, "", function(val)
         cheats.flySpeed = val
     end)
     
-    -- Toggles
     local flyToggle = addToggleRow(playerScroller, "Fly", false)
     local antiAFKToggle = addToggleRow(playerScroller, "Anti-AFK", true)
     local autoClickToggle = addToggleRow(playerScroller, "Auto Clicker", false)
     
-    -- Click Speed Slider
     local acSpeedSlider = addSliderRow(playerScroller, "Click Speed", 0.05, 1.0, 0.1, "s", function(val)
         CONFIG.AutoClickSpeed = val
     end)
@@ -2222,20 +2231,20 @@ local function collectGold()
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
     
-    local originalCF = root.CFrame
+    local originalPos = root.Position
     
-    -- Tween to Gold Mine
-    status.Text = "Moving to Gold Mine..."
-    tweenToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0), 0.5)
-    task.wait(0.3)
+    -- TP to Gold Mine (instant, no tween)
+    status.Text = "Teleporting to Gold Mine..."
+    teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
+    task.wait(0.1)
     
-    -- Stay at gold mine for 5 seconds (or configured time)
+    -- Stay at gold mine for 2 seconds
     isAtGoldMine = true
     goldMineStartTime = tick()
-    status.Text = "Collecting gold for " .. CONFIG.CollectHoldTime .. "s..."
+    status.Text = "Collecting gold for 2s..."
     
+    local startCollect = tick()
     while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
-        -- Fire collect remote multiple times while at the mine
         local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
         if collectRemote and collectRemote:IsA("RemoteEvent") then
             pcall(function()
@@ -2255,18 +2264,19 @@ local function collectGold()
             end
         end
         
-        task.wait(1) -- Collect once per second while at the mine
+        task.wait(0.5) -- Collect every 0.5 seconds while at the mine
     end
     
     isAtGoldMine = false
-    status.Text = "Returning from Gold Mine..."
+    status.Text = "Teleporting back..."
     
-    -- Tween back to original position
-    tweenToPosition(originalCF.Position, 0.4)
+    -- TP back to original position (instant)
+    teleportToPosition(originalPos)
+    
     status.Text = "Gold collection complete (" .. collectCount .. " total)"
 end
 
-local function performRarityAction(action)
+local function performAction(action)
     if not inventoryCache or next(inventoryCache) == nil then
         status.Text = "Inventory empty – press Refresh Inventory"
         return
@@ -2275,8 +2285,8 @@ local function performRarityAction(action)
     local processed = 0
     local skipped = 0
     
-    -- Process ALL items (no rarity filter)
     for serial, item in pairs(inventoryCache) do
+        -- Skip favorites (handled in individual functions)
         local success = pcall(function()
             if action == "Sell" then
                 sellItem(item)
@@ -2296,7 +2306,7 @@ local function performRarityAction(action)
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
     elseif skipped > 0 then
-        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items"
+        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items (favorites)"
     end
 end
 
@@ -2326,7 +2336,7 @@ local function startFarm()
             local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
             task.wait(delay)
             
-            -- Auto Collect Gold every 20 seconds (stays for 5 seconds)
+            -- Auto Collect Gold (TP, stay 2s, 30s cooldown)
             if CONFIG.EnableCollect and (tick() - lastCollect) >= CONFIG.CollectInterval then
                 collectGold()
                 lastCollect = tick()
@@ -2343,7 +2353,7 @@ local function startFarm()
             -- Auto Sell/Dismantle/Upgrade
             for _, action in ipairs(autoActions) do
                 if actionToggles[action] and actionToggles[action].enabled() then
-                    performRarityAction(action)
+                    performAction(action)
                     task.wait(0.3)
                 end
             end
