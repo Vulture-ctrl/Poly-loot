@@ -1,4 +1,4 @@
---[[ POLY LOOT – GARGOYLE FARM + AUTO-LOOT INTEGRATED (SPEED 50) ]] 
+--[[ POLY LOOT – FAST LOOT PICKUP (0.3s TWEEN) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,7 +26,7 @@ if not guiParent then
     guiParent.Parent = game:GetService("CoreGui")
 end
 
--- ===== CONFIG (SPEED 50) =====
+-- ===== CONFIG =====
 local CONFIG = {
     AttackDelay = 0.8,
     DelayVariation = 0.1,
@@ -44,7 +44,8 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 50,   -- Changed to 50
+    WalkSpeed = 50,
+    LootPickupTweenDuration = 0.3,   -- fast loot pickup
 }
 
 -- ===== COORDINATES =====
@@ -57,7 +58,7 @@ local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
 -- ===== PLAYER CHEATS =====
 local cheats = {
-    speed = 50,          -- default matches CONFIG
+    speed = 50,
     fly = false,
     flySpeed = 50,
     antiAFK = true,
@@ -256,7 +257,7 @@ end
 switchTab("farm")
 
 -- ============================================================
--- HELPERS (unchanged)
+-- HELPERS
 -- ============================================================
 local function createSection(parent, title, height)
     local section = Instance.new("Frame")
@@ -994,7 +995,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS (smooth hold)
+-- PICKUP/LOOT – FAST TWEEN (0.3s)
 -- ============================================================
 local function getNearestLoot()
     local char = player.Character
@@ -1104,8 +1105,9 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Moving to loot..."
-    tweenAtWalkSpeed(targetPos)
+    status.Text = "Dashing to loot..."
+    -- Fast tween (0.3 seconds) to the loot
+    tweenToPosition(targetPos, CONFIG.LootPickupTweenDuration or 0.3)
     task.wait(0.1)
     
     if not lootStillExists(item) then
@@ -1196,7 +1198,7 @@ local function instantLoot()
 end
 
 -- ============================================================
--- GARGOYLE FARM – INTEGRATED AUTO-LOOT
+-- GARGOYLE FARM WITH INTEGRATED AUTO-LOOT
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1248,14 +1250,12 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Use tween to move to the gargoyle
+    -- Use tween at walk speed (50) for gargoyle
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
-    -- After arriving, set CFrame to face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
-    -- BodyPosition to hover
     if not gargoyleBodyPosition or not gargoyleBodyPosition.Parent then
         if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
         gargoyleBodyPosition = Instance.new("BodyPosition")
@@ -1290,7 +1290,6 @@ local function lockAboveGargoyle(targetMob)
     end
 end
 
--- INTEGRATED AUTO-LOOT CHECK inside gargoyle loop
 local function checkAndLoot()
     local char = player.Character
     if not char then return false end
@@ -1299,7 +1298,7 @@ local function checkAndLoot()
     
     local item, dist = getNearestLoot()
     if item and dist < 30 then
-        -- Temporarily clean up body parts so we can move
+        -- Clean up body parts to allow movement
         if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
         if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
         if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
@@ -1307,14 +1306,11 @@ local function checkAndLoot()
         gargoyleBodyVelocity = nil
         gargoyleBodyGyro = nil
         
-        -- Pick up the loot
         instantLoot()
         
-        -- Re-enable auto-rotate
         local hum = char:FindFirstChild("Humanoid")
         if hum then hum.AutoRotate = true end
         
-        -- Return true if we picked something, so the loop can re-lock
         return true
     end
     return false
@@ -1377,23 +1373,20 @@ function toggleGargoyleFarm()
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started (auto-loot enabled)"
+    status.Text = "Gargoyle farming started (fast loot pickup)"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
-            -- First, check for loot and pick it up if nearby
             if checkAndLoot() then
-                -- If we looted, restart the loop to re-lock a gargoyle
                 task.wait(0.3)
                 continue
             end
             
-            -- Otherwise, find and lock onto a gargoyle
             local mob, dist = getNearestGargoyle()
             
             if mob then
                 lockAboveGargoyle(mob)
-                status.Text = "🔒 Locked above Gargoyle (tweened)"
+                status.Text = "🔒 Locked above Gargoyle"
                 if gargoyleStatusLabel then
                     gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
@@ -1404,7 +1397,6 @@ function toggleGargoyleFarm()
                     gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
-                -- Clean up if no mob
                 if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
                 if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
                 if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
@@ -1420,7 +1412,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB – Removed Teleport to Mine and Batch Mode
+-- FARM TAB (only Auto-Collect Gold and Auto-Loot)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1479,7 +1471,6 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Auto Controls – only Auto-Collect Gold and Auto-Loot (both optional)
 local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)
 
 -- Auto-Collect Gold
@@ -1516,7 +1507,7 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
--- Auto-Loot (optional, still works independently)
+-- Auto-Loot (optional)
 local lootRow = Instance.new("Frame")
 lootRow.Size = UDim2.new(1, 0, 0, s(38))
 lootRow.Position = UDim2.new(0, 0, 0, s(40))
@@ -2413,5 +2404,5 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – GARGOYLE FARM + AUTO-LOOT INTEGRATED (SPEED 50)")
-print("✅ Gargoyle farm will now pick up drops and resume farming.")
+print("✅ POLY LOOT – FAST LOOT PICKUP (0.3s TWEEN)")
+print("✅ Gargoyle farm picks up drops quickly and resumes.")
