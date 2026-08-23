@@ -39,12 +39,11 @@ local CONFIG = {
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 5,          -- Hold E for this many seconds
+    LootHoldSeconds = 5,          -- Hold E for 5 seconds (configurable)
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
-    -- NEW options
     CollectUseTeleport = false,   -- false = walk, true = teleport
     BatchMode = false,            -- true = no wait between sell/dismantle/upgrade
 }
@@ -1073,52 +1072,9 @@ local function holdKey(keyCode, duration)
     end
 end
 
-local function pickupItem(drop)
-    if not drop then return false end
-    
-    local success, err = pcall(function()
-        -- Hold E for configured seconds to pickup
-        holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
-        
-        -- Also try remotes
-        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
-        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
-            pickupRemote:FireServer(drop)
-            return true
-        end
-        
-        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
-        if itemEngine then
-            local pickup = itemEngine:FindFirstChild("PickupItem", true)
-            if pickup and pickup:IsA("RemoteEvent") then
-                pickup:FireServer(drop)
-                return true
-            end
-        end
-        
-        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
-        if remote and remote:IsA("RemoteEvent") then
-            remote:FireServer("Pickup", drop)
-            return true
-        end
-        
-        -- Try proximity prompt
-        local prompt = nil
-        if drop.Parent then
-            prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if not prompt then
-            prompt = drop:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if prompt then
-            prompt:Fire(player)
-            return true
-        end
-        return false
-    end)
-    return success or false
-end
-
+-- ============================================================
+--  INSTANT LOOT (UPDATED: ONLY ONE E HOLD, NO TWEEN BACK)
+-- ============================================================
 local function getNearestLoot()
     local char = player.Character
     if not char then return nil end
@@ -1199,9 +1155,7 @@ local function instantLoot()
         return
     end
     
-    local originalCF = root.CFrame
     local targetPos
-    
     if item:IsA("BasePart") then
         targetPos = item.Position + Vector3.new(0, 2, 0)
     elseif item:IsA("Model") and item.PrimaryPart then
@@ -1235,19 +1189,44 @@ local function instantLoot()
         return
     end
     
-    -- Hold E for configured duration
+    -- Hold E for configured duration (this is the only E press)
     holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
     
-    -- Also try remote pickup
-    pickupItem(item)
+    -- Also try remote pickup (without holding E again)
+    pcall(function()
+        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
+        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
+            pickupRemote:FireServer(item)
+            return
+        end
+        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
+        if itemEngine then
+            local pickup = itemEngine:FindFirstChild("PickupItem", true)
+            if pickup and pickup:IsA("RemoteEvent") then
+                pickup:FireServer(item)
+                return
+            end
+        end
+        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Pickup", item)
+            return
+        end
+        -- Try proximity prompt
+        local prompt = nil
+        if item.Parent then
+            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if not prompt then
+            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if prompt then
+            prompt:Fire(player)
+        end
+    end)
     
-    status.Text = "Item pickup attempted"
-    
-    task.wait(0.5)
-    
-    -- Tween back to original position
-    tweenToPosition(originalCF.Position, 0.3)
-    status.Text = running and "Status: Running" or "Status: Stopped"
+    status.Text = "Item pickup attempted, moving to next..."
+    -- Do NOT tween back; stay in position for next loot
 end
 
 -- ============================================================
@@ -1569,7 +1548,7 @@ lootBtn.Activated:Connect(function()
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
 
--- NEW: Batch Mode toggle
+-- Batch Mode toggle
 local batchRow = Instance.new("Frame")
 batchRow.Size = UDim2.new(1, 0, 0, s(38))
 batchRow.Position = UDim2.new(0, 0, 0, s(80))
@@ -1604,7 +1583,7 @@ batchBtn.Activated:Connect(function()
     batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
 end)
 
--- NEW: Collect Teleport toggle
+-- Collect Teleport toggle
 local teleportRow = Instance.new("Frame")
 teleportRow.Size = UDim2.new(1, 0, 0, s(38))
 teleportRow.Position = UDim2.new(0, 0, 0, s(120))
@@ -2369,8 +2348,6 @@ local function collectGold()
         teleportToPosition(originalPos)
     else
         status.Text = "Staying at Gold Mine"
-        -- (optional: walk back to original position if desired)
-        -- tweenToPosition(originalPos, 0.6)
     end
 end
 
@@ -2384,7 +2361,6 @@ local function performAction(action)
     end
     
     local processed = 0
-    local skipped = 0
     local failed = 0
     
     for serial, item in pairs(inventoryCache) do
@@ -2399,13 +2375,11 @@ local function performAction(action)
         end)
         if success and result then
             processed = processed + 1
-        elseif success and not result then
-            failed = failed + 1
         else
             failed = failed + 1
         end
         if not CONFIG.BatchMode then
-            task.wait(0.02)  -- small delay if batch mode off
+            task.wait(0.02)
         end
     end
     
