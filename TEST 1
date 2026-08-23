@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (GARGOYLE FARM + BOSS FARM with TIMER & AUTO FOLLOW, lock 5.1) ]]
+--[[ POLY LOOT – ULTIMATE (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW, lock 5.1) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1163,7 +1163,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB
+--  FARM TAB (status + Gargoyle + Boss Farms + Combat controls)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1182,42 +1182,186 @@ infoLabel.TextSize = bigText(14)
 infoLabel.TextXAlignment = Enum.TextXAlignment.Center
 infoLabel.Parent = farmScroller
 
+-- Combat Controls
+local combatSection = Instance.new("Frame")
+combatSection.Size = UDim2.new(1, 0, 0, s(80))
+combatSection.BackgroundTransparency = 1
+combatSection.Parent = farmScroller
+
+local combatHeader = Instance.new("TextLabel")
+combatHeader.Size = UDim2.new(1, 0, 0, 22)
+combatHeader.BackgroundTransparency = 1
+combatHeader.Text = "⚔️ Combat Controls"
+combatHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
+combatHeader.Font = Enum.Font.GothamBold
+combatHeader.TextSize = bigText(15)
+combatHeader.TextXAlignment = Enum.TextXAlignment.Left
+combatHeader.Parent = combatSection
+
+local combatGrid = Instance.new("Frame")
+combatGrid.Size = UDim2.new(1, 0, 1, -s(22))
+combatGrid.Position = UDim2.new(0, 0, 0, s(22))
+combatGrid.BackgroundTransparency = 1
+combatGrid.Parent = combatSection
+
+local combatGridLayout = Instance.new("UIGridLayout")
+combatGridLayout.Parent = combatGrid
+combatGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(30))
+combatGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+combatGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.8, 0, 0, s(40))
-toggleBtn.Position = UDim2.new(0.1, 0, 0, 0)
+toggleBtn.Size = UDim2.new(1, 0, 1, 0)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
 toggleBtn.BorderSizePixel = 0
 toggleBtn.Text = "▶ Start"
 toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
 toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = bigText(18)
-toggleBtn.Parent = farmScroller
+toggleBtn.TextSize = bigText(14)
+toggleBtn.Parent = combatGrid
+toggleBtn.Activated:Connect(function()
+    if running then
+        stopFarm()
+    else
+        startFarm()
+    end
+end)
 
-local row1 = addControl(farmScroller, 40)
 local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0.3, -s(5), 1, 0)
-collectBtn.Position = UDim2.new(0, 0, 0, 0)
+collectBtn.Size = UDim2.new(1, 0, 1, 0)
 collectBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 60)
 collectBtn.BorderSizePixel = 0
 collectBtn.Text = "💰 Collect Gold"
 collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
 collectBtn.Font = Enum.Font.GothamBold
 collectBtn.TextSize = bigText(13)
-collectBtn.Parent = row1
+collectBtn.Parent = combatGrid
+collectBtn.Activated:Connect(collectGold)
 
 local lootNowBtn = Instance.new("TextButton")
-lootNowBtn.Size = UDim2.new(0.3, -s(5), 1, 0)
-lootNowBtn.Position = UDim2.new(0.35, 0, 0, 0)
+lootNowBtn.Size = UDim2.new(1, 0, 1, 0)
 lootNowBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 160)
 lootNowBtn.BorderSizePixel = 0
 lootNowBtn.Text = "📦 Loot Now"
 lootNowBtn.TextColor3 = Color3.fromRGB(255,255,255)
 lootNowBtn.Font = Enum.Font.GothamBold
 lootNowBtn.TextSize = bigText(13)
-lootNowBtn.Parent = row1
+lootNowBtn.Parent = combatGrid
+lootNowBtn.Activated:Connect(instantLoot)
 
 local autoCollectToggle = addToggleRow(farmScroller, "Auto-Collect Gold", true)
 local autoLootToggle = addToggleRow(farmScroller, "Auto-Loot", false)
+
+-- GARGOYLE FARM SECTION
+local gargoyleSection = Instance.new("Frame")
+gargoyleSection.Size = UDim2.new(1, 0, 0, s(72))
+gargoyleSection.BackgroundTransparency = 1
+gargoyleSection.Parent = farmScroller
+
+local gargoyleHeader = Instance.new("TextLabel")
+gargoyleHeader.Size = UDim2.new(1, 0, 0, 22)
+gargoyleHeader.BackgroundTransparency = 1
+gargoyleHeader.Text = "🧛 Gargoyle Farm"
+gargoyleHeader.TextColor3 = Color3.fromRGB(255, 150, 200)
+gargoyleHeader.Font = Enum.Font.GothamBold
+gargoyleHeader.TextSize = bigText(15)
+gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
+gargoyleHeader.Parent = gargoyleSection
+
+gargoyleBtn = Instance.new("TextButton")
+gargoyleBtn.Size = UDim2.new(0.8, 0, 0.5, 0)
+gargoyleBtn.Position = UDim2.new(0.1, 0, 0.25, 0)
+gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+gargoyleBtn.BorderSizePixel = 0
+gargoyleBtn.Text = "🧛 Gargoyle Farm (OFF)"
+gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+gargoyleBtn.Font = Enum.Font.GothamBold
+gargoyleBtn.TextSize = bigText(14)
+gargoyleBtn.Parent = gargoyleSection
+gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
+
+gargoyleStatusLabel = Instance.new("TextLabel")
+gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
+gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
+gargoyleStatusLabel.BackgroundTransparency = 1
+gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
+gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+gargoyleStatusLabel.Font = Enum.Font.Gotham
+gargoyleStatusLabel.TextSize = bigText(13)
+gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+gargoyleStatusLabel.Parent = gargoyleSection
+
+-- BOSS FARMS SECTION
+local bossFarmSection = Instance.new("Frame")
+bossFarmSection.Size = UDim2.new(1, 0, 0, s(140))
+bossFarmSection.BackgroundTransparency = 1
+bossFarmSection.Parent = farmScroller
+
+local bossFarmHeader = Instance.new("TextLabel")
+bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
+bossFarmHeader.BackgroundTransparency = 1
+bossFarmHeader.Text = "🎯 Boss Farms (Timer + Auto Follow)"
+bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
+bossFarmHeader.Font = Enum.Font.GothamBold
+bossFarmHeader.TextSize = bigText(15)
+bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
+bossFarmHeader.Parent = bossFarmSection
+
+local bossFarmGrid = Instance.new("Frame")
+bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
+bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
+bossFarmGrid.BackgroundTransparency = 1
+bossFarmGrid.Parent = bossFarmSection
+
+local bossFarmGridLayout = Instance.new("UIGridLayout")
+bossFarmGridLayout.Parent = bossFarmGrid
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
+bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local bossFarmDefs = {
+    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken", entrance = CHICKEN_BOSS_ENTRANCE},
+    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss", entrance = SPIDER_BOSS_ENTRANCE}
+}
+
+for _, def in ipairs(bossFarmDefs) do
+    local cell = Instance.new("Frame")
+    cell.Size = UDim2.new(1, 0, 1, 0)
+    cell.BackgroundTransparency = 1
+    cell.Parent = bossFarmGrid
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0.5, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    btn.BorderSizePixel = 0
+    btn.Text = "🎯 " .. def.display .. " Farm (OFF)"
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = bigText(12)
+    btn.Parent = cell
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = def.display .. " farm: OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = bigText(11)
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = cell
+    
+    local bossBtn = btn
+    local bossStatusLabel = statusLabel
+    local bossName = def.key
+    local bossSign = def.sign
+    local bossDisplay = def.display
+    
+    btn.Activated:Connect(function()
+        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
+    end)
+end
 
 -- ============================================================
 --  AUTO TAB (Sell, Upgrade, Dismantle)
@@ -1287,6 +1431,13 @@ for idx, action in ipairs(autoActions) do
         checkBtn.Font = Enum.Font.GothamBold
         checkBtn.TextSize = bigText(18)
         checkBtn.Parent = cbContainer
+        
+        checkBtn.MouseEnter:Connect(function()
+            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
+        end)
+        checkBtn.MouseLeave:Connect(function()
+            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
+        end)
         
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -s(32), 1, 0)
@@ -1769,7 +1920,7 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
---  TELEPORT TAB (CLEAN & ORGANIZED)
+--  TELEPORT TAB (Locations only - Clean)
 -- ============================================================
 local teleportLabel = Instance.new("TextLabel")
 teleportLabel.Size = UDim2.new(1, 0, 0, 24)
@@ -1830,31 +1981,6 @@ copyBtn.Activated:Connect(function()
     end
 end)
 
--- Gargoyle farm toggle
-local gargoyleRow = addControl(teleportScroller, 72)
-gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.8, 0, 0.6, 0)
-gargoyleBtn.Position = UDim2.new(0.1, 0, 0, 0)
-gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-gargoyleBtn.BorderSizePixel = 0
-gargoyleBtn.Text = "🧛 Gargoyle Farm (OFF)"
-gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(15)
-gargoyleBtn.Parent = gargoyleRow
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
-
-gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.4, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
-gargoyleStatusLabel.BackgroundTransparency = 1
-gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
-gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-gargoyleStatusLabel.Font = Enum.Font.Gotham
-gargoyleStatusLabel.TextSize = bigText(13)
-gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-gargoyleStatusLabel.Parent = gargoyleRow
-
 -- Shops & Locations (Instant TP)
 local shopSection = Instance.new("Frame")
 shopSection.Size = UDim2.new(1, 0, 0, s(100))
@@ -1904,78 +2030,6 @@ for _, data in ipairs(shopButtons) do
     btn.Parent = shopGrid
     btn.Activated:Connect(function()
         teleportToPosition(data.pos + Vector3.new(0,5,0))
-    end)
-end
-
--- BOSS FARM SECTION
-local bossFarmSection = Instance.new("Frame")
-bossFarmSection.Size = UDim2.new(1, 0, 0, s(140))
-bossFarmSection.BackgroundTransparency = 1
-bossFarmSection.Parent = teleportScroller
-
-local bossFarmHeader = Instance.new("TextLabel")
-bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
-bossFarmHeader.BackgroundTransparency = 1
-bossFarmHeader.Text = "🎯 Boss Farms (Timer + Auto Follow)"
-bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-bossFarmHeader.Font = Enum.Font.GothamBold
-bossFarmHeader.TextSize = bigText(15)
-bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
-bossFarmHeader.Parent = bossFarmSection
-
-local bossFarmGrid = Instance.new("Frame")
-bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
-bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
-bossFarmGrid.BackgroundTransparency = 1
-bossFarmGrid.Parent = bossFarmSection
-
-local bossFarmGridLayout = Instance.new("UIGridLayout")
-bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
-bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local bossFarmDefs = {
-    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken", entrance = CHICKEN_BOSS_ENTRANCE},
-    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss", entrance = SPIDER_BOSS_ENTRANCE}
-}
-
-for _, def in ipairs(bossFarmDefs) do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
-    cell.Parent = bossFarmGrid
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0.5, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    btn.BorderSizePixel = 0
-    btn.Text = "🎯 " .. def.display .. " Farm (OFF)"
-    btn.TextColor3 = Color3.fromRGB(255,255,255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(12)
-    btn.Parent = cell
-    
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
-    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = def.display .. " farm: OFF"
-    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = bigText(11)
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Parent = cell
-    
-    local bossBtn = btn
-    local bossStatusLabel = statusLabel
-    local bossName = def.key
-    local bossSign = def.sign
-    local bossDisplay = def.display
-    
-    btn.Activated:Connect(function()
-        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
     end)
 end
 
@@ -2197,16 +2251,6 @@ local function stopFarm()
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
 
-toggleBtn.Activated:Connect(function()
-    if running then
-        stopFarm()
-    else
-        startFarm()
-    end
-end)
-
-collectBtn.Activated:Connect(collectGold)
-
 autoCollectToggle.button.Activated:Connect(function()
     CONFIG.EnableCollect = not CONFIG.EnableCollect
     autoCollectToggle.value = CONFIG.EnableCollect
@@ -2302,8 +2346,6 @@ local function instantLoot()
     status.Text = running and "Status: Running" or "Status: Stopped"
 end
 
-lootNowBtn.Activated:Connect(instantLoot)
-
 -- ===== CHARACTER RESET =====
 player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
@@ -2352,4 +2394,4 @@ end
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
 
-print("✅ POLY LOOT – ULTIMATE script loaded (GARGOYLE FARM + BOSS FARMS with TIMER & AUTO FOLLOW)")
+print("✅ POLY LOOT – ULTIMATE script loaded (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW)")
