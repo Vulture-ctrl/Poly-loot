@@ -1,4 +1,4 @@
---[[ POLY LOOT – FAST LOOT PICKUP (0.3s TWEEN) ]] 
+--[[ POLY LOOT – FASTEST LOOT (0.2s TWEEN + 2s HOLD) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -37,7 +37,7 @@ local CONFIG = {
     EnableAttack = true,
     EnableCollect = false,
     AutoLoot = false,
-    LootHoldSeconds = 5,
+    LootHoldSeconds = 2,           -- Reduced from 5 to 2
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
@@ -45,7 +45,7 @@ local CONFIG = {
     CollectUseTeleport = false,
     BatchMode = false,
     WalkSpeed = 50,
-    LootPickupTweenDuration = 0.3,   -- fast loot pickup
+    LootPickupTweenDuration = 0.2,   -- Even faster
 }
 
 -- ===== COORDINATES =====
@@ -436,7 +436,7 @@ local function tweenToPosition(targetPos, duration)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)  -- Linear for speed
     local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
     tween:Play()
     tween.Completed:Wait()
@@ -995,7 +995,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT – FAST TWEEN (0.3s)
+-- PICKUP/LOOT – FASTEST (0.2s TWEEN + 2s HOLD)
 -- ============================================================
 local function getNearestLoot()
     local char = player.Character
@@ -1106,9 +1106,9 @@ local function instantLoot()
     end
     
     status.Text = "Dashing to loot..."
-    -- Fast tween (0.3 seconds) to the loot
-    tweenToPosition(targetPos, CONFIG.LootPickupTweenDuration or 0.3)
-    task.wait(0.1)
+    -- 0.2s tween (fastest)
+    tweenToPosition(targetPos, CONFIG.LootPickupTweenDuration or 0.2)
+    task.wait(0.05)
     
     if not lootStillExists(item) then
         status.Text = "Loot disappeared, skipping"
@@ -1157,10 +1157,10 @@ local function instantLoot()
         return
     end
     
-    -- Hold E with early cancel
+    -- Hold E for only 2 seconds
     status.Text = "Holding E for pickup..."
     local startTime = tick()
-    local holdDuration = CONFIG.LootHoldSeconds or 5
+    local holdDuration = CONFIG.LootHoldSeconds or 2
     
     pcall(function()
         if VirtualInputManager then
@@ -1179,7 +1179,7 @@ local function instantLoot()
             status.Text = "Loot picked up! Cancelling E."
             break
         end
-        task.wait(0.2)
+        task.wait(0.15)
     end
     
     pcall(function()
@@ -1250,7 +1250,7 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Use tween at walk speed (50) for gargoyle
+    -- Tween at walk speed (50)
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
@@ -1373,12 +1373,12 @@ function toggleGargoyleFarm()
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started (fast loot pickup)"
+    status.Text = "Gargoyle farming started (fast loot)"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
             if checkAndLoot() then
-                task.wait(0.3)
+                task.wait(0.2)
                 continue
             end
             
@@ -1406,7 +1406,7 @@ function toggleGargoyleFarm()
                 currentGargoyleTarget = nil
                 task.wait(1)
             end
-            task.wait(0.3)
+            task.wait(0.25)
         end
     end)
 end
@@ -2404,5 +2404,5 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – FAST LOOT PICKUP (0.3s TWEEN)")
-print("✅ Gargoyle farm picks up drops quickly and resumes.")
+print("✅ POLY LOOT – FASTEST (0.2s TWEEN + 2s HOLD)")
+print("✅ Loot pickup is now extremely fast.")
