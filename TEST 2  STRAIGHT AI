@@ -1,4 +1,4 @@
---[[ POLY LOOT – FARM FIX (INSTANT TELEPORT + AUTO-ROTATE OFF) ]] 
+--[[ POLY LOOT – FINAL FIX (SPEED 74 TWEEN + FLOATING LOCK) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,14 +39,14 @@ local CONFIG = {
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 5,
+    LootHoldSeconds = 5,          -- hold E for 5 seconds
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    InstantFarmTeleport = true,   -- NEW: true = teleport instantly, false = tween (but we'll only use CFrame)
+    WalkSpeed = 74,               -- capped walk speed for tweens
 }
 
 -- ===== COORDINATES =====
@@ -385,6 +385,7 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
+-- Speed slider max 74
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, s(48))
@@ -464,12 +465,30 @@ end
 --  MOVEMENT HELPERS
 -- ============================================================
 local function tweenToPosition(targetPos, duration)
+    -- uses the given duration, not walk speed
     duration = duration or CONFIG.TweenDuration
     local char = player.Character
     if not char then return false end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
+    tween:Play()
+    tween.Completed:Wait()
+    return true
+end
+
+local function tweenAtWalkSpeed(targetPos)
+    -- Calculate duration based on distance and walk speed (74)
+    local char = player.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local distance = (targetPos - root.Position).Magnitude
+    local speed = CONFIG.WalkSpeed  -- 74
+    local duration = distance / speed
+    if duration < 0.2 then duration = 0.2 end  -- minimum tween time
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
     tween:Play()
@@ -521,7 +540,7 @@ local function performClick()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (NO PLATFORMSTAND, AUTO-ROTATE OFF)
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (FLOATING LOCK)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -652,9 +671,17 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             task.cancel(bossFarmThreads[key])
             bossFarmThreads[key] = nil
         end
-        -- Reset auto-rotate when stopping
+        -- Clean up BodyPosition and BodyVelocity
         local char = player.Character
         if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, obj in ipairs(root:GetChildren()) do
+                    if obj:IsA("BodyPosition") or obj:IsA("BodyVelocity") then
+                        obj:Destroy()
+                    end
+                end
+            end
             local hum = char:FindFirstChild("Humanoid")
             if hum then
                 hum.AutoRotate = true
@@ -695,6 +722,8 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             isAlive = false,
             timerLabel = nil,
             timerConnection = nil,
+            bodyPosition = nil,
+            bodyVelocity = nil,
         }
     end
     
@@ -809,13 +838,36 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     if not playerRoot then return end
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.AutoRotate = false   -- Prevent turning away
+        hum.AutoRotate = false   -- keep facing down
+        hum.PlatformStand = false -- allow attacks
     end
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Instant teleport to target position and face down
+    -- Instant teleport to position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    -- Create BodyPosition to keep hovering (if not already)
+    local bp = bossFarms[key].bodyPosition
+    if not bp or not bp.Parent then
+        bp = Instance.new("BodyPosition")
+        bp.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bp.D = 5000
+        bp.P = 20000
+        bp.Parent = playerRoot
+        bossFarms[key].bodyPosition = bp
+    end
+    bp.Position = targetPos
+    
+    -- Also a BodyVelocity to keep still (optional)
+    local bv = bossFarms[key].bodyVelocity
+    if not bv or not bv.Parent then
+        bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bv.Velocity = Vector3.new(0,0,0)
+        bv.Parent = playerRoot
+        bossFarms[key].bodyVelocity = bv
+    end
     
     bossFarms[key].currentTarget = mob
     bossFarms[key].isAlive = true
@@ -990,11 +1042,10 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
---  PICKUP/LOOT FUNCTIONS (NO SIMULATED KEY, ONLY REMOTES)
+--  PICKUP/LOOT FUNCTIONS (HOLD E)
 -- ============================================================
 
 local function holdKey(keyCode, duration)
-    -- Not used in auto-loot anymore; kept for other potential uses
     if VirtualInputManager then
         pcall(function()
             VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
@@ -1022,7 +1073,7 @@ local function holdKey(keyCode, duration)
 end
 
 -- ============================================================
---  INSTANT LOOT – remote only, no E hold
+--  INSTANT LOOT – now with walk-speed tween and hold E
 -- ============================================================
 local function getNearestLoot()
     local char = player.Character
@@ -1117,11 +1168,13 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Looting item..."
+    status.Text = "Moving to loot at walk speed 74..."
     
-    -- Tween to item
-    tweenToPosition(targetPos, 0.3)
-    task.wait(0.3)
+    -- Tween using walk speed (74) instead of fixed duration
+    tweenAtWalkSpeed(targetPos)
+    
+    -- Wait a tiny bit to ensure arrival
+    task.wait(0.1)
     
     -- Verify item still exists
     local stillExists = false
@@ -1135,7 +1188,10 @@ local function instantLoot()
         return
     end
     
-    -- ONLY remote events – no key press
+    status.Text = "Holding E for " .. CONFIG.LootHoldSeconds .. " seconds..."
+    holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
+    
+    -- Also try remote pickup (just in case)
     pcall(function()
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
         if pickupRemote and pickupRemote:IsA("RemoteEvent") then
@@ -1155,7 +1211,7 @@ local function instantLoot()
             remote:FireServer("Pickup", item)
             return
         end
-        -- Try proximity prompt
+        -- Proximity prompt
         local prompt = nil
         if item.Parent then
             prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
@@ -1168,18 +1224,20 @@ local function instantLoot()
         end
     end)
     
-    status.Text = "Item pickup attempted, moving to next..."
-    -- Do NOT tween back
+    status.Text = "Loot attempted, moving to next..."
+    -- Do NOT tween back – stay for next item
 end
 
 -- ============================================================
---  GARGOYLE FARM (FIX: AUTO-ROTATE OFF, INSTANT TELEPORT)
+--  GARGOYLE FARM (FLOATING LOCK + AUTO-ROTATE OFF)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
 local gargoyleBtn = nil
 local gargoyleStatusLabel = nil
 local currentGargoyleTarget = nil
+local gargoyleBodyPosition = nil
+local gargoyleBodyVelocity = nil
 
 local function getNearestGargoyle()
     local char = player.Character
@@ -1216,13 +1274,34 @@ local function lockAboveGargoyle(targetMob)
     if not playerRoot then return end
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.AutoRotate = false   -- Prevents turning away
+        hum.AutoRotate = false
+        hum.PlatformStand = false   -- allow attacks
     end
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Instant teleport to target position and face down
+    -- Instant teleport to position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    -- Create BodyPosition to keep hovering
+    if not gargoyleBodyPosition or not gargoyleBodyPosition.Parent then
+        if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
+        gargoyleBodyPosition = Instance.new("BodyPosition")
+        gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        gargoyleBodyPosition.D = 5000
+        gargoyleBodyPosition.P = 20000
+        gargoyleBodyPosition.Parent = playerRoot
+    end
+    gargoyleBodyPosition.Position = targetPos
+    
+    -- Also a BodyVelocity to keep still
+    if not gargoyleBodyVelocity or not gargoyleBodyVelocity.Parent then
+        if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
+        gargoyleBodyVelocity = Instance.new("BodyVelocity")
+        gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        gargoyleBodyVelocity.Velocity = Vector3.new(0,0,0)
+        gargoyleBodyVelocity.Parent = playerRoot
+    end
     
     currentGargoyleTarget = targetMob
     
@@ -1239,14 +1318,21 @@ function toggleGargoyleFarm()
             task.cancel(gargoyleFarmThread)
             gargoyleFarmThread = nil
         end
-        -- Reset auto-rotate
+        -- Clean up BodyPosition and BodyVelocity
         local char = player.Character
         if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
+                if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
+            end
             local hum = char:FindFirstChild("Humanoid")
             if hum then
                 hum.AutoRotate = true
             end
         end
+        gargoyleBodyPosition = nil
+        gargoyleBodyVelocity = nil
         currentGargoyleTarget = nil
         status.Text = "Gargoyle farm stopped"
         if gargoyleBtn then
@@ -1296,6 +1382,11 @@ function toggleGargoyleFarm()
                     gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
+                -- Clean up if no mob
+                if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
+                if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
+                gargoyleBodyPosition = nil
+                gargoyleBodyVelocity = nil
                 currentGargoyleTarget = nil
                 task.wait(1)
             end
@@ -1631,6 +1722,7 @@ local function addPlayerTabContent()
     local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 16, "", function(val)
         val = math.min(val, 74)
         cheats.speed = val
+        CONFIG.WalkSpeed = val   -- also update tween speed
         local char = player.Character
         if char and char:FindFirstChild("Humanoid") then
             char.Humanoid.WalkSpeed = val
@@ -1733,7 +1825,7 @@ local function closeGUI()
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
     if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
-    -- Reset auto-rotate for boss farms
+    -- Clean up boss farms
     for key, data in pairs(bossFarms) do
         if data.running then
             data.running = false
@@ -1746,12 +1838,21 @@ local function closeGUI()
             data.timerConnection:Disconnect()
             data.timerConnection = nil
         end
-    end
-    local char = player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then
-            hum.AutoRotate = true
+        -- Remove body parts
+        local char = player.Character
+        if char then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, obj in ipairs(root:GetChildren()) do
+                    if obj:IsA("BodyPosition") or obj:IsA("BodyVelocity") then
+                        obj:Destroy()
+                    end
+                end
+            end
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.AutoRotate = true
+            end
         end
     end
     pcall(function() screenGui:Destroy() end)
@@ -2184,7 +2285,7 @@ local function collectGold()
         teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
     else
         status.Text = "Walking to Gold Mine..."
-        tweenToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0), 0.6)
+        tweenAtWalkSpeed(GOLD_MINE_POS + Vector3.new(0, 5, 0))
     end
     task.wait(0.2)
     
@@ -2330,7 +2431,8 @@ player.CharacterAdded:Connect(function(char)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.WalkSpeed = math.min(cheats.speed, 74)
-        hum.AutoRotate = true  -- reset to default
+        hum.AutoRotate = true
+        hum.PlatformStand = false
     end
 end)
 
@@ -2368,4 +2470,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – FARM FIX (INSTANT + AUTO-ROTATE OFF) loaded!")
+print("✅ POLY LOOT – FINAL FIX (WALK TWEEN + FLOATING LOCK) loaded!")
