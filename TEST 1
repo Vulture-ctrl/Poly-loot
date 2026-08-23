@@ -891,7 +891,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (FIXED)
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (FULLY FIXED)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -941,6 +941,18 @@ local function getBossRespawnTime(timerLabel)
     local text = timerLabel.Text or ""
     local num = tonumber(text:match("(%d+)"))
     return num or 0
+end
+
+-- Format time as "Xm Ys" or just "Ys" if less than 60 seconds
+local function formatRespawnTime(seconds)
+    if not seconds or seconds <= 0 then return "0s" end
+    local mins = math.floor(seconds / 60)
+    local secs = seconds % 60
+    if mins > 0 then
+        return string.format("%dm %ds", mins, secs)
+    else
+        return string.format("%ds", secs)
+    end
 end
 
 local function findBossModel(bossName)
@@ -1040,12 +1052,14 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             timerLabel = nil,
             timerConnection = nil,
             scanCount = 0,
+            lastTimerText = "",
         }
     end
     
     bossFarms[key].running = true
     bossFarms[key].currentTarget = nil
     bossFarms[key].scanCount = 0
+    bossFarms[key].lastTimerText = ""
     
     -- Get timer label
     bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
@@ -1067,8 +1081,19 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             bossFarms[key].timerConnection:Disconnect()
         end
         bossFarms[key].timerConnection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
-            if isBossAlive(timerLabel) then
-                status.Text = bossDisplayName .. " is ALIVE! Teleporting..."
+            local newText = timerLabel.Text or ""
+            if bossFarms[key].lastTimerText ~= newText then
+                bossFarms[key].lastTimerText = newText
+                if isBossAlive(timerLabel) then
+                    status.Text = bossDisplayName .. " is ALIVE! Teleporting..."
+                    -- Force an immediate scan and teleport
+                    task.spawn(function()
+                        local mob = findBossModel(bossName)
+                        if mob then
+                            lockToBoss(key, mob, bossDisplayName, statusLabel)
+                        end
+                    end)
+                end
             end
         end)
     end
@@ -1086,7 +1111,13 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                     end
                     bossFarms[key].timerConnection = bossFarms[key].timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
                         if isBossAlive(bossFarms[key].timerLabel) then
-                            status.Text = bossDisplayName .. " is ALIVE!"
+                            status.Text = bossDisplayName .. " is ALIVE! Teleporting..."
+                            task.spawn(function()
+                                local mob = findBossModel(bossName)
+                                if mob then
+                                    lockToBoss(key, mob, bossDisplayName, statusLabel)
+                                end
+                            end)
                         end
                     end)
                 end
@@ -1095,6 +1126,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local timerLabel = bossFarms[key].timerLabel
             local isAlive = isBossAlive(timerLabel)
             local respawnTime = getBossRespawnTime(timerLabel)
+            local formattedTime = formatRespawnTime(respawnTime)
             
             -- Update status label with timer
             if statusLabel then
@@ -1103,9 +1135,9 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                     statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                 else
                     if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. " farm: " .. respawnTime .. "s ⏳"
+                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
                     else
-                        statusLabel.Text = bossDisplayName .. " farm: SCANNING 🔍"
+                        statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
                     end
                     statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
@@ -1116,86 +1148,16 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 local mob = findBossModel(bossName)
                 
                 if mob then
-                    -- Check if target changed or need to re-lock
-                    if bossFarms[key].currentTarget ~= mob then
-                        -- Remove old locks
-                        if bossFarms[key].bodyVelocity then
-                            bossFarms[key].bodyVelocity:Destroy()
-                            bossFarms[key].bodyVelocity = nil
-                        end
-                        if bossFarms[key].bodyPosition then
-                            bossFarms[key].bodyPosition:Destroy()
-                            bossFarms[key].bodyPosition = nil
-                        end
-                        
-                        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-                        if rootPart then
-                            local char = player.Character
-                            if char then
-                                local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                                if playerRoot then
-                                    -- Calculate position 5.1 studs ABOVE, facing DOWN
-                                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-                                    
-                                    local hum = char:FindFirstChild("Humanoid")
-                                    if hum then
-                                        hum.PlatformStand = true
-                                    end
-                                    
-                                    -- Teleport above boss, facing down
-                                    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-                                    
-                                    -- BodyPosition to lock position
-                                    bossFarms[key].bodyPosition = Instance.new("BodyPosition")
-                                    bossFarms[key].bodyPosition.Position = targetPos
-                                    bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                                    bossFarms[key].bodyPosition.D = 5000
-                                    bossFarms[key].bodyPosition.P = 20000
-                                    bossFarms[key].bodyPosition.Parent = playerRoot
-                                    
-                                    -- BodyVelocity to stabilize
-                                    bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
-                                    bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                                    bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                                    bossFarms[key].bodyVelocity.Parent = playerRoot
-                                    
-                                    bossFarms[key].currentTarget = mob
-                                    bossFarms[key].isAlive = true
-                                    status.Text = "🔒 Locked above " .. bossDisplayName
-                                    
-                                    if statusLabel then
-                                        statusLabel.Text = bossDisplayName .. " farm: LOCKED ✅"
-                                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                                    end
-                                end
-                            end
-                        end
-                    else
-                        -- Still following same boss, update position if it moved
-                        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-                        if rootPart then
-                            local char = player.Character
-                            if char then
-                                local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                                if playerRoot then
-                                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-                                    -- Update BodyPosition to follow boss
-                                    if bossFarms[key].bodyPosition then
-                                        bossFarms[key].bodyPosition.Position = targetPos
-                                    end
-                                    -- Keep facing down
-                                    playerRoot.CFrame = CFrame.new(playerRoot.Position, rootPart.Position)
-                                end
-                            end
-                        end
-                    end
+                    -- Lock to the boss
+                    lockToBoss(key, mob, bossDisplayName, statusLabel)
                 else
-                    -- Boss model not found, but timer says ALIVE - wait and rescan
+                    -- Boss model not found, but timer says ALIVE - wait and rescan quickly
                     if statusLabel then
                         statusLabel.Text = bossDisplayName .. " farm: SPAWNING... ⏳"
                         statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                     end
                     status.Text = "Waiting for " .. bossDisplayName .. " to fully spawn..."
+                    task.wait(0.3) -- Scan faster when spawning
                 end
             else
                 -- Boss is dead, remove locks
@@ -1212,7 +1174,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 
                 if statusLabel then
                     if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. " farm: " .. respawnTime .. "s ⏳"
+                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
                     else
                         statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
                     end
@@ -1220,7 +1182,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
                 
                 if respawnTime > 0 then
-                    status.Text = bossDisplayName .. " respawning in " .. respawnTime .. "s..."
+                    status.Text = bossDisplayName .. " respawning in " .. formattedTime .. "..."
                 else
                     status.Text = bossDisplayName .. " waiting for respawn..."
                 end
@@ -1236,6 +1198,85 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             end
         end
     end)
+end
+
+-- Separate function to lock to boss
+local function lockToBoss(key, mob, bossDisplayName, statusLabel)
+    if not mob or not bossFarms[key] then return end
+    
+    -- Check if target changed or need to re-lock
+    if bossFarms[key].currentTarget ~= mob then
+        -- Remove old locks
+        if bossFarms[key].bodyVelocity then
+            bossFarms[key].bodyVelocity:Destroy()
+            bossFarms[key].bodyVelocity = nil
+        end
+        if bossFarms[key].bodyPosition then
+            bossFarms[key].bodyPosition:Destroy()
+            bossFarms[key].bodyPosition = nil
+        end
+        
+        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+        if rootPart then
+            local char = player.Character
+            if char then
+                local playerRoot = char:FindFirstChild("HumanoidRootPart")
+                if playerRoot then
+                    -- Calculate position 5.1 studs ABOVE, facing DOWN
+                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+                    
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum then
+                        hum.PlatformStand = true
+                    end
+                    
+                    -- Teleport above boss, facing down
+                    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+                    
+                    -- BodyPosition to lock position
+                    bossFarms[key].bodyPosition = Instance.new("BodyPosition")
+                    bossFarms[key].bodyPosition.Position = targetPos
+                    bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    bossFarms[key].bodyPosition.D = 5000
+                    bossFarms[key].bodyPosition.P = 20000
+                    bossFarms[key].bodyPosition.Parent = playerRoot
+                    
+                    -- BodyVelocity to stabilize
+                    bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
+                    bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+                    bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                    bossFarms[key].bodyVelocity.Parent = playerRoot
+                    
+                    bossFarms[key].currentTarget = mob
+                    bossFarms[key].isAlive = true
+                    status.Text = "🔒 Locked above " .. bossDisplayName
+                    
+                    if statusLabel then
+                        statusLabel.Text = bossDisplayName .. " farm: LOCKED ✅"
+                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
+                end
+            end
+        end
+    else
+        -- Still following same boss, update position if it moved
+        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+        if rootPart then
+            local char = player.Character
+            if char then
+                local playerRoot = char:FindFirstChild("HumanoidRootPart")
+                if playerRoot then
+                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+                    -- Update BodyPosition to follow boss
+                    if bossFarms[key].bodyPosition then
+                        bossFarms[key].bodyPosition.Position = targetPos
+                    end
+                    -- Keep facing down
+                    playerRoot.CFrame = CFrame.new(playerRoot.Position, rootPart.Position)
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================
