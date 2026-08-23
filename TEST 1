@@ -363,82 +363,6 @@ closeBtn.Parent = titleBar
 closeBtn.ZIndex = 10
 
 -- ============================================================
---  AIM CIRCLE (visual only)
--- ============================================================
-local aimCircle = Instance.new("Frame")
-aimCircle.Size = UDim2.new(0, 50, 0, 50)
-aimCircle.Position = UDim2.new(0.5, -25, 0.5, -25)
-aimCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-aimCircle.BackgroundTransparency = 0.7
-aimCircle.BorderSizePixel = 2
-aimCircle.BorderColor3 = Color3.fromRGB(0, 200, 255)
-aimCircle.ZIndex = 100
-aimCircle.Parent = screenGui
-
-local pulseCircle = TweenService:Create(aimCircle, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-    BackgroundTransparency = 0.4,
-    BorderSizePixel = 3,
-})
-pulseCircle:Play()
-
-local crossH = Instance.new("Frame")
-crossH.Size = UDim2.new(0.6, 0, 0, 3)
-crossH.Position = UDim2.new(0.2, 0, 0.5, -1.5)
-crossH.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-crossH.BorderSizePixel = 0
-crossH.ZIndex = 101
-crossH.Parent = aimCircle
-
-local crossV = Instance.new("Frame")
-crossV.Size = UDim2.new(0, 3, 0.6, 0)
-crossV.Position = UDim2.new(0.5, -1.5, 0.2, 0)
-crossV.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-crossV.BorderSizePixel = 0
-crossV.ZIndex = 101
-crossV.Parent = aimCircle
-
-local posLabel = Instance.new("TextLabel")
-posLabel.Size = UDim2.new(0, 120, 0, 24)
-posLabel.Position = UDim2.new(0.5, -60, 1, 6)
-posLabel.BackgroundTransparency = 1
-posLabel.Text = string.format("Click at (%.0f, %.0f)", CONFIG.AutoClickX, CONFIG.AutoClickY)
-posLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
-posLabel.Font = Enum.Font.GothamBold
-posLabel.TextSize = 14
-posLabel.ZIndex = 102
-posLabel.Parent = aimCircle
-
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
-aimCircle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = aimCircle.Position
-        aimCircle.BackgroundTransparency = 0.5
-    end
-end)
-
-aimCircle.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-        aimCircle.BackgroundTransparency = 0.7
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        local viewport = Camera.ViewportSize
-        local newX = math.clamp(startPos.X.Offset + delta.X, 0, viewport.X - 50)
-        local newY = math.clamp(startPos.Y.Offset + delta.Y, 0, viewport.Y - 50)
-        aimCircle.Position = UDim2.new(0, newX, 0, newY)
-    end
-end)
-
--- ============================================================
 --  TAB BAR & SCROLLERS
 -- ============================================================
 local tabBar = Instance.new("Frame")
@@ -674,7 +598,7 @@ local function teleportToPosition(targetPos)
 end
 
 -- ============================================================
---  AUTO CLICKER
+--  AUTO CLICKER (REMOVED CIRCLE, KEPT FUNCTIONALITY)
 -- ============================================================
 local function performClick()
     local x = CONFIG.AutoClickX
@@ -706,9 +630,6 @@ local function performClick()
         upInput.UserInputState = Enum.UserInputState.End
         UserInputService:FireInput(upInput)
     end)
-    aimCircle.BackgroundTransparency = 0.1
-    task.wait(0.05)
-    aimCircle.BackgroundTransparency = 0.3
 end
 
 -- ============================================================
@@ -931,21 +852,36 @@ local function getBossTimerLabel(bossSignName)
 end
 
 local function isBossAlive(timerLabel)
-    if not timerLabel then return false end
+    if not timerLabel then return true end  -- Assume alive if no timer
     local text = string.upper(timerLabel.Text or "")
-    return string.find(text, "ALIVE") ~= nil
+    if string.find(text, "ALIVE") then
+        return true
+    end
+    -- If no timer text, assume alive
+    if text == "" or text == nil then
+        return true
+    end
+    return false
 end
 
 local function getBossRespawnTime(timerLabel)
     if not timerLabel then return 0 end
     local text = timerLabel.Text or ""
+    -- Check if it's a number (respawn timer)
     local num = tonumber(text:match("(%d+)"))
-    return num or 0
+    if num then
+        return num
+    end
+    -- If text contains ALIVE or is empty, return 0 (alive)
+    if string.upper(text):find("ALIVE") or text == "" then
+        return 0
+    end
+    return 0
 end
 
 -- Format time as "Xm Ys" or just "Ys" if less than 60 seconds
 local function formatRespawnTime(seconds)
-    if not seconds or seconds <= 0 then return "0s" end
+    if not seconds or seconds <= 0 then return "ALIVE 🟢" end
     local mins = math.floor(seconds / 60)
     local secs = seconds % 60
     if mins > 0 then
@@ -1084,16 +1020,13 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local newText = timerLabel.Text or ""
             if bossFarms[key].lastTimerText ~= newText then
                 bossFarms[key].lastTimerText = newText
-                if isBossAlive(timerLabel) then
-                    status.Text = bossDisplayName .. " is ALIVE! Teleporting..."
-                    -- Force an immediate scan and teleport
-                    task.spawn(function()
-                        local mob = findBossModel(bossName)
-                        if mob then
-                            lockToBoss(key, mob, bossDisplayName, statusLabel)
-                        end
-                    end)
-                end
+                -- Force an immediate scan and teleport when timer changes
+                task.spawn(function()
+                    local mob = findBossModel(bossName)
+                    if mob then
+                        lockToBoss(key, mob, bossDisplayName, statusLabel)
+                    end
+                end)
             end
         end)
     end
@@ -1110,15 +1043,12 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                         bossFarms[key].timerConnection:Disconnect()
                     end
                     bossFarms[key].timerConnection = bossFarms[key].timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
-                        if isBossAlive(bossFarms[key].timerLabel) then
-                            status.Text = bossDisplayName .. " is ALIVE! Teleporting..."
-                            task.spawn(function()
-                                local mob = findBossModel(bossName)
-                                if mob then
-                                    lockToBoss(key, mob, bossDisplayName, statusLabel)
-                                end
-                            end)
-                        end
+                        task.spawn(function()
+                            local mob = findBossModel(bossName)
+                            if mob then
+                                lockToBoss(key, mob, bossDisplayName, statusLabel)
+                            end
+                        end)
                     end)
                 end
             end
@@ -1131,7 +1061,11 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             -- Update status label with timer
             if statusLabel then
                 if isAlive then
-                    statusLabel.Text = bossDisplayName .. " farm: ALIVE 🟢"
+                    if respawnTime > 0 then
+                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
+                    else
+                        statusLabel.Text = bossDisplayName .. " farm: ALIVE 🟢"
+                    end
                     statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                 else
                     if respawnTime > 0 then
@@ -1143,20 +1077,20 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
             end
             
-            -- IF ALIVE - find and follow the boss
-            if isAlive then
+            -- ALWAYS try to find and follow the boss if alive or no timer
+            if isAlive or not timerLabel then
                 local mob = findBossModel(bossName)
                 
                 if mob then
                     -- Lock to the boss
                     lockToBoss(key, mob, bossDisplayName, statusLabel)
                 else
-                    -- Boss model not found, but timer says ALIVE - wait and rescan quickly
-                    if statusLabel then
+                    -- Boss not found, but may be spawning
+                    if statusLabel and isAlive then
                         statusLabel.Text = bossDisplayName .. " farm: SPAWNING... ⏳"
                         statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                     end
-                    status.Text = "Waiting for " .. bossDisplayName .. " to fully spawn..."
+                    status.Text = "Waiting for " .. bossDisplayName .. " to appear..."
                     task.wait(0.3) -- Scan faster when spawning
                 end
             else
@@ -1669,7 +1603,7 @@ restoreBtn.Activated:Connect(function() mainFrame.Visible = true; miniBar.Visibl
 minBtn.Activated:Connect(function() mainFrame.Visible = false; miniBar.Visible = true end)
 
 -- ============================================================
---  AUTO CLICKER TOGGLE
+--  AUTO CLICKER TOGGLE (REMOVED CIRCLE)
 -- ============================================================
 function toggleAutoClicker()
     if not cheats.autoClick and cheats.autoClickCooldown > tick() then
@@ -1688,7 +1622,6 @@ function toggleAutoClicker()
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,200,50)
         miniACBtn.Text = "AC: Wait"
         miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-        aimCircle.BackgroundTransparency = 0.3
     else
         cheats.autoClickStartTime = 0
         cheats.autoClickActive = false
@@ -1698,7 +1631,6 @@ function toggleAutoClicker()
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
         miniACBtn.Text = "AC: CD 2s"
         miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-        aimCircle.BackgroundTransparency = 0.7
     end
 end
 
@@ -1723,7 +1655,6 @@ RunService.Heartbeat:Connect(function()
             playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
             playerToggles.autoClickToggle.button.Text = "OFF"
             playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-            aimCircle.BackgroundTransparency = 0.7
         end
     elseif not cheats.autoClick and cheats.autoClickCooldown ~= 0 then
         cheats.autoClickCooldown = 0
@@ -1732,7 +1663,6 @@ RunService.Heartbeat:Connect(function()
         playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
         playerToggles.autoClickToggle.button.Text = "OFF"
         playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-        aimCircle.BackgroundTransparency = 0.7
     end
     
     if not cheats.autoClick then
@@ -1768,7 +1698,6 @@ RunService.Heartbeat:Connect(function()
                     playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(0,200,100)
                     miniACBtn.Text = "AC: ON"
                     miniACBtn.BackgroundColor3 = Color3.fromRGB(0,200,100)
-                    aimCircle.BackgroundTransparency = 0.2
                 end
             end
             
