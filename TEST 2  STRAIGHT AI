@@ -14,23 +14,32 @@ local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ============================================================
--- FIND GUI PARENT
+-- FIND GUI PARENT - FIXED
 -- ============================================================
-local guiParent
-pcall(function()
-    if player and player:FindFirstChild("PlayerGui") then
-        guiParent = player.PlayerGui
-    elseif gethui then
-        guiParent = gethui()
-    else
-        guiParent = game:GetService("CoreGui")
-    end
-end)
+local guiParent = nil
 
-if not guiParent then
-    guiParent = Instance.new("ScreenGui")
-    guiParent.Parent = game:GetService("CoreGui")
+-- Try PlayerGui first
+if player and player:FindFirstChild("PlayerGui") then
+    guiParent = player.PlayerGui
 end
+
+-- If not found, try gethui (for exploit environments)
+if not guiParent and gethui then
+    pcall(function()
+        guiParent = gethui()
+    end)
+end
+
+-- If still not found, use CoreGui
+if not guiParent then
+    guiParent = game:GetService("CoreGui")
+end
+
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "POLYLOOT"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
 
 -- ============================================================
 -- ITEM DATABASE
@@ -104,7 +113,7 @@ local ITEM_DB = {
 }
 
 -- ============================================================
--- FAVORITE ITEMS (items to protect from sell/dismantle/upgrade)
+-- FAVORITE ITEMS
 -- ============================================================
 local FAVORITE_ITEMS = {
     ["Basic Sword"] = true,
@@ -141,7 +150,6 @@ end
 local function isFavorite(item)
     if not item then return false end
     
-    -- Check favorite flags on item
     if type(item) == "table" then
         if item.Favorited == true or item.Favorite == true or 
            item.favorited == true or item.favorite == true then
@@ -226,7 +234,7 @@ local function sendRemote(remote, ...)
 end
 
 -- ============================================================
--- SELL/DISMANTLE/UPGRADE FUNCTIONS (with favorite protection)
+-- SELL/DISMANTLE/UPGRADE FUNCTIONS
 -- ============================================================
 local function sellItem(item)
     if not item then return false end
@@ -425,13 +433,10 @@ local function bigText(size)
 end
 
 -- ============================================================
--- GUI CREATION
+-- GUI CREATION - FIXED
 -- ============================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = guiParent
 
+-- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
 mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
@@ -867,7 +872,7 @@ local function performClick()
 end
 
 -- ============================================================
--- BOSS FARM WITH TIMER + AUTO FOLLOW
+-- BOSS FARM
 -- ============================================================
 local function getBossTimerLabel(bossSignName)
     local success, result = pcall(function()
@@ -1212,7 +1217,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS (SMART HOLD E WITH CANCELLATION)
+-- PICKUP/LOOT FUNCTIONS
 -- ============================================================
 local function holdKey(keyCode, duration)
     if VirtualInputManager then
@@ -2511,8 +2516,7 @@ local function collectGold()
         if collectRemote and collectRemote:IsA("RemoteEvent") then
             pcall(function()
                 collectRemote:FireServer(CONFIG.CollectAmount)
-                collectCount = collectCount + 1
-            end)
+                collectCount = collectCount + 1            end)
         end
         
         local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
@@ -2685,3 +2689,4 @@ startFarm()
 
 print("✅ POLY LOOT – COMPLETE (INSTANT LOCK + FACE DOWN, WALK TWEEN) loaded!")
 print("✅ Improved inventory system with favorite protection enabled!")
+print("✅ GUI should be visible now!")
