@@ -33,13 +33,13 @@ local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Se
 local CONFIG = {
     AttackDelay = 0.3,
     DelayVariation = 0.1,
-    CollectInterval = 30,  -- 30 second cooldown
+    CollectInterval = 30,
     CollectAmount = 1119,
-    CollectHoldTime = 2,    -- Stay for 2 seconds
+    CollectHoldTime = 2,
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 3,
+    LootHoldSeconds = 5,  -- Hold E for 5 seconds
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
@@ -941,11 +941,10 @@ local ITEM_DB = {
     ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
 }
 
--- List of favorite items to skip (add any item names here that should be ignored)
+-- List of favorite items to skip
 local FAVORITE_ITEMS = {
     ["Basic Sword"] = true,
     ["Red Elemental"] = true,
-    -- Add more favorite items here
 }
 
 local inventoryCache = {}
@@ -953,7 +952,6 @@ local inventoryCache = {}
 local function refreshInventory()
     inventoryCache = {}
     for name, data in pairs(ITEM_DB) do
-        -- Skip favorite items
         if not FAVORITE_ITEMS[name] then
             inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
         end
@@ -970,7 +968,6 @@ end
 
 local function sellItem(item)
     if not item then return false end
-    -- Check if item is favorite
     if FAVORITE_ITEMS[item.name] then
         return false
     end
@@ -1043,7 +1040,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
---  PICKUP/LOOT FUNCTIONS (HOLD E)
+--  PICKUP/LOOT FUNCTIONS (HOLD E FOR 5 SECONDS)
 -- ============================================================
 
 local function holdKey(keyCode, duration)
@@ -1077,8 +1074,10 @@ local function pickupItem(drop)
     if not drop then return false end
     
     local success, err = pcall(function()
-        holdKey(Enum.KeyCode.E, 1)
+        -- Hold E for 5 seconds to pickup
+        holdKey(Enum.KeyCode.E, 5)
         
+        -- Also try remotes
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
         if pickupRemote and pickupRemote:IsA("RemoteEvent") then
             pickupRemote:FireServer(drop)
@@ -1100,6 +1099,7 @@ local function pickupItem(drop)
             return true
         end
         
+        -- Try proximity prompt
         local prompt = nil
         if drop.Parent then
             prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
@@ -1124,6 +1124,7 @@ local function getNearestLoot()
     local pos = root.Position
     local nearest, nearestDist = nil, 50
     
+    -- Check Drops folder
     local dropsFolder = Workspace:FindFirstChild("Drops")
     if dropsFolder then
         for _, obj in ipairs(dropsFolder:GetDescendants()) do
@@ -1147,6 +1148,7 @@ local function getNearestLoot()
         end
     end
     
+    -- Check Animal_ServerDrops
     local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
     if serverDrops then
         for _, obj in ipairs(serverDrops:GetDescendants()) do
@@ -1165,6 +1167,7 @@ local function getNearestLoot()
         end
     end
     
+    -- Check workspace directly
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = string.lower(obj.Name)
@@ -1211,23 +1214,23 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Looting item..."
+    status.Text = "Looting item... (holding E for 5s)"
     
+    -- Tween to item
     tweenToPosition(targetPos, 0.3)
     task.wait(0.3)
     
-    holdKey(Enum.KeyCode.E, 1)
+    -- Hold E for 5 seconds to pickup
+    holdKey(Enum.KeyCode.E, 5)
     
-    local success = pickupItem(item)
+    -- Also try remote pickup
+    pickupItem(item)
     
-    if success then
-        status.Text = "Item picked up!"
-    else
-        status.Text = "Attempting pickup..."
-    end
+    status.Text = "Item pickup attempted"
     
-    task.wait(CONFIG.LootHoldSeconds)
+    task.wait(1)
     
+    -- Tween back
     tweenToPosition(originalCF.Position, 0.3)
     status.Text = running and "Status: Running" or "Status: Stopped"
 end
@@ -2233,17 +2236,14 @@ local function collectGold()
     
     local originalPos = root.Position
     
-    -- TP to Gold Mine (instant, no tween)
     status.Text = "Teleporting to Gold Mine..."
     teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
     task.wait(0.1)
     
-    -- Stay at gold mine for 2 seconds
     isAtGoldMine = true
     goldMineStartTime = tick()
     status.Text = "Collecting gold for 2s..."
     
-    local startCollect = tick()
     while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
         local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
         if collectRemote and collectRemote:IsA("RemoteEvent") then
@@ -2264,13 +2264,11 @@ local function collectGold()
             end
         end
         
-        task.wait(0.5) -- Collect every 0.5 seconds while at the mine
+        task.wait(0.5)
     end
     
     isAtGoldMine = false
     status.Text = "Teleporting back..."
-    
-    -- TP back to original position (instant)
     teleportToPosition(originalPos)
     
     status.Text = "Gold collection complete (" .. collectCount .. " total)"
@@ -2286,7 +2284,6 @@ local function performAction(action)
     local skipped = 0
     
     for serial, item in pairs(inventoryCache) do
-        -- Skip favorites (handled in individual functions)
         local success = pcall(function()
             if action == "Sell" then
                 sellItem(item)
@@ -2336,13 +2333,11 @@ local function startFarm()
             local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
             task.wait(delay)
             
-            -- Auto Collect Gold (TP, stay 2s, 30s cooldown)
             if CONFIG.EnableCollect and (tick() - lastCollect) >= CONFIG.CollectInterval then
                 collectGold()
                 lastCollect = tick()
             end
             
-            -- Auto Loot
             if CONFIG.AutoLoot then
                 local lootItem, lootDist = getNearestLoot()
                 if lootItem and lootDist < 30 then
@@ -2350,7 +2345,6 @@ local function startFarm()
                 end
             end
             
-            -- Auto Sell/Dismantle/Upgrade
             for _, action in ipairs(autoActions) do
                 if actionToggles[action] and actionToggles[action].enabled() then
                     performAction(action)
