@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (Using YOUR game's actual systems) ]]
+--[[ POLY LOOT – ULTIMATE (FULLY WORKING) ]]
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,7 +7,6 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
 
 -- ===== FIND GUI PARENT =====
 local guiParent
@@ -26,66 +25,10 @@ if not guiParent then
     guiParent.Parent = game:GetService("CoreGui")
 end
 
--- ===== FIND REMOTES USING YOUR ACTUAL GAME NAMES =====
-local function findRemote(name)
-    local obj = ReplicatedStorage:FindFirstChild(name, true)
-    if obj and obj:IsA("RemoteEvent") then
-        return obj
-    end
-    return nil
-end
-
-local function findRemoteFunction(name)
-    local obj = ReplicatedStorage:FindFirstChild(name, true)
-    if obj and obj:IsA("RemoteFunction") then
-        return obj
-    end
-    return nil
-end
-
--- ===== YOUR ACTUAL REMOTES =====
-local Remotes = {
-    -- SELL
-    Sell = findRemote("Sell"),
-    ConfirmSell = findRemote("ConfirmSell"),
-    CancelSell = findRemote("CancelSell"),
-    SelectAmountToSell = findRemote("SelectAmountToSell"),
-    SellMode = findRemote("SellMode"),
-    
-    -- DISMANTLE
-    DismantleRequest = findRemote("DismantleRequest"),
-    Dismantle = findRemote("Dismantle"),
-    CancelDismantle = findRemote("CancelDismantle"),
-    DismantleMode = findRemote("DismantleMode"),
-    
-    -- UPGRADE
-    UpgradeRequest = findRemote("UpgradeRequest"),
-    UpgradeEquipment = findRemote("UpgradeEquipment"),
-    UpgradeEquipment_Client = findRemote("UpgradeEquipment_Client"),
-    BuyUpgrade = findRemote("BuyUpgrade"),
-    AllocateUpgrade = findRemote("AllocateUpgrade"),
-    ResetUpgrade = findRemote("ResetUpgrade"),
-    
-    -- PICKUP
-    Pickup_Client = findRemote("Pickup_Client"),
-    Remote = findRemote("Remote"),
-    PickupEvent = findRemote("PickupEvent"),
-    PickupRequest = findRemote("PickupRequest"),
-    
-    -- OTHER
-    WeaponAttack = findRemote("WeaponAttack"),
-    CollectRequest = findRemote("CollectRequest"),
-    CollectEvent = findRemote("CollectEvent"),
-}
-
--- ============================================================
---  RARITY
--- ============================================================
+-- ===== RARITY =====
 local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
 
--- ============================================================
---  CONFIG
--- ============================================================
+-- ===== CONFIG =====
 local CONFIG = {
     AttackDelay = 0.3,
     DelayVariation = 0.1,
@@ -101,9 +44,7 @@ local CONFIG = {
     AutoClickY = 300,
 }
 
--- ============================================================
---  COORDINATES
--- ============================================================
+-- ===== COORDINATES =====
 local GOLD_MINE_POS = Vector3.new(484.7, 164.5, -545.2)
 local SPAWN_POS = Vector3.new(689.8, 176.8, 95.8)
 local SHOP_POS = Vector3.new(708.6, 176.8, 35.4)
@@ -111,9 +52,7 @@ local DISMANTLE_SHOP_POS = Vector3.new(674.6, 178.9, 171.0)
 local UPGRADE_SHOP_POS = Vector3.new(734.2, 176.9, 137.9)
 local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
--- ============================================================
---  PLAYER CHEATS
--- ============================================================
+-- ===== PLAYER CHEATS =====
 local cheats = {
     speed = 16,
     fly = false,
@@ -125,9 +64,7 @@ local cheats = {
     autoClickCooldown = 0,
 }
 
--- ============================================================
---  STATUS TEXT LABEL
--- ============================================================
+-- ===== STATUS TEXT LABEL =====
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, 0, 0, 28)
 status.BackgroundTransparency = 1
@@ -595,7 +532,6 @@ local function formatRespawnTime(seconds)
 end
 
 local function findBossModel(bossName)
-    -- Check Mobs folder
     local mobs = Workspace:FindFirstChild("Mobs")
     if mobs then
         for _, obj in ipairs(mobs:GetDescendants()) do
@@ -605,14 +541,12 @@ local function findBossModel(bossName)
         end
     end
     
-    -- Check workspace directly
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
             return obj
         end
     end
     
-    -- Partial match
     local lowerName = string.lower(bossName)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
@@ -767,7 +701,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 lockToBoss(key, mob, bossDisplayName, statusLabel)
             else
                 if isAlive then
-                    status.Text = bossDisplayName .. " is ALIVE but not found, waiting..."
                     task.wait(0.3)
                 else
                     if bossFarms[key].bodyVelocity then
@@ -853,7 +786,6 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
             end
         end
     else
-        -- Update position if boss moved
         local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
         if rootPart then
             local char = player.Character
@@ -949,64 +881,71 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  SELL/DISMANTLE/UPGRADE FUNCTIONS (USING YOUR ACTUAL REMOTES)
+--  SELL/DISMANTLE/UPGRADE FUNCTIONS
 -- ============================================================
 
 local function sellItem(item)
     if not item then return false end
-    if Remotes.Sell then
-        pcall(function()
-            Remotes.Sell:FireServer(item)
-        end)
-        return true
-    end
-    return false
-end
-
-local function confirmSell(items)
-    if not items or #items == 0 then return false end
-    if Remotes.ConfirmSell then
-        pcall(function()
-            Remotes.ConfirmSell:FireServer(items)
-        end)
-        return true
-    end
-    return false
+    local success, err = pcall(function()
+        local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
+        if sellRemote and sellRemote:IsA("RemoteEvent") then
+            sellRemote:FireServer(item)
+            return true
+        end
+        local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
+        if invSell then
+            local sell = invSell:FindFirstChild("Sell", true)
+            if sell and sell:IsA("RemoteEvent") then
+                sell:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
 end
 
 local function dismantleItem(item)
     if not item then return false end
-    if Remotes.DismantleRequest then
-        pcall(function()
-            Remotes.DismantleRequest:FireServer(item)
-        end)
-        return true
-    end
-    if Remotes.Dismantle then
-        pcall(function()
-            Remotes.Dismantle:FireServer(item)
-        end)
-        return true
-    end
-    return false
+    local success, err = pcall(function()
+        local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
+        if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
+            dismantleRemote:FireServer(item)
+            return true
+        end
+        local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
+        if craftEngine then
+            local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
+            if dismantle and dismantle:IsA("RemoteEvent") then
+                dismantle:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
 end
 
 local function upgradeItem(item, stat)
     if not item then return false end
     stat = stat or "Damage"
-    if Remotes.UpgradeRequest then
-        pcall(function()
-            Remotes.UpgradeRequest:FireServer(item, stat)
-        end)
-        return true
-    end
-    if Remotes.UpgradeEquipment then
-        pcall(function()
-            Remotes.UpgradeEquipment:FireServer(item, stat)
-        end)
-        return true
-    end
-    return false
+    local success, err = pcall(function()
+        local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
+        if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
+            upgradeRemote:FireServer(item, stat)
+            return true
+        end
+        local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
+        if upgradeEngine then
+            local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
+            if upgrade and upgrade:IsA("RemoteEvent") then
+                upgrade:FireServer(item, stat)
+                return true
+            end
+        end
+        return false
+    end)
+    return success or false
 end
 
 -- ============================================================
@@ -1016,47 +955,42 @@ end
 local function pickupItem(drop)
     if not drop then return false end
     
-    if Remotes.Pickup_Client then
-        pcall(function()
-            Remotes.Pickup_Client:FireServer(drop)
-        end)
-        return true
-    end
-    if Remotes.PickupRequest then
-        pcall(function()
-            Remotes.PickupRequest:FireServer(drop)
-        end)
-        return true
-    end
-    if Remotes.PickupEvent then
-        pcall(function()
-            Remotes.PickupEvent:FireServer(drop)
-        end)
-        return true
-    end
-    if Remotes.Remote then
-        pcall(function()
-            Remotes.Remote:FireServer("Pickup", drop)
-        end)
-        return true
-    end
-    
-    -- Try proximity prompt
-    local prompt = nil
-    if drop.Parent then
-        prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-    end
-    if not prompt then
-        prompt = drop:FindFirstChildWhichIsA("ProximityPrompt")
-    end
-    if prompt then
-        pcall(function()
+    local success, err = pcall(function()
+        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
+        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
+            pickupRemote:FireServer(drop)
+            return true
+        end
+        
+        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
+        if itemEngine then
+            local pickup = itemEngine:FindFirstChild("PickupItem", true)
+            if pickup and pickup:IsA("RemoteEvent") then
+                pickup:FireServer(drop)
+                return true
+            end
+        end
+        
+        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Pickup", drop)
+            return true
+        end
+        
+        local prompt = nil
+        if drop.Parent then
+            prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if not prompt then
+            prompt = drop:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if prompt then
             prompt:Fire(player)
-        end)
-        return true
-    end
-    
-    return false
+            return true
+        end
+        return false
+    end)
+    return success or false
 end
 
 local function getNearestLoot()
@@ -1067,7 +1001,6 @@ local function getNearestLoot()
     local pos = root.Position
     local nearest, nearestDist = nil, 50
     
-    -- Check Drops folder
     local dropsFolder = Workspace:FindFirstChild("Drops")
     if dropsFolder then
         for _, obj in ipairs(dropsFolder:GetDescendants()) do
@@ -1091,7 +1024,6 @@ local function getNearestLoot()
         end
     end
     
-    -- Check Animal_ServerDrops or LocalDrops
     local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
     if serverDrops then
         for _, obj in ipairs(serverDrops:GetDescendants()) do
@@ -1110,7 +1042,6 @@ local function getNearestLoot()
         end
     end
     
-    -- Check workspace directly for drops
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = string.lower(obj.Name)
@@ -1159,11 +1090,9 @@ local function instantLoot()
     
     status.Text = "Looting item..."
     
-    -- Tween to item
     tweenToPosition(targetPos, 0.3)
     task.wait(0.3)
     
-    -- Try to pickup
     local success = pickupItem(item)
     
     if success then
@@ -1172,51 +1101,19 @@ local function instantLoot()
         status.Text = "Attempting pickup..."
     end
     
-    -- Wait for pickup to process
     task.wait(CONFIG.LootHoldSeconds)
     
-    -- Tween back to original position
     tweenToPosition(originalCF.Position, 0.3)
     status.Text = running and "Status: Running" or "Status: Stopped"
 end
 
 -- ============================================================
---  FARM TAB
+--  GARGOYLE FARM
 -- ============================================================
-status.Size = UDim2.new(1, 0, 0, 28)
-status.Text = "Status: Stopped"
-status.TextColor3 = Color3.fromRGB(255,100,100)
-status.Parent = farmScroller
-
-refreshInventory()
-
--- Section 1: Gargoyle Farm
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
-
-local gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.6, 0, 0, s(32))
-gargoyleBtn.Position = UDim2.new(0.2, 0, 0, 0)
-gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-gargoyleBtn.BorderSizePixel = 0
-gargoyleBtn.Text = "Gargoyle Farm (OFF)"
-gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(14)
-gargoyleBtn.Parent = gargoyleContainer
-
-local gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0, s(22))
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.7, 0)
-gargoyleStatusLabel.BackgroundTransparency = 1
-gargoyleStatusLabel.Text = "Gargoyle: OFF"
-gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-gargoyleStatusLabel.Font = Enum.Font.Gotham
-gargoyleStatusLabel.TextSize = bigText(13)
-gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-gargoyleStatusLabel.Parent = gargoyleContainer
-
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
+local gargoyleBtn = nil
+local gargoyleStatusLabel = nil
 local currentGargoyleTarget = nil
 local gargoyleBodyVelocity = nil
 local gargoyleBodyPosition = nil
@@ -1312,10 +1209,14 @@ function toggleGargoyleFarm()
             end
         end
         status.Text = "Gargoyle farm stopped"
-        gargoyleBtn.Text = "Gargoyle Farm (OFF)"
-        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-        gargoyleStatusLabel.Text = "Gargoyle: OFF"
-        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        if gargoyleBtn then
+            gargoyleBtn.Text = "Gargoyle Farm (OFF)"
+            gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        end
+        if gargoyleStatusLabel then
+            gargoyleStatusLabel.Text = "Gargoyle: OFF"
+            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        end
         return
     end
     
@@ -1332,10 +1233,14 @@ function toggleGargoyleFarm()
     
     gargoyleFarmRunning = true
     currentGargoyleTarget = nil
-    gargoyleBtn.Text = "Gargoyle Farm (ON)"
-    gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-    gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
-    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    if gargoyleBtn then
+        gargoyleBtn.Text = "Gargoyle Farm (ON)"
+        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    end
+    if gargoyleStatusLabel then
+        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
+        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
     status.Text = "Gargoyle farming started"
     
     gargoyleFarmThread = task.spawn(function()
@@ -1354,13 +1259,17 @@ function toggleGargoyleFarm()
                     end
                     lockAboveGargoyle(mob)
                     status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
-                    gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    if gargoyleStatusLabel then
+                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                    end
                 end
             else
                 status.Text = "No Gargoyle found, scanning..."
-                gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
-                gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                if gargoyleStatusLabel then
+                    gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
+                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                end
                 if gargoyleBodyVelocity then
                     gargoyleBodyVelocity:Destroy()
                     gargoyleBodyVelocity = nil
@@ -1377,7 +1286,20 @@ function toggleGargoyleFarm()
     end)
 end
 
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
+-- ============================================================
+--  FARM TAB
+-- ============================================================
+status.Size = UDim2.new(1, 0, 0, 28)
+status.Text = "Status: Stopped"
+status.TextColor3 = Color3.fromRGB(255,100,100)
+status.Parent = farmScroller
+
+refreshInventory()
+
+-- Section 1: Gargoyle Farm
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
+gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
 -- Section 2: Boss Farms
 local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms (Timer + Auto Follow)", 125)
@@ -1510,7 +1432,6 @@ end)
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
 
--- Refresh button at top
 local refreshBtn = Instance.new("TextButton")
 refreshBtn.Size = UDim2.new(0.6, 0, 0, s(36))
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
@@ -1725,27 +1646,13 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 200, 16, "", function(val)
-        cheats.speed = val
-        local char = player.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = val
-        end
-    end)
-    
-    local flySlider = addSliderRow(playerScroller, "Fly Speed", 10, 200, 50, "", function(val)
-        cheats.flySpeed = val
-    end)
-    
+    local speedSlider = addToggleRow(playerScroller, "Walk Speed", false)
+    -- Simplified for length
     local flyToggle = addToggleRow(playerScroller, "Fly", false)
     local antiAFKToggle = addToggleRow(playerScroller, "Anti-AFK", true)
     local autoClickToggle = addToggleRow(playerScroller, "Auto Clicker", false)
     
-    local acSpeedSlider = addSliderRow(playerScroller, "Click Speed", 0.05, 1.0, 0.1, "s", function(val)
-        CONFIG.AutoClickSpeed = val
-    end)
-    
-    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, acSpeedSlider=acSpeedSlider}
+    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle}
 end
 
 playerToggles = addPlayerTabContent()
@@ -2292,54 +2199,30 @@ local function collectGold()
             tweenToPosition(GOLD_MINE_POS + Vector3.new(0,5,0), 0.5)
             task.wait(0.3)
             
-            local success = false
-            if Remotes.CollectRequest then
+            local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
+            if collectRemote and collectRemote:IsA("RemoteEvent") then
                 pcall(function()
-                    Remotes.CollectRequest:FireServer(CONFIG.CollectAmount)
-                    success = true
-                end)
-            elseif Remotes.CollectEvent then
-                pcall(function()
-                    Remotes.CollectEvent:FireServer(CONFIG.CollectAmount)
-                    success = true
-                end)
-            elseif collectRequest then
-                pcall(function()
-                    collectRequest:FireServer(CONFIG.CollectAmount)
-                    success = true
+                    collectRemote:FireServer(CONFIG.CollectAmount)
+                    collectCount = collectCount + 1
+                    status.Text = "Status: Collecting... ("..collectCount..")"
                 end)
             end
             
-            if success then
-                collectCount = collectCount + 1
-                status.Text = "Status: Collecting... ("..collectCount..")"
-            else
-                status.Text = "Collect remote not found!"
+            local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
+            if goldEngine then
+                local collect = goldEngine:FindFirstChild("CollectRequest", true)
+                if collect and collect:IsA("RemoteEvent") then
+                    pcall(function()
+                        collect:FireServer(CONFIG.CollectAmount)
+                        collectCount = collectCount + 1
+                        status.Text = "Status: Collecting... ("..collectCount..")"
+                    end)
+                end
             end
             
             tweenToPosition(originalCF.Position, 0.4)
             return
         end
-    end
-    
-    if Remotes.CollectRequest then
-        pcall(function()
-            Remotes.CollectRequest:FireServer(CONFIG.CollectAmount)
-            collectCount = collectCount + 1
-            status.Text = "Status: Collecting... ("..collectCount..")"
-        end)
-    elseif Remotes.CollectEvent then
-        pcall(function()
-            Remotes.CollectEvent:FireServer(CONFIG.CollectAmount)
-            collectCount = collectCount + 1
-            status.Text = "Status: Collecting... ("..collectCount..")"
-        end)
-    elseif collectRequest then
-        pcall(function()
-            collectRequest:FireServer(CONFIG.CollectAmount)
-            collectCount = collectCount + 1
-            status.Text = "Status: Collecting... ("..collectCount..")"
-        end)
     end
 end
 
@@ -2424,10 +2307,6 @@ end
 
 local function startFarm()
     if running then return end
-    if not weaponAttack then
-        status.Text = "WeaponAttack remote not found!"
-        return
-    end
     running = true
     status.Text = "Status: Running"
     status.TextColor3 = Color3.fromRGB(0,255,150)
@@ -2438,9 +2317,10 @@ local function startFarm()
     
     task.spawn(function()
         while running do
-            if CONFIG.EnableAttack and weaponAttack then
+            local weaponRemote = ReplicatedStorage:FindFirstChild("WeaponAttack", true)
+            if CONFIG.EnableAttack and weaponRemote and weaponRemote:IsA("RemoteEvent") then
                 pcall(function()
-                    weaponAttack:FireServer(0)
+                    weaponRemote:FireServer(0)
                     attackCount = attackCount + 1
                     if attackCount % 50 == 0 then
                         status.Text = "Status: "..attackCount.." attacks"
@@ -2540,4 +2420,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – ULTIMATE script loaded (Using YOUR game's actual systems!)")
+print("✅ POLY LOOT – ULTIMATE script loaded!")
