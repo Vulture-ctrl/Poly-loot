@@ -1,4 +1,4 @@
---[[ POLY LOOT – DELTA/POTASSIUM FIXED + SPEED 40 ]] 
+--[[ POLY LOOT – DELTA/POTASSIUM FORCED GUI ]] 
 
 -- ============================================================
 -- SERVICES
@@ -14,7 +14,59 @@ local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ============================================================
--- WAIT FOR CHARACTER - IMPORTANT FOR DELTA
+-- FORCE GUI PARENT – WILL TRY EVERYTHING
+-- ============================================================
+local function getGuiParent()
+    -- Try 1: gethui() – works on Delta, Potassium, Synapse, Krypton
+    local success, result = pcall(function()
+        if gethui then
+            return gethui()
+        end
+        return nil
+    end)
+    if success and result then
+        return result
+    end
+    
+    -- Try 2: PlayerGui
+    success, result = pcall(function()
+        if player and player:FindFirstChild("PlayerGui") then
+            return player.PlayerGui
+        end
+        return nil
+    end)
+    if success and result then
+        return result
+    end
+    
+    -- Try 3: CoreGui
+    success, result = pcall(function()
+        return game:GetService("CoreGui")
+    end)
+    if success and result then
+        return result
+    end
+    
+    -- Try 4: Create a new ScreenGui in CoreGui manually
+    local newGui = Instance.new("ScreenGui")
+    pcall(function()
+        newGui.Parent = game:GetService("CoreGui")
+    end)
+    if newGui.Parent then
+        return newGui
+    end
+    
+    -- Fallback: return nil (will error later)
+    return nil
+end
+
+local guiParent = getGuiParent()
+if not guiParent then
+    error("No GUI parent found! Cannot create GUI.")
+end
+
+-- ============================================================
+-- WAIT FOR CHARACTER BEFORE DOING ANYTHING
 -- ============================================================
 local function waitForCharacter()
     local char = player.Character
@@ -24,56 +76,10 @@ local function waitForCharacter()
     end
     return player.Character
 end
-
 waitForCharacter()
 
 -- ============================================================
--- FIND GUI PARENT - DELTA/POTASSIUM SPECIFIC
--- ============================================================
-local guiParent = nil
-
--- Method 1: gethui (works on Delta, Potassium, Synapse, etc.)
-pcall(function()
-    if gethui then
-        guiParent = gethui()
-    end
-end)
-
--- Method 2: PlayerGui
-if not guiParent then
-    pcall(function()
-        if player and player:FindFirstChild("PlayerGui") then
-            guiParent = player.PlayerGui
-        end
-    end)
-end
-
--- Method 3: CoreGui
-if not guiParent then
-    pcall(function()
-        guiParent = game:GetService("CoreGui")
-    end)
-end
-
--- Method 4: Create our own
-if not guiParent then
-    guiParent = Instance.new("ScreenGui")
-    pcall(function()
-        guiParent.Parent = game:GetService("CoreGui")
-    end)
-end
-
--- ============================================================
--- CREATE SCREENGUI - SIMPLE AND RELIABLE
--- ============================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-screenGui.ResetOnSpawn = false
-screenGui.Enabled = true
-screenGui.Parent = guiParent
-
--- ============================================================
--- ITEM DATABASE
+-- ITEM DATABASE (shortened for space)
 -- ============================================================
 local ITEM_DB = {
     ["Basic Sword"] = { rarity = "Common" },
@@ -307,7 +313,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- CONFIG - SPEED SET TO 40 FOR ATTACKING
+-- CONFIG - SPEED 40 FOR ATTACKING
 -- ============================================================
 local CONFIG = {
     AttackDelay = 0.8,
@@ -326,7 +332,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 40,  -- CHANGED TO 40 FOR ATTACKING
+    WalkSpeed = 40,
 }
 
 -- ============================================================
@@ -354,6 +360,41 @@ local cheats = {
 }
 
 -- ============================================================
+-- CREATE SCREENGUI - FORCED VISIBLE
+-- ============================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "POLYLOOT"
+screenGui.ResetOnSpawn = false
+screenGui.Enabled = true
+
+-- Parent to guiParent with error handling
+pcall(function()
+    screenGui.Parent = guiParent
+end)
+
+if not screenGui.Parent then
+    -- If still no parent, force to CoreGui
+    pcall(function()
+        screenGui.Parent = game:GetService("CoreGui")
+    end)
+end
+
+if not screenGui.Parent then
+    -- Last resort: create a new ScreenGui in CoreGui
+    local backupGui = Instance.new("ScreenGui")
+    backupGui.Name = "POLYLOOT_BACKUP"
+    backupGui.Enabled = true
+    pcall(function()
+        backupGui.Parent = game:GetService("CoreGui")
+    end)
+    if backupGui.Parent then
+        screenGui = backupGui
+    else
+        error("CRITICAL: Cannot create GUI!")
+    end
+end
+
+-- ============================================================
 -- STATUS TEXT
 -- ============================================================
 local status = Instance.new("TextLabel")
@@ -366,25 +407,13 @@ status.TextSize = 18
 status.Parent = nil
 
 -- ============================================================
--- SCALING
+-- BUILD MAIN GUI - ABSOLUTELY SIMPLE
 -- ============================================================
-local viewport = workspace.CurrentCamera.ViewportSize
-local scale = math.min(viewport.X, viewport.Y) / 1100
-scale = math.clamp(scale, 0.5, 1.4)
-
-local function s(value) return value * scale end
-local function bigText(size) return math.floor(size * scale * 1.4) end
-
--- ============================================================
--- CREATE MAIN GUI - SIMPLIFIED FOR DELTA
--- ============================================================
-
--- Main Frame with visible background
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 640, 0, 720)
-mainFrame.Position = UDim2.new(0.5, -320, 0.5, -360)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 35)
-mainFrame.BackgroundTransparency = 0.1
+mainFrame.Size = UDim2.new(0, 500, 0, 600)
+mainFrame.Position = UDim2.new(0.5, -250, 0.5, -300)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
+mainFrame.BackgroundTransparency = 0
 mainFrame.BorderSizePixel = 2
 mainFrame.BorderColor3 = Color3.fromRGB(0, 200, 255)
 mainFrame.ClipsDescendants = true
@@ -392,9 +421,8 @@ mainFrame.Parent = screenGui
 
 -- Title bar
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 45)
-titleBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-titleBar.BackgroundTransparency = 0.5
+titleBar.Size = UDim2.new(1, 0, 0, 40)
+titleBar.BackgroundColor3 = Color3.fromRGB(10, 10, 30)
 titleBar.BorderSizePixel = 0
 titleBar.Parent = mainFrame
 
@@ -405,7 +433,7 @@ titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "POLY LOOT"
 titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
 titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 24
+titleLabel.TextSize = 22
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
 
@@ -435,16 +463,16 @@ minBtn.Parent = titleBar
 -- TAB BAR
 -- ============================================================
 local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, 0, 0, 35)
-tabBar.Position = UDim2.new(0, 0, 0, 45)
+tabBar.Size = UDim2.new(1, 0, 0, 32)
+tabBar.Position = UDim2.new(0, 0, 0, 40)
 tabBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-tabBar.BackgroundTransparency = 0.4
+tabBar.BackgroundTransparency = 0.3
 tabBar.BorderSizePixel = 0
 tabBar.Parent = mainFrame
 
 local contentContainer = Instance.new("Frame")
-contentContainer.Size = UDim2.new(1, -10, 1, -90)
-contentContainer.Position = UDim2.new(0, 5, 0, 85)
+contentContainer.Size = UDim2.new(1, -10, 1, -82)
+contentContainer.Position = UDim2.new(0, 5, 0, 77)
 contentContainer.BackgroundTransparency = 1
 contentContainer.ClipsDescendants = false
 contentContainer.Parent = mainFrame
@@ -462,7 +490,7 @@ local function createScroller()
     local layout = Instance.new("UIListLayout")
     layout.Parent = scroller
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 10)
+    layout.Padding = UDim.new(0, 8)
     
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
@@ -478,7 +506,7 @@ local playerScroller, playerLayout = createScroller()
 local teleportScroller, teleportLayout = createScroller()
 
 -- ============================================================
--- TAB BUTTONS
+-- TAB SWITCHING
 -- ============================================================
 local function switchTab(tab)
     farmScroller.Visible = (tab == "farm")
@@ -500,13 +528,13 @@ for i, name in ipairs(tabs) do
     btn.Text = name
     btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180, 180, 200)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
+    btn.TextSize = 13
     btn.BorderSizePixel = 0
     btn.Parent = tabBar
     
     local underline = Instance.new("Frame")
-    underline.Size = UDim2.new(0.6, 0, 0, 3)
-    underline.Position = UDim2.new(0.2, 0, 1, -3)
+    underline.Size = UDim2.new(0.6, 0, 0, 2)
+    underline.Position = UDim2.new(0.2, 0, 1, -2)
     underline.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
     underline.BackgroundTransparency = (name == "Farm") and 0 or 1
     underline.BorderSizePixel = 0
@@ -539,18 +567,18 @@ local function createSection(parent, title, height)
     section.Parent = parent
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 24)
+    header.Size = UDim2.new(1, 0, 0, 22)
     header.BackgroundTransparency = 1
     header.Text = title
     header.TextColor3 = Color3.fromRGB(255, 200, 100)
     header.Font = Enum.Font.GothamBold
-    header.TextSize = 16
+    header.TextSize = 15
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = section
     
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 1, -30)
-    container.Position = UDim2.new(0, 0, 0, 30)
+    container.Size = UDim2.new(1, 0, 1, -28)
+    container.Position = UDim2.new(0, 0, 0, 28)
     container.BackgroundTransparency = 1
     container.Parent = section
     
@@ -558,7 +586,7 @@ local function createSection(parent, title, height)
 end
 
 local function addButton(parent, text, color, callback, height)
-    height = height or 34
+    height = height or 32
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0.6, 0, 0, height)
     btn.Position = UDim2.new(0.2, 0, 0, 0)
@@ -567,7 +595,7 @@ local function addButton(parent, text, color, callback, height)
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
+    btn.TextSize = 13
     btn.Parent = parent
     if callback then
         btn.Activated:Connect(callback)
@@ -577,13 +605,13 @@ end
 
 local function addStatusLabel(parent, text, yPos)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.8, 0, 0, 22)
+    lbl.Size = UDim2.new(0.8, 0, 0, 20)
     lbl.Position = UDim2.new(0.1, 0, yPos, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
     lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
+    lbl.TextSize = 12
     lbl.TextXAlignment = Enum.TextXAlignment.Center
     lbl.Parent = parent
     return lbl
@@ -591,7 +619,7 @@ end
 
 local function addToggleRow(parent, labelText, initial)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 38)
+    row.Size = UDim2.new(1, 0, 0, 34)
     row.BackgroundTransparency = 1
     row.Parent = parent
     
@@ -601,19 +629,19 @@ local function addToggleRow(parent, labelText, initial)
     lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
     lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 14
+    lbl.TextSize = 13
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 60, 1, -6)
-    btn.Position = UDim2.new(0.6, 0, 0, 3)
+    btn.Size = UDim2.new(0, 55, 1, -4)
+    btn.Position = UDim2.new(0.6, 0, 0, 2)
     btn.BackgroundColor3 = initial and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
+    btn.TextSize = 13
     btn.Parent = row
     
     return {label = lbl, button = btn, value = initial, row = row}
@@ -621,23 +649,23 @@ end
 
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 48)
+    row.Size = UDim2.new(1, 0, 0, 44)
     row.BackgroundTransparency = 1
     row.Parent = parent
     
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 0, 20)
+    lbl.Size = UDim2.new(0.5, 0, 0, 18)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. string.format("%.1f", initVal) .. unit
     lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
     lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 14
+    lbl.TextSize = 13
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     
     local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.35, 0, 0, 16)
-    slider.Position = UDim2.new(0.55, 0, 0.5, -8)
+    slider.Size = UDim2.new(0.35, 0, 0, 14)
+    slider.Position = UDim2.new(0.55, 0, 0.5, -7)
     slider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
     slider.BorderSizePixel = 0
     slider.Parent = row
@@ -655,7 +683,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
     valLabel.Text = string.format("%.1f", initVal) .. unit
     valLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     valLabel.Font = Enum.Font.Gotham
-    valLabel.TextSize = 14
+    valLabel.TextSize = 13
     valLabel.Parent = row
     
     local dragging = false
@@ -717,7 +745,7 @@ local function tweenAtWalkSpeed(targetPos)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     local distance = (targetPos - root.Position).Magnitude
-    local speed = CONFIG.WalkSpeed  -- Now 40
+    local speed = CONFIG.WalkSpeed
     local duration = distance / speed
     if duration < 0.3 then duration = 0.3 end
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -771,13 +799,15 @@ local function performClick()
 end
 
 -- ============================================================
--- BOSS FARM
+-- BOSS FARM (same as before, shortened for length)
 -- ============================================================
+local bossFarms = {}
+local bossFarmThreads = {}
+
 local function getBossTimerLabel(bossSignName)
     local success, result = pcall(function()
         local bossSign = Workspace:FindFirstChild(bossSignName)
         if not bossSign then return nil end
-        
         local sign = bossSign:FindFirstChild("Sign")
         if sign then
             local surfaceGui = sign:FindFirstChild("SurfaceGui")
@@ -789,7 +819,6 @@ local function getBossTimerLabel(bossSignName)
                 end
             end
         end
-        
         for _, child in ipairs(bossSign:GetDescendants()) do
             if child:IsA("TextLabel") then
                 local name = string.upper(child.Name or "")
@@ -799,7 +828,6 @@ local function getBossTimerLabel(bossSignName)
                 end
             end
         end
-        
         return nil
     end)
     return success and result or nil
@@ -815,10 +843,7 @@ local function isBossAlive(timerLabel)
     if num then
         return false
     end
-    if text == "" then
-        return true
-    end
-    return false
+    return true
 end
 
 local function getBossRespawnTime(timerLabel)
@@ -826,20 +851,12 @@ local function getBossRespawnTime(timerLabel)
     local text = timerLabel.Text or ""
     local mins = tonumber(text:match("(%d+)m"))
     local secs = tonumber(text:match("(%d+)s"))
-    
-    if mins and secs then
-        return (mins * 60) + secs
-    elseif mins then
-        return mins * 60
-    elseif secs then
-        return secs
-    end
-    
+    if mins and secs then return (mins * 60) + secs end
+    if mins then return mins * 60 end
+    if secs then return secs end
     local num = tonumber(text:match("(%d+)"))
     if num then
-        if num > 60 then
-            return num
-        end
+        if num > 60 then return num end
         return num
     end
     return 0
@@ -850,11 +867,7 @@ local function formatRespawnTime(seconds)
     local mins = math.floor(seconds / 60)
     local secs = seconds % 60
     if mins > 0 then
-        if secs > 0 then
-            return string.format("%dm %ds", mins, secs)
-        else
-            return string.format("%dm", mins)
-        end
+        return string.format("%dm %ds", mins, secs)
     else
         return string.format("%ds", secs)
     end
@@ -869,13 +882,11 @@ local function findBossModel(bossName)
             end
         end
     end
-    
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
             return obj
         end
     end
-    
     local lowerName = string.lower(bossName)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
@@ -885,22 +896,14 @@ local function findBossModel(bossName)
             end
         end
     end
-    
     return nil
 end
 
-local bossFarms = {}
-local bossFarmThreads = {}
-
 function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabel)
     local key = bossName
-    
     if bossFarms[key] and bossFarms[key].running then
         bossFarms[key].running = false
-        if bossFarmThreads[key] then
-            task.cancel(bossFarmThreads[key])
-            bossFarmThreads[key] = nil
-        end
+        if bossFarmThreads[key] then task.cancel(bossFarmThreads[key]); bossFarmThreads[key] = nil end
         local char = player.Character
         if char then
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -912,9 +915,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
             end
             local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.AutoRotate = true
-            end
+            if hum then hum.AutoRotate = true end
         end
         if bossFarms[key].timerConnection then
             bossFarms[key].timerConnection:Disconnect()
@@ -1035,7 +1036,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 else
                     bossFarms[key].currentTarget = nil
                     bossFarms[key].isAlive = false
-                    
                     if respawnTime > 0 then
                         status.Text = bossDisplayName .. " respawning in " .. formattedTime
                     else
@@ -1456,11 +1456,11 @@ status.Text = "Status: Stopped"
 status.TextColor3 = Color3.fromRGB(255,100,100)
 status.Parent = farmScroller
 
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
-gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, 32)
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 70)
+gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, 30)
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
-local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms", 125)
+local bossSection, bossContainer = createSection(farmScroller, "🎯 Boss Farms", 120)
 
 local bossFarmDefs = {
     {key = "King Chicken", sign = "ChickenKingSign", display = "🐔 King Chicken"},
@@ -1469,14 +1469,14 @@ local bossFarmDefs = {
 
 for _, def in ipairs(bossFarmDefs) do
     local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(0.45, 0, 0, 55)
+    cell.Size = UDim2.new(0.45, 0, 0, 50)
     cell.BackgroundTransparency = 1
     cell.Parent = bossContainer
     
     local gridLayout = Instance.new("UIGridLayout")
     gridLayout.Parent = bossContainer
-    gridLayout.CellSize = UDim2.new(0.45, 0, 0, 55)
-    gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
+    gridLayout.CellSize = UDim2.new(0.45, 0, 0, 50)
+    gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
     gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
     
     local btn = Instance.new("TextButton")
@@ -1487,7 +1487,7 @@ for _, def in ipairs(bossFarmDefs) do
     btn.Text = def.display .. " Farm (OFF)"
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 11
+    btn.TextSize = 10
     btn.Parent = cell
     
     local statusLabel = Instance.new("TextLabel")
@@ -1497,7 +1497,7 @@ for _, def in ipairs(bossFarmDefs) do
     statusLabel.Text = def.display .. ": OFF"
     statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
     statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 11
+    statusLabel.TextSize = 10
     statusLabel.TextXAlignment = Enum.TextXAlignment.Center
     statusLabel.Parent = cell
     
@@ -1509,10 +1509,10 @@ end
 -- ============================================================
 -- AUTO CONTROLS
 -- ============================================================
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 130)
 
 local collectRow = Instance.new("Frame")
-collectRow.Size = UDim2.new(1, 0, 0, 38)
+collectRow.Size = UDim2.new(1, 0, 0, 32)
 collectRow.BackgroundTransparency = 1
 collectRow.Parent = autoContainer
 
@@ -1522,19 +1522,19 @@ collectLabel.BackgroundTransparency = 1
 collectLabel.Text = "Auto-Collect Gold: OFF"
 collectLabel.TextColor3 = Color3.fromRGB(200,200,220)
 collectLabel.Font = Enum.Font.Gotham
-collectLabel.TextSize = 14
+collectLabel.TextSize = 12
 collectLabel.TextXAlignment = Enum.TextXAlignment.Left
 collectLabel.Parent = collectRow
 
 local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0, 60, 1, -6)
-collectBtn.Position = UDim2.new(0.6, 0, 0, 3)
+collectBtn.Size = UDim2.new(0, 50, 1, -4)
+collectBtn.Position = UDim2.new(0.6, 0, 0, 2)
 collectBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 collectBtn.BorderSizePixel = 0
 collectBtn.Text = "OFF"
 collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
 collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = 14
+collectBtn.TextSize = 12
 collectBtn.Parent = collectRow
 
 collectBtn.Activated:Connect(function()
@@ -1545,8 +1545,8 @@ collectBtn.Activated:Connect(function()
 end)
 
 local lootRow = Instance.new("Frame")
-lootRow.Size = UDim2.new(1, 0, 0, 38)
-lootRow.Position = UDim2.new(0, 0, 0, 40)
+lootRow.Size = UDim2.new(1, 0, 0, 32)
+lootRow.Position = UDim2.new(0, 0, 0, 35)
 lootRow.BackgroundTransparency = 1
 lootRow.Parent = autoContainer
 
@@ -1556,19 +1556,19 @@ lootLabel.BackgroundTransparency = 1
 lootLabel.Text = "Auto-Loot: OFF"
 lootLabel.TextColor3 = Color3.fromRGB(200,200,220)
 lootLabel.Font = Enum.Font.Gotham
-lootLabel.TextSize = 14
+lootLabel.TextSize = 12
 lootLabel.TextXAlignment = Enum.TextXAlignment.Left
 lootLabel.Parent = lootRow
 
 local lootBtn = Instance.new("TextButton")
-lootBtn.Size = UDim2.new(0, 60, 1, -6)
-lootBtn.Position = UDim2.new(0.6, 0, 0, 3)
+lootBtn.Size = UDim2.new(0, 50, 1, -4)
+lootBtn.Position = UDim2.new(0.6, 0, 0, 2)
 lootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 lootBtn.BorderSizePixel = 0
 lootBtn.Text = "OFF"
 lootBtn.TextColor3 = Color3.fromRGB(255,255,255)
 lootBtn.Font = Enum.Font.GothamBold
-lootBtn.TextSize = 14
+lootBtn.TextSize = 12
 lootBtn.Parent = lootRow
 
 lootBtn.Activated:Connect(function()
@@ -1579,8 +1579,8 @@ lootBtn.Activated:Connect(function()
 end)
 
 local batchRow = Instance.new("Frame")
-batchRow.Size = UDim2.new(1, 0, 0, 38)
-batchRow.Position = UDim2.new(0, 0, 0, 80)
+batchRow.Size = UDim2.new(1, 0, 0, 32)
+batchRow.Position = UDim2.new(0, 0, 0, 70)
 batchRow.BackgroundTransparency = 1
 batchRow.Parent = autoContainer
 
@@ -1590,19 +1590,19 @@ batchLabel.BackgroundTransparency = 1
 batchLabel.Text = "Batch Mode: OFF"
 batchLabel.TextColor3 = Color3.fromRGB(200,200,220)
 batchLabel.Font = Enum.Font.Gotham
-batchLabel.TextSize = 14
+batchLabel.TextSize = 12
 batchLabel.TextXAlignment = Enum.TextXAlignment.Left
 batchLabel.Parent = batchRow
 
 local batchBtn = Instance.new("TextButton")
-batchBtn.Size = UDim2.new(0, 60, 1, -6)
-batchBtn.Position = UDim2.new(0.6, 0, 0, 3)
+batchBtn.Size = UDim2.new(0, 50, 1, -4)
+batchBtn.Position = UDim2.new(0.6, 0, 0, 2)
 batchBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 batchBtn.BorderSizePixel = 0
 batchBtn.Text = "OFF"
 batchBtn.TextColor3 = Color3.fromRGB(255,255,255)
 batchBtn.Font = Enum.Font.GothamBold
-batchBtn.TextSize = 14
+batchBtn.TextSize = 12
 batchBtn.Parent = batchRow
 
 batchBtn.Activated:Connect(function()
@@ -1619,14 +1619,14 @@ local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
 
 local refreshBtn = Instance.new("TextButton")
-refreshBtn.Size = UDim2.new(0.6, 0, 0, 36)
+refreshBtn.Size = UDim2.new(0.6, 0, 0, 30)
 refreshBtn.Position = UDim2.new(0.2, 0, 0, 0)
 refreshBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 200)
 refreshBtn.BorderSizePixel = 0
 refreshBtn.Text = "🔄 Refresh Inventory"
 refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
 refreshBtn.Font = Enum.Font.GothamBold
-refreshBtn.TextSize = 15
+refreshBtn.TextSize = 13
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
@@ -1635,7 +1635,7 @@ end)
 
 for idx, action in ipairs(autoActions) do
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, -10, 0, 80)
+    box.Size = UDim2.new(1, -10, 0, 70)
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
     box.BackgroundTransparency = 0.3
     box.BorderSizePixel = 1
@@ -1643,19 +1643,19 @@ for idx, action in ipairs(autoActions) do
     box.Parent = autoScroller
     
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, -8, 0, 24)
+    header.Size = UDim2.new(1, -8, 0, 20)
     header.Position = UDim2.new(0, 4, 0, 4)
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. action .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
     header.Font = Enum.Font.Gotham
-    header.TextSize = 15
+    header.TextSize = 13
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
     local toggleRow = Instance.new("Frame")
-    toggleRow.Size = UDim2.new(1, -8, 0, 34)
-    toggleRow.Position = UDim2.new(0, 4, 0, 32)
+    toggleRow.Size = UDim2.new(1, -8, 0, 30)
+    toggleRow.Position = UDim2.new(0, 4, 0, 28)
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = box
     
@@ -1665,19 +1665,19 @@ for idx, action in ipairs(autoActions) do
     toggleLabel.Text = action .. ": OFF"
     toggleLabel.TextColor3 = Color3.fromRGB(200,200,220)
     toggleLabel.Font = Enum.Font.Gotham
-    toggleLabel.TextSize = 13
+    toggleLabel.TextSize = 12
     toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
     toggleLabel.Parent = toggleRow
     
     local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 50, 1, -4)
+    toggleBtn.Size = UDim2.new(0, 45, 1, -4)
     toggleBtn.Position = UDim2.new(0.5, 0, 0, 2)
     toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
     toggleBtn.BorderSizePixel = 0
     toggleBtn.Text = "OFF"
     toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
     toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = 13
+    toggleBtn.TextSize = 12
     toggleBtn.Parent = toggleRow
     
     local enabled = false
@@ -1729,61 +1729,62 @@ end
 playerToggles = addPlayerTabContent()
 
 -- ============================================================
--- MINI BAR
+-- MINI BAR (simplified)
 -- ============================================================
 local miniBar = Instance.new("Frame")
-miniBar.Size = UDim2.new(0, 480, 0, 40)
-miniBar.Position = UDim2.new(0.5, -240, 0.1, 0)
+miniBar.Size = UDim2.new(0, 400, 0, 32)
+miniBar.Position = UDim2.new(0.5, -200, 0.1, 0)
 miniBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-miniBar.BackgroundTransparency = 0.3
-miniBar.BorderSizePixel = 0
+miniBar.BackgroundTransparency = 0
+miniBar.BorderSizePixel = 1
+miniBar.BorderColor3 = Color3.fromRGB(0, 200, 255)
 miniBar.Visible = false
 miniBar.Active = true
 miniBar.Parent = screenGui
 
 local miniTitle = Instance.new("TextLabel")
-miniTitle.Size = UDim2.new(0.2, 0, 0.6, 0)
-miniTitle.Position = UDim2.new(0, 8, 0, 2)
+miniTitle.Size = UDim2.new(0.2, 0, 1, 0)
+miniTitle.Position = UDim2.new(0, 6, 0, 0)
 miniTitle.BackgroundTransparency = 1
 miniTitle.Text = "POLY LOOT"
 miniTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
 miniTitle.Font = Enum.Font.GothamBold
-miniTitle.TextSize = 14
+miniTitle.TextSize = 12
 miniTitle.TextXAlignment = Enum.TextXAlignment.Left
 miniTitle.Parent = miniBar
 
 local miniACBtn = Instance.new("TextButton")
-miniACBtn.Size = UDim2.new(0, 140, 0.8, 0)
-miniACBtn.Position = UDim2.new(0.35, 0, 0.1, 0)
+miniACBtn.Size = UDim2.new(0, 100, 1, -4)
+miniACBtn.Position = UDim2.new(0.3, 0, 0, 2)
 miniACBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
 miniACBtn.BorderSizePixel = 0
 miniACBtn.Text = "AC: OFF"
 miniACBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniACBtn.Font = Enum.Font.GothamBold
-miniACBtn.TextSize = 13
+miniACBtn.TextSize = 11
 miniACBtn.TextScaled = true
 miniACBtn.Parent = miniBar
 
 local restoreBtn = Instance.new("TextButton")
-restoreBtn.Size = UDim2.new(0, 32, 1, 0)
-restoreBtn.Position = UDim2.new(0.85, 0, 0, 0)
+restoreBtn.Size = UDim2.new(0, 28, 1, 0)
+restoreBtn.Position = UDim2.new(0.8, 0, 0, 0)
 restoreBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
 restoreBtn.BorderSizePixel = 0
 restoreBtn.Text = "⬆"
 restoreBtn.TextColor3 = Color3.fromRGB(255,255,255)
 restoreBtn.Font = Enum.Font.GothamBold
-restoreBtn.TextSize = 18
+restoreBtn.TextSize = 16
 restoreBtn.Parent = miniBar
 
 local miniCloseBtn = Instance.new("TextButton")
-miniCloseBtn.Size = UDim2.new(0, 32, 1, 0)
-miniCloseBtn.Position = UDim2.new(1, -32, 0, 0)
+miniCloseBtn.Size = UDim2.new(0, 28, 1, 0)
+miniCloseBtn.Position = UDim2.new(1, -28, 0, 0)
 miniCloseBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
 miniCloseBtn.BorderSizePixel = 0
 miniCloseBtn.Text = "✕"
 miniCloseBtn.TextColor3 = Color3.fromRGB(255,255,255)
 miniCloseBtn.Font = Enum.Font.GothamBold
-miniCloseBtn.TextSize = 18
+miniCloseBtn.TextSize = 16
 miniCloseBtn.Parent = miniBar
 miniCloseBtn.ZIndex = 10
 
@@ -2053,14 +2054,14 @@ end)
 -- ============================================================
 -- TELEPORT TAB
 -- ============================================================
-local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 70)
+local posSection, posContainer = createSection(teleportScroller, "📍 Current Position", 60)
 local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 0, 34)
+posUpdate.Size = UDim2.new(1, 0, 0, 28)
 posUpdate.BackgroundTransparency = 1
 posUpdate.Text = "0.0, 0.0, 0.0"
 posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
 posUpdate.Font = Enum.Font.GothamBold
-posUpdate.TextSize = 18
+posUpdate.TextSize = 16
 posUpdate.TextXAlignment = Enum.TextXAlignment.Center
 posUpdate.Parent = posContainer
 
@@ -2077,7 +2078,7 @@ end
 
 RunService.Heartbeat:Connect(updatePos)
 
-local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 115)
+local shopSection, shopContainer = createSection(teleportScroller, "🏪 Shops & Locations", 100)
 
 local shopGrid = Instance.new("Frame")
 shopGrid.Size = UDim2.new(1, 0, 1, 0)
@@ -2086,8 +2087,8 @@ shopGrid.Parent = shopContainer
 
 local shopGridLayout = Instance.new("UIGridLayout")
 shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, 32)
-shopGridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
+shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, 28)
+shopGridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
 shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
 local shopButtons = {
@@ -2107,7 +2108,7 @@ for _, data in ipairs(shopButtons) do
     btn.Text = data.text
     btn.TextColor3 = Color3.fromRGB(255,255,255)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 10
     btn.Parent = shopGrid
     btn.Activated:Connect(function()
         teleportToPosition(data.pos + Vector3.new(0,5,0))
@@ -2325,6 +2326,6 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT loaded for Delta/Potassium!")
-print("✅ Walk Speed set to 40 for better attacking!")
-print("✅ GUI should be visible now!")
+print("✅ POLY LOOT LOADED – GUI FORCED FOR DELTA/POTASSIUM")
+print("✅ Walk Speed = 40 for attacking")
+print("✅ If you still don't see GUI, try re-executing or use a different executor.")
