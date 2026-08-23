@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (SPEED 55, GARGOYLE TWEEN, REMOVED BAD TOGGLES) ]] 
+--[[ POLY LOOT – GARGOYLE FARM + AUTO-LOOT INTEGRATED (SPEED 50) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,10 +26,7 @@ if not guiParent then
     guiParent.Parent = game:GetService("CoreGui")
 end
 
--- ===== RARITY =====
-local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
-
--- ===== CONFIG (SPEED 55) =====
+-- ===== CONFIG (SPEED 50) =====
 local CONFIG = {
     AttackDelay = 0.8,
     DelayVariation = 0.1,
@@ -47,7 +44,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 55,   -- Changed to 55
+    WalkSpeed = 50,   -- Changed to 50
 }
 
 -- ===== COORDINATES =====
@@ -60,7 +57,7 @@ local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
 -- ===== PLAYER CHEATS =====
 local cheats = {
-    speed = 55,          -- default speed matches CONFIG
+    speed = 50,          -- default matches CONFIG
     fly = false,
     flySpeed = 50,
     antiAFK = true,
@@ -997,35 +994,8 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS (improved)
+-- PICKUP/LOOT FUNCTIONS (smooth hold)
 -- ============================================================
-local function holdKey(keyCode, duration)
-    if VirtualInputManager then
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
-            task.wait(duration)
-            VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
-        end)
-    else
-        pcall(function()
-            local inputService = game:GetService("UserInputService")
-            if inputService then
-                local downInput = Instance.new("InputObject")
-                downInput.UserInputType = Enum.UserInputType.Keyboard
-                downInput.KeyCode = keyCode
-                downInput.UserInputState = Enum.UserInputState.Begin
-                inputService:FireInput(downInput)
-                task.wait(duration)
-                local upInput = Instance.new("InputObject")
-                upInput.UserInputType = Enum.UserInputType.Keyboard
-                upInput.KeyCode = keyCode
-                upInput.UserInputState = Enum.UserInputState.End
-                inputService:FireInput(upInput)
-            end
-        end)
-    end
-end
-
 local function getNearestLoot()
     local char = player.Character
     if not char then return nil end
@@ -1226,7 +1196,7 @@ local function instantLoot()
 end
 
 -- ============================================================
--- GARGOYLE FARM – NOW USES TWEEN (speed 55)
+-- GARGOYLE FARM – INTEGRATED AUTO-LOOT
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1278,11 +1248,11 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Use tween to move to the gargoyle instead of teleport
+    -- Use tween to move to the gargoyle
     tweenAtWalkSpeed(targetPos)
     task.wait(0.1)
     
-    -- After arriving, set CFrame to face down (optional, but keep for lock)
+    -- After arriving, set CFrame to face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
     -- BodyPosition to hover
@@ -1318,6 +1288,36 @@ local function lockAboveGargoyle(targetMob)
         gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
+end
+
+-- INTEGRATED AUTO-LOOT CHECK inside gargoyle loop
+local function checkAndLoot()
+    local char = player.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local item, dist = getNearestLoot()
+    if item and dist < 30 then
+        -- Temporarily clean up body parts so we can move
+        if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
+        if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
+        if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
+        gargoyleBodyPosition = nil
+        gargoyleBodyVelocity = nil
+        gargoyleBodyGyro = nil
+        
+        -- Pick up the loot
+        instantLoot()
+        
+        -- Re-enable auto-rotate
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.AutoRotate = true end
+        
+        -- Return true if we picked something, so the loop can re-lock
+        return true
+    end
+    return false
 end
 
 function toggleGargoyleFarm()
@@ -1377,21 +1377,34 @@ function toggleGargoyleFarm()
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started"
+    status.Text = "Gargoyle farming started (auto-loot enabled)"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
+            -- First, check for loot and pick it up if nearby
+            if checkAndLoot() then
+                -- If we looted, restart the loop to re-lock a gargoyle
+                task.wait(0.3)
+                continue
+            end
+            
+            -- Otherwise, find and lock onto a gargoyle
             local mob, dist = getNearestGargoyle()
             
             if mob then
                 lockAboveGargoyle(mob)
                 status.Text = "🔒 Locked above Gargoyle (tweened)"
+                if gargoyleStatusLabel then
+                    gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+                    gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+                end
             else
                 status.Text = "No Gargoyle found, scanning..."
                 if gargoyleStatusLabel then
                     gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
+                -- Clean up if no mob
                 if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
                 if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
                 if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
@@ -1416,7 +1429,7 @@ status.Parent = farmScroller
 
 refreshInventory()
 
-local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm", 75)
+local gargoyleSection, gargoyleContainer = createSection(farmScroller, "🧛 Gargoyle Farm (Auto-Loot)", 75)
 gargoyleBtn = addButton(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), toggleGargoyleFarm, s(32))
 gargoyleStatusLabel = addStatusLabel(gargoyleContainer, "Gargoyle: OFF", 0.7)
 
@@ -1466,8 +1479,8 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Auto Controls – only keep Auto-Collect Gold and Auto-Loot
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)  -- reduced height
+-- Auto Controls – only Auto-Collect Gold and Auto-Loot (both optional)
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)
 
 -- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
@@ -1503,7 +1516,7 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
--- Auto-Loot
+-- Auto-Loot (optional, still works independently)
 local lootRow = Instance.new("Frame")
 lootRow.Size = UDim2.new(1, 0, 0, s(38))
 lootRow.Position = UDim2.new(0, 0, 0, s(40))
@@ -1537,8 +1550,6 @@ lootBtn.Activated:Connect(function()
     lootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
-
--- NOTE: Batch Mode and Teleport to Mine have been removed
 
 -- ============================================================
 -- AUTO TAB (unchanged)
@@ -1649,12 +1660,12 @@ for idx, action in ipairs(autoActions) do
 end
 
 -- ============================================================
--- PLAYER TAB (unchanged)
+-- PLAYER TAB (default speed 50)
 -- ============================================================
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 55, "", function(val)
+    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 50, "", function(val)
         val = math.min(val, 74)
         cheats.speed = val
         CONFIG.WalkSpeed = val
@@ -2402,5 +2413,5 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – FINAL (SPEED 55, GARGOYLE TWEEN, REMOVED BAD TOGGLES)")
-print("✅ Auto-Loot smooth, Gargoyle farm now walks to target.")
+print("✅ POLY LOOT – GARGOYLE FARM + AUTO-LOOT INTEGRATED (SPEED 50)")
+print("✅ Gargoyle farm will now pick up drops and resume farming.")
