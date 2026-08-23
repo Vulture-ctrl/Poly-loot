@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (SPEED CAPPED + FACING FIX) ]] 
+--[[ POLY LOOT – FARM FIX (INSTANT TELEPORT + AUTO-ROTATE OFF) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -46,6 +46,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
+    InstantFarmTeleport = true,   -- NEW: true = teleport instantly, false = tween (but we'll only use CFrame)
 }
 
 -- ===== COORDINATES =====
@@ -384,7 +385,6 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
--- Speed slider max is 74
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, s(48))
@@ -521,7 +521,7 @@ local function performClick()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (NO PLATFORMSTAND)
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (NO PLATFORMSTAND, AUTO-ROTATE OFF)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -652,13 +652,13 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             task.cancel(bossFarmThreads[key])
             bossFarmThreads[key] = nil
         end
-        if bossFarms[key].bodyVelocity then
-            bossFarms[key].bodyVelocity:Destroy()
-            bossFarms[key].bodyVelocity = nil
-        end
-        if bossFarms[key].bodyPosition then
-            bossFarms[key].bodyPosition:Destroy()
-            bossFarms[key].bodyPosition = nil
+        -- Reset auto-rotate when stopping
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.AutoRotate = true
+            end
         end
         if bossFarms[key].timerConnection then
             bossFarms[key].timerConnection:Disconnect()
@@ -692,8 +692,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
         bossFarms[key] = {
             running = false,
             currentTarget = nil,
-            bodyVelocity = nil,
-            bodyPosition = nil,
             isAlive = false,
             timerLabel = nil,
             timerConnection = nil,
@@ -776,14 +774,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 if isAlive then
                     task.wait(0.3)
                 else
-                    if bossFarms[key].bodyVelocity then
-                        bossFarms[key].bodyVelocity:Destroy()
-                        bossFarms[key].bodyVelocity = nil
-                    end
-                    if bossFarms[key].bodyPosition then
-                        bossFarms[key].bodyPosition:Destroy()
-                        bossFarms[key].bodyPosition = nil
-                    end
                     bossFarms[key].currentTarget = nil
                     bossFarms[key].isAlive = false
                     
@@ -810,7 +800,6 @@ end
 local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     if not mob or not bossFarms[key] then return end
     
-    -- Update target even if same, to keep facing
     local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
     if not rootPart then return end
     
@@ -818,49 +807,24 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     if not char then return end
     local playerRoot = char:FindFirstChild("HumanoidRootPart")
     if not playerRoot then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.AutoRotate = false   -- Prevent turning away
+    end
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- If target changed, recreate body parts
-    if bossFarms[key].currentTarget ~= mob then
-        if bossFarms[key].bodyVelocity then
-            bossFarms[key].bodyVelocity:Destroy()
-            bossFarms[key].bodyVelocity = nil
-        end
-        if bossFarms[key].bodyPosition then
-            bossFarms[key].bodyPosition:Destroy()
-            bossFarms[key].bodyPosition = nil
-        end
-        
-        bossFarms[key].bodyPosition = Instance.new("BodyPosition")
-        bossFarms[key].bodyPosition.Position = targetPos
-        bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bossFarms[key].bodyPosition.D = 5000
-        bossFarms[key].bodyPosition.P = 20000
-        bossFarms[key].bodyPosition.Parent = playerRoot
-        
-        bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
-        bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bossFarms[key].bodyVelocity.Parent = playerRoot
-        
-        bossFarms[key].currentTarget = mob
-        bossFarms[key].isAlive = true
-        
-        if statusLabel then
-            statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
-            statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-        end
-    else
-        -- Update bodyPosition target (in case mob moved)
-        if bossFarms[key].bodyPosition then
-            bossFarms[key].bodyPosition.Position = targetPos
-        end
-    end
-    
-    -- Always update CFrame to face the mob (look down)
+    -- Instant teleport to target position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    bossFarms[key].currentTarget = mob
+    bossFarms[key].isAlive = true
     status.Text = "🔒 Locked above " .. bossDisplayName
+    
+    if statusLabel then
+        statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
+        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
 end
 
 -- ============================================================
@@ -1209,15 +1173,13 @@ local function instantLoot()
 end
 
 -- ============================================================
---  GARGOYLE FARM (FACING FIX – updates CFrame every loop)
+--  GARGOYLE FARM (FIX: AUTO-ROTATE OFF, INSTANT TELEPORT)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
 local gargoyleBtn = nil
 local gargoyleStatusLabel = nil
 local currentGargoyleTarget = nil
-local gargoyleBodyVelocity = nil
-local gargoyleBodyPosition = nil
 
 local function getNearestGargoyle()
     local char = player.Character
@@ -1252,47 +1214,22 @@ local function lockAboveGargoyle(targetMob)
     if not char then return end
     local playerRoot = char:FindFirstChild("HumanoidRootPart")
     if not playerRoot then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then
+        hum.AutoRotate = false   -- Prevents turning away
+    end
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- If target changed, recreate body parts
-    if currentGargoyleTarget ~= targetMob then
-        if gargoyleBodyVelocity then
-            gargoyleBodyVelocity:Destroy()
-            gargoyleBodyVelocity = nil
-        end
-        if gargoyleBodyPosition then
-            gargoyleBodyPosition:Destroy()
-            gargoyleBodyPosition = nil
-        end
-        
-        gargoyleBodyPosition = Instance.new("BodyPosition")
-        gargoyleBodyPosition.Position = targetPos
-        gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyPosition.D = 5000
-        gargoyleBodyPosition.P = 20000
-        gargoyleBodyPosition.Parent = playerRoot
-        
-        gargoyleBodyVelocity = Instance.new("BodyVelocity")
-        gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        gargoyleBodyVelocity.Parent = playerRoot
-        
-        currentGargoyleTarget = targetMob
-        
-        if gargoyleStatusLabel then
-            gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-        end
-    else
-        -- Update position if mob moved
-        if gargoyleBodyPosition then
-            gargoyleBodyPosition.Position = targetPos
-        end
-    end
-    
-    -- Always face the gargoyle (look down)
+    -- Instant teleport to target position and face down
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    
+    currentGargoyleTarget = targetMob
+    
+    if gargoyleStatusLabel then
+        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+    end
 end
 
 function toggleGargoyleFarm()
@@ -1302,13 +1239,13 @@ function toggleGargoyleFarm()
             task.cancel(gargoyleFarmThread)
             gargoyleFarmThread = nil
         end
-        if gargoyleBodyVelocity then
-            gargoyleBodyVelocity:Destroy()
-            gargoyleBodyVelocity = nil
-        end
-        if gargoyleBodyPosition then
-            gargoyleBodyPosition:Destroy()
-            gargoyleBodyPosition = nil
+        -- Reset auto-rotate
+        local char = player.Character
+        if char then
+            local hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hum.AutoRotate = true
+            end
         end
         currentGargoyleTarget = nil
         status.Text = "Gargoyle farm stopped"
@@ -1351,7 +1288,6 @@ function toggleGargoyleFarm()
             local mob, dist = getNearestGargoyle()
             
             if mob then
-                -- Update lock and facing every loop
                 lockAboveGargoyle(mob)
                 status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
             else
@@ -1359,14 +1295,6 @@ function toggleGargoyleFarm()
                 if gargoyleStatusLabel then
                     gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                end
-                if gargoyleBodyVelocity then
-                    gargoyleBodyVelocity:Destroy()
-                    gargoyleBodyVelocity = nil
-                end
-                if gargoyleBodyPosition then
-                    gargoyleBodyPosition:Destroy()
-                    gargoyleBodyPosition = nil
                 end
                 currentGargoyleTarget = nil
                 task.wait(1)
@@ -1805,9 +1733,7 @@ local function closeGUI()
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
     if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
     if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
-    if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy(); gargoyleBodyVelocity = nil end
-    if gargoyleBodyPosition then gargoyleBodyPosition:Destroy(); gargoyleBodyPosition = nil end
-    
+    -- Reset auto-rotate for boss farms
     for key, data in pairs(bossFarms) do
         if data.running then
             data.running = false
@@ -1816,20 +1742,18 @@ local function closeGUI()
             task.cancel(bossFarmThreads[key])
             bossFarmThreads[key] = nil
         end
-        if data.bodyVelocity then
-            data.bodyVelocity:Destroy()
-            data.bodyVelocity = nil
-        end
-        if data.bodyPosition then
-            data.bodyPosition:Destroy()
-            data.bodyPosition = nil
-        end
         if data.timerConnection then
             data.timerConnection:Disconnect()
             data.timerConnection = nil
         end
     end
-    
+    local char = player.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.AutoRotate = true
+        end
+    end
     pcall(function() screenGui:Destroy() end)
 end
 
@@ -2406,6 +2330,7 @@ player.CharacterAdded:Connect(function(char)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
         hum.WalkSpeed = math.min(cheats.speed, 74)
+        hum.AutoRotate = true  -- reset to default
     end
 end)
 
@@ -2443,4 +2368,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – SPEED CAPPED + FACING FIX loaded!")
+print("✅ POLY LOOT – FARM FIX (INSTANT + AUTO-ROTATE OFF) loaded!")
