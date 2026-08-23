@@ -221,7 +221,7 @@ local function bigText(size)
 end
 
 -- ============================================================
---  GUI CREATION (FULL)
+--  GUI CREATION (FULL - CLEAN & ORGANIZED)
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "POLYLOOT"
@@ -229,8 +229,8 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, s(640), 0, s(920))
-mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(460))
+mainFrame.Size = UDim2.new(0, s(640), 0, s(820))
+mainFrame.Position = UDim2.new(0.5, -s(320), 0.5, -s(410))
 mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
 mainFrame.BackgroundTransparency = 0.2
 mainFrame.BorderSizePixel = 0
@@ -265,38 +265,6 @@ local gradientTween = TweenService:Create(gradient, TweenInfo.new(4, Enum.Easing
 })
 gradientTween:Play()
 
--- Particles
-local particleContainer = Instance.new("Frame")
-particleContainer.Size = UDim2.new(1, 0, 1, 0)
-particleContainer.BackgroundTransparency = 1
-particleContainer.Parent = mainFrame
-
-local emojis = {"✨", "⚡", "🚀", "💎", "🌟", "🔥"}
-for i = 1, 25 do
-    local dot = Instance.new("TextLabel")
-    dot.Size = UDim2.new(0, s(16), 0, s(16))
-    dot.Position = UDim2.new(math.random() * 0.9 + 0.05, 0, math.random() * 0.9 + 0.05, 0)
-    dot.BackgroundTransparency = 1
-    dot.Text = emojis[math.random(#emojis)]
-    dot.TextColor3 = Color3.fromRGB(200, 200, 255)
-    dot.TextSize = s(14)
-    dot.TextTransparency = 0.5
-    dot.Parent = particleContainer
-    task.spawn(function()
-        local startX = dot.Position.X.Scale
-        local startY = dot.Position.Y.Scale
-        local speedX = (math.random() - 0.5) * 0.003
-        local speedY = (math.random() - 0.5) * 0.003
-        while wait(0.05) do
-            local newX = dot.Position.X.Scale + speedX
-            local newY = dot.Position.Y.Scale + speedY
-            if newX > 1 or newX < 0 then speedX = -speedX end
-            if newY > 1 or newY < 0 then speedY = -speedY end
-            dot.Position = UDim2.new(newX, 0, newY, 0)
-        end
-    end)
-end
-
 -- Title bar
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, s(50))
@@ -326,18 +294,6 @@ watermark.Font = Enum.Font.Gotham
 watermark.TextSize = bigText(11)
 watermark.TextXAlignment = Enum.TextXAlignment.Left
 watermark.Parent = titleBar
-
-local glowTitle = titleLabel:Clone()
-glowTitle.TextColor3 = Color3.fromRGB(255,255,255)
-glowTitle.TextTransparency = 0.85
-glowTitle.Position = UDim2.new(0.005, s(12), 0, s(2))
-glowTitle.ZIndex = 0
-glowTitle.Parent = titleBar
-
-local pulseTween = TweenService:Create(titleLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-    TextSize = bigText(28)
-})
-pulseTween:Play()
 
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.new(0, s(28), 0, s(28))
@@ -393,7 +349,7 @@ local function createScroller()
     local layout = Instance.new("UIListLayout")
     layout.Parent = scroller
     layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, s(12))
+    layout.Padding = UDim.new(0, s(8))
     
     layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
         scroller.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + s(10))
@@ -474,7 +430,7 @@ end
 local function addToggleRow(parent, labelText, initial)
     local row = addControl(parent, 32)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
     lbl.TextColor3 = Color3.fromRGB(200,200,220)
@@ -485,7 +441,7 @@ local function addToggleRow(parent, labelText, initial)
     
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0, s(60), 1, -s(4))
-    btn.Position = UDim2.new(0.7, 0, 0, s(2))
+    btn.Position = UDim2.new(0.6, 0, 0, s(2))
     btn.BackgroundColor3 = initial and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     btn.BorderSizePixel = 0
     btn.Text = initial and "ON" or "OFF"
@@ -494,20 +450,13 @@ local function addToggleRow(parent, labelText, initial)
     btn.TextSize = bigText(14)
     btn.Parent = row
     
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-    end)
-    
     return {label = lbl, button = btn, value = initial}
 end
 
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = addControl(parent, 48)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.6, 0, 0, s(20))
+    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
     lbl.BackgroundTransparency = 1
     lbl.Text = labelText .. ": " .. string.format("%.2f", initVal) .. unit
     lbl.TextColor3 = Color3.fromRGB(200,200,220)
@@ -518,7 +467,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
     
     local slider = Instance.new("Frame")
     slider.Size = UDim2.new(0.35, 0, 0, s(16))
-    slider.Position = UDim2.new(0.6, 0, 0.5, -s(8))
+    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
     slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
     slider.BorderSizePixel = 0
     slider.Parent = row
@@ -598,7 +547,7 @@ local function teleportToPosition(targetPos)
 end
 
 -- ============================================================
---  AUTO CLICKER (REMOVED CIRCLE, KEPT FUNCTIONALITY)
+--  AUTO CLICKER
 -- ============================================================
 local function performClick()
     local x = CONFIG.AutoClickX
@@ -633,7 +582,7 @@ local function performClick()
 end
 
 -- ============================================================
---  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN (WORKING - DON'T TOUCH)
+--  GARGOYLE FARM – LOCKED ABOVE 5.1, FACING DOWN
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -763,10 +712,10 @@ function toggleGargoyleFarm()
         gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE (scanning)"
+        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started – scanning for Gargoyles"
+    status.Text = "Gargoyle farming started"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -820,7 +769,7 @@ local function getBossTimerLabel(bossSignName)
         local bossSign = Workspace:FindFirstChild(bossSignName)
         if not bossSign then return nil end
         
-        -- Try different paths
+        -- Try path: Sign -> SurfaceGui -> Template -> TIMER
         local sign = bossSign:FindFirstChild("Sign")
         if sign then
             local surfaceGui = sign:FindFirstChild("SurfaceGui")
@@ -835,14 +784,12 @@ local function getBossTimerLabel(bossSignName)
         
         -- Try direct children
         for _, child in ipairs(bossSign:GetDescendants()) do
-            if child:IsA("TextLabel") and string.upper(child.Name):find("TIMER") then
-                return child
-            end
-            if child:IsA("TextLabel") and string.upper(child.Text or ""):find("ALIVE") then
-                return child
-            end
-            if child:IsA("TextLabel") and tonumber(child.Text:match("(%d+)")) then
-                return child
+            if child:IsA("TextLabel") then
+                local name = string.upper(child.Name or "")
+                local text = string.upper(child.Text or "")
+                if name:find("TIMER") or text:find("ALIVE") or tonumber(text:match("(%d+)")) then
+                    return child
+                end
             end
         end
         
@@ -852,14 +799,18 @@ local function getBossTimerLabel(bossSignName)
 end
 
 local function isBossAlive(timerLabel)
-    if not timerLabel then return true end  -- Assume alive if no timer
+    if not timerLabel then return true end
     local text = string.upper(timerLabel.Text or "")
     if string.find(text, "ALIVE") then
         return true
     end
-    -- If no timer text, assume alive
-    if text == "" or text == nil then
-        return true
+    -- If text is empty or just a number, assume dead/respawning
+    if text == "" then
+        return false
+    end
+    local num = tonumber(text:match("(%d+)"))
+    if num then
+        return false -- Has a timer, so dead
     end
     return false
 end
@@ -867,19 +818,11 @@ end
 local function getBossRespawnTime(timerLabel)
     if not timerLabel then return 0 end
     local text = timerLabel.Text or ""
-    -- Check if it's a number (respawn timer)
     local num = tonumber(text:match("(%d+)"))
-    if num then
-        return num
-    end
-    -- If text contains ALIVE or is empty, return 0 (alive)
-    if string.upper(text):find("ALIVE") or text == "" then
-        return 0
-    end
-    return 0
+    return num or 0
 end
 
--- Format time as "Xm Ys" or just "Ys" if less than 60 seconds
+-- Format time as "Xm Ys" or just "Ys"
 local function formatRespawnTime(seconds)
     if not seconds or seconds <= 0 then return "ALIVE 🟢" end
     local mins = math.floor(seconds / 60)
@@ -892,18 +835,18 @@ local function formatRespawnTime(seconds)
 end
 
 local function findBossModel(bossName)
-    -- Method 1: Direct search in Workspace
+    -- Direct search
     local direct = Workspace:FindFirstChild(bossName)
     if direct and direct:IsA("Model") then return direct end
     
-    -- Method 2: Search through all descendants
+    -- Search all descendants
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
             return obj
         end
     end
     
-    -- Method 3: Case-insensitive partial match
+    -- Partial match
     local lowerName = string.lower(bossName)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
@@ -931,7 +874,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             task.cancel(bossFarmThreads[key])
             bossFarmThreads[key] = nil
         end
-        -- Remove locks
         if bossFarms[key].bodyVelocity then
             bossFarms[key].bodyVelocity:Destroy()
             bossFarms[key].bodyVelocity = nil
@@ -945,7 +887,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             bossFarms[key].timerConnection = nil
         end
         bossFarms[key].currentTarget = nil
-        -- Reset PlatformStand
         local char = player.Character
         if char then
             local hum = char:FindFirstChild("Humanoid")
@@ -1008,7 +949,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
         statusLabel.Text = bossDisplayName .. " farm: SCANNING 🔍"
         statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
     end
-    status.Text = bossDisplayName .. " farming started – scanning"
+    status.Text = bossDisplayName .. " farming started"
     
     -- Listen for timer changes
     local timerLabel = bossFarms[key].timerLabel
@@ -1018,16 +959,14 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
         end
         bossFarms[key].timerConnection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
             local newText = timerLabel.Text or ""
-            if bossFarms[key].lastTimerText ~= newText then
-                bossFarms[key].lastTimerText = newText
-                -- Force an immediate scan and teleport when timer changes
-                task.spawn(function()
-                    local mob = findBossModel(bossName)
-                    if mob then
-                        lockToBoss(key, mob, bossDisplayName, statusLabel)
-                    end
-                end)
-            end
+            bossFarms[key].lastTimerText = newText
+            -- Force immediate scan
+            task.spawn(function()
+                local mob = findBossModel(bossName)
+                if mob then
+                    lockToBoss(key, mob, bossDisplayName, statusLabel)
+                end
+            end)
         end)
     end
     
@@ -1061,11 +1000,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             -- Update status label with timer
             if statusLabel then
                 if isAlive then
-                    if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
-                    else
-                        statusLabel.Text = bossDisplayName .. " farm: ALIVE 🟢"
-                    end
+                    statusLabel.Text = bossDisplayName .. " farm: ALIVE 🟢"
                     statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                 else
                     if respawnTime > 0 then
@@ -1077,56 +1012,57 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
             end
             
-            -- ALWAYS try to find and follow the boss if alive or no timer
-            if isAlive or not timerLabel then
-                local mob = findBossModel(bossName)
-                
-                if mob then
-                    -- Lock to the boss
-                    lockToBoss(key, mob, bossDisplayName, statusLabel)
-                else
-                    -- Boss not found, but may be spawning
-                    if statusLabel and isAlive then
+            -- ALWAYS try to find and follow the boss
+            local mob = findBossModel(bossName)
+            
+            if mob then
+                -- Lock to the boss
+                lockToBoss(key, mob, bossDisplayName, statusLabel)
+            else
+                -- Boss not found, check if alive
+                if isAlive then
+                    if statusLabel then
                         statusLabel.Text = bossDisplayName .. " farm: SPAWNING... ⏳"
                         statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                     end
                     status.Text = "Waiting for " .. bossDisplayName .. " to appear..."
-                    task.wait(0.3) -- Scan faster when spawning
-                end
-            else
-                -- Boss is dead, remove locks
-                if bossFarms[key].bodyVelocity then
-                    bossFarms[key].bodyVelocity:Destroy()
-                    bossFarms[key].bodyVelocity = nil
-                end
-                if bossFarms[key].bodyPosition then
-                    bossFarms[key].bodyPosition:Destroy()
-                    bossFarms[key].bodyPosition = nil
-                end
-                bossFarms[key].currentTarget = nil
-                bossFarms[key].isAlive = false
-                
-                if statusLabel then
-                    if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
-                    else
-                        statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
-                    end
-                    statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                end
-                
-                if respawnTime > 0 then
-                    status.Text = bossDisplayName .. " respawning in " .. formattedTime .. "..."
+                    task.wait(0.3)
                 else
-                    status.Text = bossDisplayName .. " waiting for respawn..."
+                    -- Boss is dead, remove locks
+                    if bossFarms[key].bodyVelocity then
+                        bossFarms[key].bodyVelocity:Destroy()
+                        bossFarms[key].bodyVelocity = nil
+                    end
+                    if bossFarms[key].bodyPosition then
+                        bossFarms[key].bodyPosition:Destroy()
+                        bossFarms[key].bodyPosition = nil
+                    end
+                    bossFarms[key].currentTarget = nil
+                    bossFarms[key].isAlive = false
+                    
+                    if statusLabel then
+                        if respawnTime > 0 then
+                            statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
+                        else
+                            statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
+                        end
+                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
+                    end
+                    
+                    if respawnTime > 0 then
+                        status.Text = bossDisplayName .. " respawning in " .. formattedTime
+                    else
+                        status.Text = bossDisplayName .. " waiting for respawn..."
+                    end
+                    task.wait(1)
                 end
             end
             
-            -- Check frequency - faster when boss is alive or close to respawn
-            if isAlive then
-                task.wait(0.2) -- Fast updates when following
+            -- Check frequency
+            if mob then
+                task.wait(0.2)
             elseif respawnTime > 0 and respawnTime < 10 then
-                task.wait(0.5) -- Faster when close to respawn
+                task.wait(0.5)
             else
                 task.wait(1)
             end
@@ -1201,11 +1137,9 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
                 local playerRoot = char:FindFirstChild("HumanoidRootPart")
                 if playerRoot then
                     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-                    -- Update BodyPosition to follow boss
                     if bossFarms[key].bodyPosition then
                         bossFarms[key].bodyPosition.Position = targetPos
                     end
-                    -- Keep facing down
                     playerRoot.CFrame = CFrame.new(playerRoot.Position, rootPart.Position)
                 end
             end
@@ -1229,7 +1163,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (status is reused)
+--  FARM TAB
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1353,13 +1287,6 @@ for idx, action in ipairs(autoActions) do
         checkBtn.Font = Enum.Font.GothamBold
         checkBtn.TextSize = bigText(18)
         checkBtn.Parent = cbContainer
-        
-        checkBtn.MouseEnter:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-        end)
-        checkBtn.MouseLeave:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-        end)
         
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -s(32), 1, 0)
@@ -1603,7 +1530,7 @@ restoreBtn.Activated:Connect(function() mainFrame.Visible = true; miniBar.Visibl
 minBtn.Activated:Connect(function() mainFrame.Visible = false; miniBar.Visible = true end)
 
 -- ============================================================
---  AUTO CLICKER TOGGLE (REMOVED CIRCLE)
+--  AUTO CLICKER TOGGLE
 -- ============================================================
 function toggleAutoClicker()
     if not cheats.autoClick and cheats.autoClickCooldown > tick() then
@@ -1842,12 +1769,12 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
---  TELEPORT TAB
+--  TELEPORT TAB (CLEAN & ORGANIZED)
 -- ============================================================
 local teleportLabel = Instance.new("TextLabel")
 teleportLabel.Size = UDim2.new(1, 0, 0, 24)
 teleportLabel.BackgroundTransparency = 1
-teleportLabel.Text = "Teleport to Location:"
+teleportLabel.Text = "📍 Teleport to Location:"
 teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
 teleportLabel.Font = Enum.Font.Gotham
 teleportLabel.TextSize = bigText(15)
@@ -1930,14 +1857,14 @@ gargoyleStatusLabel.Parent = gargoyleRow
 
 -- Shops & Locations (Instant TP)
 local shopSection = Instance.new("Frame")
-shopSection.Size = UDim2.new(1, 0, 0, s(120))
+shopSection.Size = UDim2.new(1, 0, 0, s(100))
 shopSection.BackgroundTransparency = 1
 shopSection.Parent = teleportScroller
 
 local shopHeader = Instance.new("TextLabel")
 shopHeader.Size = UDim2.new(1, 0, 0, 22)
 shopHeader.BackgroundTransparency = 1
-shopHeader.Text = "🏪 Shops & Locations (Instant TP)"
+shopHeader.Text = "🏪 Shops & Locations"
 shopHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
 shopHeader.Font = Enum.Font.GothamBold
 shopHeader.TextSize = bigText(15)
@@ -1980,9 +1907,9 @@ for _, data in ipairs(shopButtons) do
     end)
 end
 
--- BOSS FARM SECTION WITH TIMER INTEGRATION
+-- BOSS FARM SECTION
 local bossFarmSection = Instance.new("Frame")
-bossFarmSection.Size = UDim2.new(1, 0, 0, s(160))
+bossFarmSection.Size = UDim2.new(1, 0, 0, s(140))
 bossFarmSection.BackgroundTransparency = 1
 bossFarmSection.Parent = teleportScroller
 
@@ -2004,11 +1931,10 @@ bossFarmGrid.Parent = bossFarmSection
 
 local bossFarmGridLayout = Instance.new("UIGridLayout")
 bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(60))
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
 bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
 bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
--- Boss definitions with SIGN NAMES for timer reading
 local bossFarmDefs = {
     {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken", entrance = CHICKEN_BOSS_ENTRANCE},
     {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss", entrance = SPIDER_BOSS_ENTRANCE}
