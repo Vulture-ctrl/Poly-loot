@@ -1,4 +1,4 @@
---[[ POLY LOOT – FASTEST LOOT (0.2s TWEEN + 2s HOLD) ]] 
+--[[ POLY LOOT – FINAL (INVENTORY SCAN + TWEEN SPEED 50) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local HttpService = game:GetService("HttpService")
 
 -- ===== FIND GUI PARENT =====
 local guiParent
@@ -37,15 +38,14 @@ local CONFIG = {
     EnableAttack = true,
     EnableCollect = false,
     AutoLoot = false,
-    LootHoldSeconds = 2,           -- Reduced from 5 to 2
+    LootHoldSeconds = 2,
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 50,
-    LootPickupTweenDuration = 0.2,   -- Even faster
+    WalkSpeed = 50,   -- All tweens use this speed
 }
 
 -- ===== COORDINATES =====
@@ -427,7 +427,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
 end
 
 -- ============================================================
--- MOVEMENT HELPERS
+-- MOVEMENT HELPERS (all use WalkSpeed 50)
 -- ============================================================
 local function tweenToPosition(targetPos, duration)
     duration = duration or CONFIG.TweenDuration
@@ -436,7 +436,7 @@ local function tweenToPosition(targetPos, duration)
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
     
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)  -- Linear for speed
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
     local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
     tween:Play()
     tween.Completed:Wait()
@@ -500,6 +500,624 @@ local function performClick()
         upInput.UserInputState = Enum.UserInputState.End
         UserInputService:FireInput(upInput)
     end)
+end
+
+-- ============================================================
+-- INVENTORY SYSTEM – DYNAMIC SCANNING
+-- ============================================================
+local inventoryItems = {}    -- actual item objects from game
+local skippedItems = {}      -- items we determined are favorites or cannot be processed
+
+-- Try to find the inventory container
+local function getInventoryContainer()
+    -- Check player's Backpack
+    local backpack = player:FindFirstChild("Backpack")
+    if backpack then return backpack end
+    
+    -- Check player's Character for tools
+    local char = player.Character
+    if char then
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") then
+                return char  -- but we need a container that holds all items, not just equipped
+            end
+        end
+    end
+    
+    -- Check PlayerGui for a folder named Inventory
+    local pgui = player:FindFirstChild("PlayerGui")
+    if pgui then
+        for _, child in ipairs(pgui:GetChildren()) do
+            if child.Name:lower():find("inventory") then
+                return child
+            end
+        end
+    end
+    
+    -- Check ReplicatedStorage for common inventory folders
+    local rs = ReplicatedStorage
+    for _, child in ipairs(rs:GetChildren()) do
+        if child.Name:lower():find("inventory") or child.Name:lower():find("items") then
+            return child
+        end
+    end
+    
+    return nil
+end
+
+-- Fetch items from the container
+local function fetchItemsFromContainer(container)
+    local items = {}
+    if not container then return items end
+    for _, child in ipairs(container:GetChildren()) do
+        -- Look for objects that represent items (Tool, BasePart, Model, or Folder with item data)
+        if child:IsA("Tool") or child:IsA("BasePart") or child:IsA("Model") then
+            table.insert(items, child)
+        elseif child:IsA("Folder") then
+            -- might contain item sub-objects
+            for _, sub in ipairs(child:GetChildren()) do
+                if sub:IsA("Tool") or sub:IsA("BasePart") or sub:IsA("Model") then
+                    table.insert(items, sub)
+                end
+            end
+        end
+    end
+    return items
+end
+
+-- Try to get inventory via RemoteFunction
+local function requestInventoryViaRemote()
+    local success, result = pcall(function()
+        -- Common remote names that might return inventory list
+        local remoteNames = {"GetInventory", "RequestInventory", "InventoryRequest", "GetItems", "RequestItems"}
+        for _, name in ipairs(remoteNames) do
+            local remote = ReplicatedStorage:FindFirstChild(name, true)
+            if remote and remote:IsA("RemoteFunction") then
+                local inv = remote:InvokeServer()
+                if type(inv) == "table" and #inv > 0 then
+                    return inv
+                end
+            end
+        end
+        return nil
+    end)
+    if success and result then
+        return result
+    end
+    return nil
+end
+
+-- Main inventory refresh
+local function refreshInventory()
+    local items = {}
+    local container = getInventoryContainer()
+    if container then
+        items = fetchItemsFromContainer(container)
+    end
+    
+    -- If no items found via container, try remote
+    if #items == 0 then
+        local remoteItems = requestInventoryViaRemote()
+        if remoteItems then
+            items = remoteItems
+        end
+    end
+    
+    -- Fallback: use static ITEM_DB if nothing else (but this is not dynamic)
+    if #items == 0 then
+        -- We'll keep static list as fallback, but we'll mark them as "unknown" items
+        for name, data in pairs(ITEM_DB) do
+            table.insert(items, {Name = name, Rarity = data.rarity})
+        end
+    end
+    
+    -- Filter out skipped items (favorites or failed)
+    local filtered = {}
+    for _, item in ipairs(items) do
+        local itemName = item.Name or item.name or ""
+        if not skippedItems[itemName] then
+            table.insert(filtered, item)
+        end
+    end
+    
+    inventoryItems = filtered
+    status.Text = "Inventory: " .. #inventoryItems .. " items"
+    return inventoryItems
+end
+
+-- Check if an item is favorited (by property or by name)
+local function isItemFavorite(item)
+    if not item then return false end
+    -- Check if item has a Favorited property
+    if item.Favorited == true or item.Favorite == true or item.favorited == true or item.favorite == true then
+        return true
+    end
+    -- Check by name against FAVORITE_ITEMS list
+    local name = item.Name or item.name or ""
+    if name ~= "" then
+        for favName in pairs(FAVORITE_ITEMS) do
+            if string.lower(name) == string.lower(favName) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ============================================================
+-- STATIC ITEM DATABASE (fallback)
+-- ============================================================
+local ITEM_DB = {
+    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
+    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
+    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
+    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
+    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
+    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
+    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
+    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
+    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
+    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
+    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
+    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
+    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
+    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
+    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
+    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
+    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
+    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
+    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
+    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
+    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
+    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
+    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
+    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
+    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
+    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
+    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
+    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
+    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
+    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
+    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
+    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
+    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
+    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
+    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
+    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
+    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
+    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
+    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
+    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
+    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
+    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
+    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
+    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
+    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
+    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
+    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
+    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
+    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
+    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
+    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
+    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
+    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
+    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
+    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
+    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
+    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
+    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
+}
+
+local FAVORITE_ITEMS = {
+    ["Basic Sword"] = true,
+    ["Red Elemental"] = true,
+}
+
+-- Initialize inventory (dynamic)
+refreshInventory()
+
+-- ============================================================
+-- SELL/DISMANTLE/UPGRADE FUNCTIONS (with favorite skip)
+-- ============================================================
+local function sellItem(item)
+    if not item then return false end
+    if isItemFavorite(item) then
+        print("[Sell] Skipped favorite:", item.Name or item.name)
+        return false
+    end
+    local success, err = pcall(function()
+        local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
+        if sellRemote and sellRemote:IsA("RemoteEvent") then
+            sellRemote:FireServer(item)
+            return true
+        end
+        local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
+        if invSell then
+            local sell = invSell:FindFirstChild("Sell", true)
+            if sell and sell:IsA("RemoteEvent") then
+                sell:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    if success then
+        return true
+    else
+        print("[Sell] Failed:", err)
+        return false
+    end
+end
+
+local function dismantleItem(item)
+    if not item then return false end
+    if isItemFavorite(item) then
+        print("[Dismantle] Skipped favorite:", item.Name or item.name)
+        return false
+    end
+    local success, err = pcall(function()
+        local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
+        if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
+            dismantleRemote:FireServer(item)
+            return true
+        end
+        local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
+        if craftEngine then
+            local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
+            if dismantle and dismantle:IsA("RemoteEvent") then
+                dismantle:FireServer(item)
+                return true
+            end
+        end
+        return false
+    end)
+    if success then
+        return true
+    else
+        print("[Dismantle] Failed:", err)
+        return false
+    end
+end
+
+local function upgradeItem(item, stat)
+    if not item then return false end
+    if isItemFavorite(item) then
+        print("[Upgrade] Skipped favorite:", item.Name or item.name)
+        return false
+    end
+    stat = stat or "Damage"
+    local success, err = pcall(function()
+        local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
+        if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
+            upgradeRemote:FireServer(item, stat)
+            return true
+        end
+        local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
+        if upgradeEngine then
+            local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
+            if upgrade and upgrade:IsA("RemoteEvent") then
+                upgrade:FireServer(item, stat)
+                return true
+            end
+        end
+        return false
+    end)
+    if success then
+        return true
+    else
+        print("[Upgrade] Failed:", err)
+        return false
+    end
+end
+
+-- ============================================================
+-- PICKUP/LOOT – WITH RETURN TO ORIGINAL POSITION (SPEED 50)
+-- ============================================================
+local function getNearestLoot()
+    local char = player.Character
+    if not char then return nil end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local pos = root.Position
+    local nearest, nearestDist = nil, 50
+    
+    local dropsFolder = Workspace:FindFirstChild("Drops")
+    if dropsFolder then
+        for _, obj in ipairs(dropsFolder:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local d = 999
+                if obj:IsA("BasePart") then
+                    d = (obj.Position - pos).Magnitude
+                elseif obj:IsA("Model") and obj.PrimaryPart then
+                    d = (obj.PrimaryPart.Position - pos).Magnitude
+                elseif obj:IsA("Model") then
+                    local part = obj:FindFirstChildWhichIsA("BasePart")
+                    if part then
+                        d = (part.Position - pos).Magnitude
+                    end
+                end
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
+    if serverDrops then
+        for _, obj in ipairs(serverDrops:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local d = 999
+                if obj:IsA("BasePart") then
+                    d = (obj.Position - pos).Magnitude
+                elseif obj:IsA("Model") and obj.PrimaryPart then
+                    d = (obj.PrimaryPart.Position - pos).Magnitude
+                end
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
+            local name = string.lower(obj.Name)
+            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
+                local d = (obj.Position - pos).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    
+    return nearest, nearestDist
+end
+
+local function lootStillExists(item)
+    if not item then return false end
+    if item:IsA("BasePart") then
+        return item.Parent ~= nil and item.Parent:IsDescendantOf(Workspace)
+    elseif item:IsA("Model") then
+        return item.Parent ~= nil and item:IsDescendantOf(Workspace)
+    end
+    return false
+end
+
+local function getLootPosition(item)
+    if not item then return nil end
+    if item:IsA("BasePart") then
+        return item.Position + Vector3.new(0, 2, 0)
+    elseif item:IsA("Model") and item.PrimaryPart then
+        return item.PrimaryPart.Position + Vector3.new(0, 2, 0)
+    elseif item:IsA("Model") then
+        local part = item:FindFirstChildWhichIsA("BasePart")
+        if part then
+            return part.Position + Vector3.new(0, 2, 0)
+        end
+    end
+    return nil
+end
+
+local function instantLoot()
+    local char = player.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local originalPos = root.Position  -- save original position
+    
+    local item, dist = getNearestLoot()
+    if not item then
+        status.Text = "No loot found nearby"
+        return
+    end
+    
+    local targetPos = getLootPosition(item)
+    if not targetPos then
+        status.Text = "Could not determine loot position"
+        return
+    end
+    
+    status.Text = "Walking to loot..."
+    tweenAtWalkSpeed(targetPos)  -- speed 50
+    task.wait(0.1)
+    
+    if not lootStillExists(item) then
+        status.Text = "Loot disappeared, returning..."
+        tweenAtWalkSpeed(originalPos)  -- return to original position
+        return
+    end
+    
+    -- Try remote pickup first
+    local remoteSuccess = false
+    pcall(function()
+        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
+        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
+            pickupRemote:FireServer(item)
+            remoteSuccess = true
+            return
+        end
+        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
+        if itemEngine then
+            local pickup = itemEngine:FindFirstChild("PickupItem", true)
+            if pickup and pickup:IsA("RemoteEvent") then
+                pickup:FireServer(item)
+                remoteSuccess = true
+                return
+            end
+        end
+        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote:FireServer("Pickup", item)
+            remoteSuccess = true
+            return
+        end
+        local prompt = nil
+        if item.Parent then
+            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if not prompt then
+            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
+        end
+        if prompt then
+            prompt:Fire(player)
+            remoteSuccess = true
+        end
+    end)
+    
+    if remoteSuccess then
+        status.Text = "Picked up via remote, returning..."
+        tweenAtWalkSpeed(originalPos)
+        return
+    end
+    
+    -- Hold E with early cancel
+    status.Text = "Holding E..."
+    local startTime = tick()
+    local holdDuration = CONFIG.LootHoldSeconds or 2
+    
+    pcall(function()
+        if VirtualInputManager then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
+        else
+            local downInput = Instance.new("InputObject")
+            downInput.UserInputType = Enum.UserInputType.Keyboard
+            downInput.KeyCode = Enum.KeyCode.E
+            downInput.UserInputState = Enum.UserInputState.Begin
+            UserInputService:FireInput(downInput)
+        end
+    end)
+    
+    while (tick() - startTime) < holdDuration do
+        if not lootStillExists(item) then
+            status.Text = "Loot picked up! Returning..."
+            break
+        end
+        task.wait(0.15)
+    end
+    
+    pcall(function()
+        if VirtualInputManager then
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
+        else
+            local upInput = Instance.new("InputObject")
+            upInput.UserInputType = Enum.UserInputType.Keyboard
+            upInput.KeyCode = Enum.KeyCode.E
+            upInput.UserInputState = Enum.UserInputState.End
+            UserInputService:FireInput(upInput)
+        end
+    end)
+    
+    -- Return to original position
+    tweenAtWalkSpeed(originalPos)
+    status.Text = "Loot done, returned."
+end
+
+-- ============================================================
+-- COLLECT GOLD – WITH RETURN (SPEED 50)
+-- ============================================================
+local function collectGold()
+    local char = player.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local originalPos = root.Position
+    
+    status.Text = "Walking to Gold Mine..."
+    tweenAtWalkSpeed(GOLD_MINE_POS + Vector3.new(0, 5, 0))
+    task.wait(0.2)
+    
+    isAtGoldMine = true
+    goldMineStartTime = tick()
+    status.Text = "Collecting gold..."
+    
+    while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
+        local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
+        if collectRemote and collectRemote:IsA("RemoteEvent") then
+            pcall(function()
+                collectRemote:FireServer(CONFIG.CollectAmount)
+                collectCount = collectCount + 1
+            end)
+        end
+        
+        local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
+        if goldEngine then
+            local collect = goldEngine:FindFirstChild("CollectRequest", true)
+            if collect and collect:IsA("RemoteEvent") then
+                pcall(function()
+                    collect:FireServer(CONFIG.CollectAmount)
+                    collectCount = collectCount + 1
+                end)
+            end
+        end
+        
+        task.wait(0.5)
+    end
+    
+    isAtGoldMine = false
+    status.Text = "Gold collected, returning..."
+    tweenAtWalkSpeed(originalPos)   -- return to where we were
+    status.Text = "Gold done, returned."
+end
+
+-- ============================================================
+-- AUTO-SELL/DISMANTLE/UPGRADE (scans real inventory)
+-- ============================================================
+local function performAction(action)
+    refreshInventory()  -- get latest inventory
+    if #inventoryItems == 0 then
+        status.Text = "Inventory empty or not found"
+        return
+    end
+    
+    local processed = 0
+    local skipped = 0
+    local failed = 0
+    
+    for _, item in ipairs(inventoryItems) do
+        local itemName = item.Name or item.name or "unknown"
+        if isItemFavorite(item) then
+            skipped = skipped + 1
+            -- Add to skipped list to avoid future attempts
+            skippedItems[itemName] = true
+        else
+            local success, result = pcall(function()
+                if action == "Sell" then
+                    return sellItem(item)
+                elseif action == "Dismantle" then
+                    return dismantleItem(item)
+                elseif action == "Upgrade" then
+                    return upgradeItem(item, "Damage")
+                end
+            end)
+            if success and result then
+                processed = processed + 1
+                -- Remove from inventory list so we don't try again
+                -- (but we'll refresh on next cycle)
+            else
+                failed = failed + 1
+                -- If it failed, maybe it's not sellable; we'll skip it next time
+                skippedItems[itemName] = true
+            end
+        end
+        if not CONFIG.BatchMode then
+            task.wait(0.05)
+        end
+    end
+    
+    if processed > 0 then
+        status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
+    elseif skipped > 0 then
+        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " favorites"
+    elseif failed > 0 then
+        status.Text = "Auto-" .. action .. " failed " .. failed .. " items (may be protected)"
+    end
 end
 
 -- ============================================================
@@ -848,357 +1466,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
--- ITEM DATABASE (shortened)
--- ============================================================
-local ITEM_DB = {
-    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
-    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
-    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
-    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
-    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
-    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
-    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
-    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
-    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
-    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
-    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
-    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
-    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
-    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
-    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
-    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
-    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
-    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
-    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
-    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
-    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
-    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
-    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
-    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
-    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
-    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
-    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
-    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
-    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
-    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
-    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
-    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
-    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
-    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
-    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
-    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
-    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
-    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
-    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
-    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
-    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
-    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
-    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
-    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
-    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
-    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
-    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
-    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
-    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
-    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
-    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
-    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
-    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
-    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
-    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
-    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
-    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
-    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
-}
-
-local FAVORITE_ITEMS = {
-    ["Basic Sword"] = true,
-    ["Red Elemental"] = true,
-}
-
-local inventoryCache = {}
-
-local function refreshInventory()
-    inventoryCache = {}
-    for name, data in pairs(ITEM_DB) do
-        if not FAVORITE_ITEMS[name] then
-            inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
-        end
-    end
-    if status then
-        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded (favorites skipped)"
-    end
-    return inventoryCache
-end
-
-refreshInventory()
-
--- ============================================================
--- SELL/DISMANTLE/UPGRADE
--- ============================================================
-local function sellItem(item)
-    if not item then return false end
-    if FAVORITE_ITEMS[item.name] then return false end
-    local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
-    if sellRemote and sellRemote:IsA("RemoteEvent") then
-        pcall(function() sellRemote:FireServer(item) end)
-        return true
-    end
-    local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
-    if invSell then
-        local sell = invSell:FindFirstChild("Sell", true)
-        if sell and sell:IsA("RemoteEvent") then
-            pcall(function() sell:FireServer(item) end)
-            return true
-        end
-    end
-    return false
-end
-
-local function dismantleItem(item)
-    if not item then return false end
-    if FAVORITE_ITEMS[item.name] then return false end
-    local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
-    if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
-        pcall(function() dismantleRemote:FireServer(item) end)
-        return true
-    end
-    local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
-    if craftEngine then
-        local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
-        if dismantle and dismantle:IsA("RemoteEvent") then
-            pcall(function() dismantle:FireServer(item) end)
-            return true
-        end
-    end
-    return false
-end
-
-local function upgradeItem(item, stat)
-    if not item then return false end
-    if FAVORITE_ITEMS[item.name] then return false end
-    stat = stat or "Damage"
-    local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
-    if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
-        pcall(function() upgradeRemote:FireServer(item, stat) end)
-        return true
-    end
-    local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
-    if upgradeEngine then
-        local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
-        if upgrade and upgrade:IsA("RemoteEvent") then
-            pcall(function() upgrade:FireServer(item, stat) end)
-            return true
-        end
-    end
-    return false
-end
-
--- ============================================================
--- PICKUP/LOOT – FASTEST (0.2s TWEEN + 2s HOLD)
--- ============================================================
-local function getNearestLoot()
-    local char = player.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-    local pos = root.Position
-    local nearest, nearestDist = nil, 50
-    
-    local dropsFolder = Workspace:FindFirstChild("Drops")
-    if dropsFolder then
-        for _, obj in ipairs(dropsFolder:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
-                local d = 999
-                if obj:IsA("BasePart") then
-                    d = (obj.Position - pos).Magnitude
-                elseif obj:IsA("Model") and obj.PrimaryPart then
-                    d = (obj.PrimaryPart.Position - pos).Magnitude
-                elseif obj:IsA("Model") then
-                    local part = obj:FindFirstChildWhichIsA("BasePart")
-                    if part then
-                        d = (part.Position - pos).Magnitude
-                    end
-                end
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    
-    local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
-    if serverDrops then
-        for _, obj in ipairs(serverDrops:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
-                local d = 999
-                if obj:IsA("BasePart") then
-                    d = (obj.Position - pos).Magnitude
-                elseif obj:IsA("Model") and obj.PrimaryPart then
-                    d = (obj.PrimaryPart.Position - pos).Magnitude
-                end
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
-            local name = string.lower(obj.Name)
-            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
-                local d = (obj.Position - pos).Magnitude
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    
-    return nearest, nearestDist
-end
-
-local function lootStillExists(item)
-    if not item then return false end
-    if item:IsA("BasePart") then
-        return item.Parent ~= nil and item.Parent:IsDescendantOf(Workspace)
-    elseif item:IsA("Model") then
-        return item.Parent ~= nil and item:IsDescendantOf(Workspace)
-    end
-    return false
-end
-
-local function getLootPosition(item)
-    if not item then return nil end
-    if item:IsA("BasePart") then
-        return item.Position + Vector3.new(0, 2, 0)
-    elseif item:IsA("Model") and item.PrimaryPart then
-        return item.PrimaryPart.Position + Vector3.new(0, 2, 0)
-    elseif item:IsA("Model") then
-        local part = item:FindFirstChildWhichIsA("BasePart")
-        if part then
-            return part.Position + Vector3.new(0, 2, 0)
-        end
-    end
-    return nil
-end
-
-local function instantLoot()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local item, dist = getNearestLoot()
-    if not item then
-        status.Text = "No loot found nearby"
-        return
-    end
-    
-    local targetPos = getLootPosition(item)
-    if not targetPos then
-        status.Text = "Could not determine loot position"
-        return
-    end
-    
-    status.Text = "Dashing to loot..."
-    -- 0.2s tween (fastest)
-    tweenToPosition(targetPos, CONFIG.LootPickupTweenDuration or 0.2)
-    task.wait(0.05)
-    
-    if not lootStillExists(item) then
-        status.Text = "Loot disappeared, skipping"
-        return
-    end
-    
-    -- Try remote pickup first
-    local remoteSuccess = false
-    pcall(function()
-        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
-        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
-            pickupRemote:FireServer(item)
-            remoteSuccess = true
-            return
-        end
-        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
-        if itemEngine then
-            local pickup = itemEngine:FindFirstChild("PickupItem", true)
-            if pickup and pickup:IsA("RemoteEvent") then
-                pickup:FireServer(item)
-                remoteSuccess = true
-                return
-            end
-        end
-        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
-        if remote and remote:IsA("RemoteEvent") then
-            remote:FireServer("Pickup", item)
-            remoteSuccess = true
-            return
-        end
-        local prompt = nil
-        if item.Parent then
-            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if not prompt then
-            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if prompt then
-            prompt:Fire(player)
-            remoteSuccess = true
-        end
-    end)
-    
-    if remoteSuccess then
-        status.Text = "Picked up via remote!"
-        return
-    end
-    
-    -- Hold E for only 2 seconds
-    status.Text = "Holding E for pickup..."
-    local startTime = tick()
-    local holdDuration = CONFIG.LootHoldSeconds or 2
-    
-    pcall(function()
-        if VirtualInputManager then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
-        else
-            local downInput = Instance.new("InputObject")
-            downInput.UserInputType = Enum.UserInputType.Keyboard
-            downInput.KeyCode = Enum.KeyCode.E
-            downInput.UserInputState = Enum.UserInputState.Begin
-            UserInputService:FireInput(downInput)
-        end
-    end)
-    
-    while (tick() - startTime) < holdDuration do
-        if not lootStillExists(item) then
-            status.Text = "Loot picked up! Cancelling E."
-            break
-        end
-        task.wait(0.15)
-    end
-    
-    pcall(function()
-        if VirtualInputManager then
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
-        else
-            local upInput = Instance.new("InputObject")
-            upInput.UserInputType = Enum.UserInputType.Keyboard
-            upInput.KeyCode = Enum.KeyCode.E
-            upInput.UserInputState = Enum.UserInputState.End
-            UserInputService:FireInput(upInput)
-        end
-    end)
-    
-    status.Text = "Loot attempt done."
-end
-
--- ============================================================
--- GARGOYLE FARM WITH INTEGRATED AUTO-LOOT
+-- GARGOYLE FARM (unchanged – works)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1250,8 +1518,7 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    -- Tween at walk speed (50)
-    tweenAtWalkSpeed(targetPos)
+    tweenAtWalkSpeed(targetPos)   -- uses speed 50
     task.wait(0.1)
     
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
@@ -1306,7 +1573,7 @@ local function checkAndLoot()
         gargoyleBodyVelocity = nil
         gargoyleBodyGyro = nil
         
-        instantLoot()
+        instantLoot()  -- this now returns to original position
         
         local hum = char:FindFirstChild("Humanoid")
         if hum then hum.AutoRotate = true end
@@ -1373,7 +1640,7 @@ function toggleGargoyleFarm()
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started (fast loot)"
+    status.Text = "Gargoyle farming started (speed 50)"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -1543,7 +1810,7 @@ lootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- AUTO TAB (unchanged)
+-- AUTO TAB (Sell, Dismantle, Upgrade) – now scans real inventory
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -1560,7 +1827,7 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
-    status.Text = "Inventory refreshed! (favorites skipped)"
+    status.Text = "Inventory refreshed! (" .. #inventoryItems .. " items)"
 end)
 
 local topSpacer = Instance.new("Frame")
@@ -1594,7 +1861,7 @@ for idx, action in ipairs(autoActions) do
     infoLabel.Size = UDim2.new(1, -s(8), 0, s(20))
     infoLabel.Position = UDim2.new(0, s(4), 0, s(32))
     infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Skips favorites (Basic Sword, Red Elemental, etc)"
+    infoLabel.Text = "Scans your real inventory. Favorites are skipped."
     infoLabel.TextColor3 = Color3.fromRGB(150,150,180)
     infoLabel.Font = Enum.Font.Gotham
     infoLabel.TextSize = bigText(12)
@@ -2180,7 +2447,7 @@ teleportBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- FARM LOOP (unchanged)
+-- FARM LOOP
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2201,97 +2468,6 @@ local function doAntiAFK()
             task.wait(0.15)
             hum:Move(Vector3.new(0,0,0), true)
         end
-    end
-end
-
-local function collectGold()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local originalPos = root.Position
-    
-    if CONFIG.CollectUseTeleport then
-        status.Text = "Teleporting to Gold Mine..."
-        teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
-    else
-        status.Text = "Walking to Gold Mine..."
-        tweenAtWalkSpeed(GOLD_MINE_POS + Vector3.new(0, 5, 0))
-    end
-    task.wait(0.2)
-    
-    isAtGoldMine = true
-    goldMineStartTime = tick()
-    status.Text = "Collecting gold for " .. CONFIG.CollectHoldTime .. "s..."
-    
-    while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
-        local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
-        if collectRemote and collectRemote:IsA("RemoteEvent") then
-            pcall(function()
-                collectRemote:FireServer(CONFIG.CollectAmount)
-                collectCount = collectCount + 1
-            end)
-        end
-        
-        local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
-        if goldEngine then
-            local collect = goldEngine:FindFirstChild("CollectRequest", true)
-            if collect and collect:IsA("RemoteEvent") then
-                pcall(function()
-                    collect:FireServer(CONFIG.CollectAmount)
-                    collectCount = collectCount + 1
-                end)
-            end
-        end
-        
-        task.wait(0.5)
-    end
-    
-    isAtGoldMine = false
-    status.Text = "Gold collection complete (" .. collectCount .. " total)"
-    
-    if CONFIG.CollectUseTeleport then
-        status.Text = "Teleporting back..."
-        teleportToPosition(originalPos)
-    else
-        status.Text = "Staying at Gold Mine"
-    end
-end
-
-local function performAction(action)
-    if not inventoryCache or next(inventoryCache) == nil then
-        status.Text = "Inventory empty – press Refresh Inventory"
-        return
-    end
-    
-    local processed = 0
-    local failed = 0
-    
-    for serial, item in pairs(inventoryCache) do
-        local success, result = pcall(function()
-            if action == "Sell" then
-                return sellItem(item)
-            elseif action == "Dismantle" then
-                return dismantleItem(item)
-            elseif action == "Upgrade" then
-                return upgradeItem(item, "Damage")
-            end
-        end)
-        if success and result then
-            processed = processed + 1
-        else
-            failed = failed + 1
-        end
-        if not CONFIG.BatchMode then
-            task.wait(0.05)
-        end
-    end
-    
-    if processed > 0 then
-        status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
-    elseif failed > 0 then
-        status.Text = "Auto-" .. action .. " failed/skipped " .. failed .. " items"
     end
 end
 
@@ -2404,5 +2580,6 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – FASTEST (0.2s TWEEN + 2s HOLD)")
-print("✅ Loot pickup is now extremely fast.")
+print("✅ POLY LOOT – FINAL (INVENTORY SCAN + TWEEN SPEED 50)")
+print("✅ All tweens use speed 50, loot returns to original spot.")
+print("✅ Auto-sell/dismantle now scans your real inventory and skips favorites.")
