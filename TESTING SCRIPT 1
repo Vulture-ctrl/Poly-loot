@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 -- ===== FIND GUI PARENT =====
 local guiParent
@@ -34,10 +35,11 @@ local CONFIG = {
     DelayVariation = 0.1,
     CollectInterval = 30,
     CollectAmount = 1119,
+    CollectHoldTime = 2,
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 3,
+    LootHoldSeconds = 5,  -- Hold E for 5 seconds
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
@@ -378,6 +380,78 @@ local function addToggleRow(parent, labelText, initial)
     btn.Parent = row
     
     return {label = lbl, button = btn, value = initial, row = row}
+end
+
+local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, s(48))
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.5, 0, 0, s(20))
+    lbl.BackgroundTransparency = 1
+    lbl.Text = labelText .. ": " .. string.format("%.1f", initVal) .. unit
+    lbl.TextColor3 = Color3.fromRGB(200,200,220)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = bigText(14)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+    
+    local slider = Instance.new("Frame")
+    slider.Size = UDim2.new(0.35, 0, 0, s(16))
+    slider.Position = UDim2.new(0.55, 0, 0.5, -s(8))
+    slider.BackgroundColor3 = Color3.fromRGB(40,40,60)
+    slider.BorderSizePixel = 0
+    slider.Parent = row
+    
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((initVal - minVal) / (maxVal - minVal), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = slider
+    
+    local valLabel = Instance.new("TextLabel")
+    valLabel.Size = UDim2.new(0.15, 0, 1, 0)
+    valLabel.Position = UDim2.new(0.85, 0, 0, 0)
+    valLabel.BackgroundTransparency = 1
+    valLabel.Text = string.format("%.1f", initVal) .. unit
+    valLabel.TextColor3 = Color3.fromRGB(255,255,255)
+    valLabel.Font = Enum.Font.Gotham
+    valLabel.TextSize = bigText(14)
+    valLabel.Parent = row
+    
+    local dragging = false
+    
+    slider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    
+    slider.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local pos = input.Position
+            local framePos = slider.AbsolutePosition
+            local width = slider.AbsoluteSize.X
+            if width > 0 then
+                local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
+                local val = minVal + percent * (maxVal - minVal)
+                fill.Size = UDim2.new(percent, 0, 1, 0)
+                valLabel.Text = string.format("%.1f", val) .. unit
+                lbl.Text = labelText .. ": " .. string.format("%.1f", val) .. unit
+                callback(val)
+            end
+        end
+    end)
+    
+    return {slider = slider, fill = fill, valLabel = valLabel}
 end
 
 -- ============================================================
@@ -867,25 +941,36 @@ local ITEM_DB = {
     ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
 }
 
+-- List of favorite items to skip
+local FAVORITE_ITEMS = {
+    ["Basic Sword"] = true,
+    ["Red Elemental"] = true,
+}
+
 local inventoryCache = {}
 
 local function refreshInventory()
     inventoryCache = {}
     for name, data in pairs(ITEM_DB) do
-        inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
+        if not FAVORITE_ITEMS[name] then
+            inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
+        end
     end
     if status then
-        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded"
+        status.Text = "Inventory ready: " .. #inventoryCache .. " items loaded (favorites skipped)"
     end
     return inventoryCache
 end
 
 -- ============================================================
---  SELL/DISMANTLE/UPGRADE FUNCTIONS
+--  SELL/DISMANTLE/UPGRADE FUNCTIONS (SKIPS FAVORITES)
 -- ============================================================
 
 local function sellItem(item)
     if not item then return false end
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     local success, err = pcall(function()
         local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
         if sellRemote and sellRemote:IsA("RemoteEvent") then
@@ -907,6 +992,9 @@ end
 
 local function dismantleItem(item)
     if not item then return false end
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     local success, err = pcall(function()
         local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
         if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
@@ -928,6 +1016,9 @@ end
 
 local function upgradeItem(item, stat)
     if not item then return false end
+    if FAVORITE_ITEMS[item.name] then
+        return false
+    end
     stat = stat or "Damage"
     local success, err = pcall(function()
         local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
@@ -949,13 +1040,44 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
---  PICKUP/LOOT FUNCTIONS
+--  PICKUP/LOOT FUNCTIONS (HOLD E FOR 5 SECONDS)
 -- ============================================================
+
+local function holdKey(keyCode, duration)
+    if VirtualInputManager then
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
+            task.wait(duration)
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
+        end)
+    else
+        pcall(function()
+            local inputService = game:GetService("UserInputService")
+            if inputService then
+                local downInput = Instance.new("InputObject")
+                downInput.UserInputType = Enum.UserInputType.Keyboard
+                downInput.KeyCode = keyCode
+                downInput.UserInputState = Enum.UserInputState.Begin
+                inputService:FireInput(downInput)
+                task.wait(duration)
+                local upInput = Instance.new("InputObject")
+                upInput.UserInputType = Enum.UserInputType.Keyboard
+                upInput.KeyCode = keyCode
+                upInput.UserInputState = Enum.UserInputState.End
+                inputService:FireInput(upInput)
+            end
+        end)
+    end
+end
 
 local function pickupItem(drop)
     if not drop then return false end
     
     local success, err = pcall(function()
+        -- Hold E for 5 seconds to pickup
+        holdKey(Enum.KeyCode.E, 5)
+        
+        -- Also try remotes
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
         if pickupRemote and pickupRemote:IsA("RemoteEvent") then
             pickupRemote:FireServer(drop)
@@ -977,6 +1099,7 @@ local function pickupItem(drop)
             return true
         end
         
+        -- Try proximity prompt
         local prompt = nil
         if drop.Parent then
             prompt = drop.Parent:FindFirstChildWhichIsA("ProximityPrompt")
@@ -1001,6 +1124,7 @@ local function getNearestLoot()
     local pos = root.Position
     local nearest, nearestDist = nil, 50
     
+    -- Check Drops folder
     local dropsFolder = Workspace:FindFirstChild("Drops")
     if dropsFolder then
         for _, obj in ipairs(dropsFolder:GetDescendants()) do
@@ -1024,6 +1148,7 @@ local function getNearestLoot()
         end
     end
     
+    -- Check Animal_ServerDrops
     local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
     if serverDrops then
         for _, obj in ipairs(serverDrops:GetDescendants()) do
@@ -1042,6 +1167,7 @@ local function getNearestLoot()
         end
     end
     
+    -- Check workspace directly
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
             local name = string.lower(obj.Name)
@@ -1088,21 +1214,23 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Looting item..."
+    status.Text = "Looting item... (holding E for 5s)"
     
+    -- Tween to item
     tweenToPosition(targetPos, 0.3)
     task.wait(0.3)
     
-    local success = pickupItem(item)
+    -- Hold E for 5 seconds to pickup
+    holdKey(Enum.KeyCode.E, 5)
     
-    if success then
-        status.Text = "Item picked up!"
-    else
-        status.Text = "Attempting pickup..."
-    end
+    -- Also try remote pickup
+    pickupItem(item)
     
-    task.wait(CONFIG.LootHoldSeconds)
+    status.Text = "Item pickup attempted"
     
+    task.wait(1)
+    
+    -- Tween back
     tweenToPosition(originalCF.Position, 0.3)
     status.Text = running and "Status: Running" or "Status: Stopped"
 end
@@ -1427,7 +1555,7 @@ lootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
---  AUTO TAB (3 ROWS, 1 COLUMN WITH BOXES)
+--  AUTO TAB (SELL, DISMANTLE, UPGRADE - SKIPS FAVORITES)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -1444,7 +1572,7 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(function()
     refreshInventory()
-    status.Text = "Inventory refreshed!"
+    status.Text = "Inventory refreshed! (favorites skipped)"
 end)
 
 local topSpacer = Instance.new("Frame")
@@ -1456,7 +1584,7 @@ for idx, action in ipairs(autoActions) do
     local currentAction = action
     
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, -s(10), 0, s(175))
+    box.Size = UDim2.new(1, -s(10), 0, s(100))
     box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
     box.BackgroundTransparency = 0.3
     box.BorderSizePixel = 1
@@ -1474,108 +1602,20 @@ for idx, action in ipairs(autoActions) do
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = box
     
-    local checkboxContainer = Instance.new("Frame")
-    checkboxContainer.Size = UDim2.new(1, -s(8), 0, s(85))
-    checkboxContainer.Position = UDim2.new(0, s(4), 0, s(32))
-    checkboxContainer.BackgroundTransparency = 1
-    checkboxContainer.Parent = box
-    
-    local grid = Instance.new("UIGridLayout")
-    grid.Parent = checkboxContainer
-    grid.CellSize = UDim2.new(0, s(70), 0, s(28))
-    grid.CellPadding = UDim2.new(0, s(4), 0, s(2))
-    grid.HorizontalAlignment = Enum.HorizontalAlignment.Left
-    grid.VerticalAlignment = Enum.VerticalAlignment.Top
-    grid.FillDirection = Enum.FillDirection.Horizontal
-    
-    local rarityStates = {}
-    for _, r in ipairs(RARITY_LIST) do
-        rarityStates[r] = false
-    end
-    
-    local checkButtons = {}
-    
-    for _, rarity in ipairs(RARITY_LIST) do
-        local cbContainer = Instance.new("Frame")
-        cbContainer.Size = UDim2.new(0, s(70), 0, s(28))
-        cbContainer.BackgroundTransparency = 1
-        cbContainer.Parent = checkboxContainer
-        
-        local checkBtn = Instance.new("TextButton")
-        checkBtn.Size = UDim2.new(0, s(22), 0, s(22))
-        checkBtn.Position = UDim2.new(0, 0, 0, s(3))
-        checkBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
-        checkBtn.BorderSizePixel = 1
-        checkBtn.BorderColor3 = Color3.fromRGB(100,100,150)
-        checkBtn.Text = ""
-        checkBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        checkBtn.Font = Enum.Font.GothamBold
-        checkBtn.TextSize = bigText(16)
-        checkBtn.Parent = cbContainer
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -s(26), 1, 0)
-        label.Position = UDim2.new(0, s(26), 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = rarity
-        label.TextColor3 = Color3.fromRGB(220,220,240)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = bigText(11)
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = cbContainer
-        
-        checkButtons[rarity] = checkBtn
-        
-        checkBtn.MouseButton1Click:Connect(function()
-            rarityStates[rarity] = not rarityStates[rarity]
-            if rarityStates[rarity] then
-                checkBtn.Text = "✔"
-                checkBtn.BackgroundColor3 = Color3.fromRGB(0, 220, 120)
-                checkBtn.BorderColor3 = Color3.fromRGB(0, 255, 150)
-            else
-                checkBtn.Text = ""
-                checkBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
-                checkBtn.BorderColor3 = Color3.fromRGB(100,100,150)
-            end
-        end)
-    end
-    
-    local allBtn = checkButtons["All"]
-    if allBtn then
-        allBtn.MouseButton1Click:Connect(function()
-            local newState = not rarityStates["All"]
-            rarityStates["All"] = newState
-            if newState then
-                allBtn.Text = "✔"
-                allBtn.BackgroundColor3 = Color3.fromRGB(0, 220, 120)
-                allBtn.BorderColor3 = Color3.fromRGB(0, 255, 150)
-                for r, btn in pairs(checkButtons) do
-                    if r ~= "All" then
-                        rarityStates[r] = true
-                        btn.Text = "✔"
-                        btn.BackgroundColor3 = Color3.fromRGB(0, 220, 120)
-                        btn.BorderColor3 = Color3.fromRGB(0, 255, 150)
-                    end
-                end
-            else
-                allBtn.Text = ""
-                allBtn.BackgroundColor3 = Color3.fromRGB(40,40,60)
-                allBtn.BorderColor3 = Color3.fromRGB(100,100,150)
-                for r, btn in pairs(checkButtons) do
-                    if r ~= "All" then
-                        rarityStates[r] = false
-                        btn.Text = ""
-                        btn.BackgroundColor3 = Color3.fromRGB(40,40,60)
-                        btn.BorderColor3 = Color3.fromRGB(100,100,150)
-                    end
-                end
-            end
-        end)
-    end
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, -s(8), 0, s(20))
+    infoLabel.Position = UDim2.new(0, s(4), 0, s(32))
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Skips favorites (Basic Sword, Red Elemental, etc)"
+    infoLabel.TextColor3 = Color3.fromRGB(150,150,180)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = bigText(12)
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.Parent = box
     
     local toggleRow = Instance.new("Frame")
     toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
-    toggleRow.Position = UDim2.new(0, s(4), 0, s(120))
+    toggleRow.Position = UDim2.new(0, s(4), 0, s(55))
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = box
     
@@ -1612,24 +1652,6 @@ for idx, action in ipairs(autoActions) do
     actionToggles[currentAction] = {
         enabled = function() return enabled end,
         toggleBtn = toggleBtn,
-        getRarities = function()
-            local selected = {}
-            for r, v in pairs(rarityStates) do
-                if v then table.insert(selected, r) end
-            end
-            for _, r in ipairs(selected) do
-                if r == "All" then
-                    local allRarities = {}
-                    for _, rarity in ipairs(RARITY_LIST) do
-                        if rarity ~= "All" then
-                            table.insert(allRarities, rarity)
-                        end
-                    end
-                    return allRarities
-                end
-            end
-            return selected
-        end,
     }
     
     if idx < #autoActions then
@@ -1641,18 +1663,32 @@ for idx, action in ipairs(autoActions) do
 end
 
 -- ============================================================
---  PLAYER TAB
+--  PLAYER TAB (WITH SPEED SLIDER)
 -- ============================================================
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addToggleRow(playerScroller, "Walk Speed", false)
-    -- Simplified for length
+    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 200, 16, "", function(val)
+        cheats.speed = val
+        local char = player.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = val
+        end
+    end)
+    
+    local flySlider = addSliderRow(playerScroller, "Fly Speed", 10, 200, 50, "", function(val)
+        cheats.flySpeed = val
+    end)
+    
     local flyToggle = addToggleRow(playerScroller, "Fly", false)
     local antiAFKToggle = addToggleRow(playerScroller, "Anti-AFK", true)
     local autoClickToggle = addToggleRow(playerScroller, "Auto Clicker", false)
     
-    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle}
+    local acSpeedSlider = addSliderRow(playerScroller, "Click Speed", 0.05, 1.0, 0.1, "s", function(val)
+        CONFIG.AutoClickSpeed = val
+    end)
+    
+    return {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, speedSlider=speedSlider, flySlider=flySlider, acSpeedSlider=acSpeedSlider}
 end
 
 playerToggles = addPlayerTabContent()
@@ -2175,6 +2211,8 @@ local attackCount = 0
 local collectCount = 0
 local lastCollect = tick()
 local lastAFK = tick()
+local isAtGoldMine = false
+local goldMineStartTime = 0
 
 local function doAntiAFK()
     if not cheats.antiAFK then return end
@@ -2192,41 +2230,51 @@ end
 
 local function collectGold()
     local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local originalCF = root.CFrame
-            tweenToPosition(GOLD_MINE_POS + Vector3.new(0,5,0), 0.5)
-            task.wait(0.3)
-            
-            local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
-            if collectRemote and collectRemote:IsA("RemoteEvent") then
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local originalPos = root.Position
+    
+    status.Text = "Teleporting to Gold Mine..."
+    teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
+    task.wait(0.1)
+    
+    isAtGoldMine = true
+    goldMineStartTime = tick()
+    status.Text = "Collecting gold for 2s..."
+    
+    while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
+        local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
+        if collectRemote and collectRemote:IsA("RemoteEvent") then
+            pcall(function()
+                collectRemote:FireServer(CONFIG.CollectAmount)
+                collectCount = collectCount + 1
+            end)
+        end
+        
+        local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
+        if goldEngine then
+            local collect = goldEngine:FindFirstChild("CollectRequest", true)
+            if collect and collect:IsA("RemoteEvent") then
                 pcall(function()
-                    collectRemote:FireServer(CONFIG.CollectAmount)
+                    collect:FireServer(CONFIG.CollectAmount)
                     collectCount = collectCount + 1
-                    status.Text = "Status: Collecting... ("..collectCount..")"
                 end)
             end
-            
-            local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
-            if goldEngine then
-                local collect = goldEngine:FindFirstChild("CollectRequest", true)
-                if collect and collect:IsA("RemoteEvent") then
-                    pcall(function()
-                        collect:FireServer(CONFIG.CollectAmount)
-                        collectCount = collectCount + 1
-                        status.Text = "Status: Collecting... ("..collectCount..")"
-                    end)
-                end
-            end
-            
-            tweenToPosition(originalCF.Position, 0.4)
-            return
         end
+        
+        task.wait(0.5)
     end
+    
+    isAtGoldMine = false
+    status.Text = "Teleporting back..."
+    teleportToPosition(originalPos)
+    
+    status.Text = "Gold collection complete (" .. collectCount .. " total)"
 end
 
-local function performRarityAction(action, rarityList)
+local function performAction(action)
     if not inventoryCache or next(inventoryCache) == nil then
         status.Text = "Inventory empty – press Refresh Inventory"
         return
@@ -2235,73 +2283,27 @@ local function performRarityAction(action, rarityList)
     local processed = 0
     local skipped = 0
     
-    if not rarityList or #rarityList == 0 then
-        for serial, item in pairs(inventoryCache) do
-            local success = pcall(function()
-                if action == "Sell" then
-                    sellItem(item)
-                elseif action == "Dismantle" then
-                    dismantleItem(item)
-                elseif action == "Upgrade" then
-                    upgradeItem(item, "Damage")
-                end
-                processed = processed + 1
-            end)
-            if not success then
-                skipped = skipped + 1
-            end
-            task.wait(0.05)
-        end
-        if processed > 0 then
-            status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
-        elseif skipped > 0 then
-            status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items"
-        end
-        return
-    end
-    
-    local processAll = false
-    for _, r in ipairs(rarityList) do
-        if r == "All" then processAll = true; break end
-    end
-    
     for serial, item in pairs(inventoryCache) do
-        local itemRarity = item.rarity or "Common"
-        local shouldProcess = false
-        
-        if processAll then
-            shouldProcess = true
-        else
-            for _, r in ipairs(rarityList) do
-                if r == itemRarity then
-                    shouldProcess = true
-                    break
-                end
+        local success = pcall(function()
+            if action == "Sell" then
+                sellItem(item)
+            elseif action == "Dismantle" then
+                dismantleItem(item)
+            elseif action == "Upgrade" then
+                upgradeItem(item, "Damage")
             end
+            processed = processed + 1
+        end)
+        if not success then
+            skipped = skipped + 1
         end
-        
-        if shouldProcess then
-            local success = pcall(function()
-                if action == "Sell" then
-                    sellItem(item)
-                elseif action == "Dismantle" then
-                    dismantleItem(item)
-                elseif action == "Upgrade" then
-                    upgradeItem(item, "Damage")
-                end
-                processed = processed + 1
-            end)
-            if not success then
-                skipped = skipped + 1
-            end
-            task.wait(0.05)
-        end
+        task.wait(0.05)
     end
     
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
     elseif skipped > 0 then
-        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items"
+        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items (favorites)"
     end
 end
 
@@ -2331,7 +2333,7 @@ local function startFarm()
             local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
             task.wait(delay)
             
-            if CONFIG.EnableCollect then
+            if CONFIG.EnableCollect and (tick() - lastCollect) >= CONFIG.CollectInterval then
                 collectGold()
                 lastCollect = tick()
             end
@@ -2345,8 +2347,7 @@ local function startFarm()
             
             for _, action in ipairs(autoActions) do
                 if actionToggles[action] and actionToggles[action].enabled() then
-                    local rarities = actionToggles[action].getRarities()
-                    performRarityAction(action, rarities)
+                    performAction(action)
                     task.wait(0.3)
                 end
             end
@@ -2361,6 +2362,7 @@ end
 
 local function stopFarm()
     running = false
+    isAtGoldMine = false
     status.Text = "Status: Stopped"
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
