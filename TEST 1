@@ -761,7 +761,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (FULLY FIXED)
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (FULLY FIXED - NO SPAWNING)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -769,7 +769,6 @@ local function getBossTimerLabel(bossSignName)
         local bossSign = Workspace:FindFirstChild(bossSignName)
         if not bossSign then return nil end
         
-        -- Try path: Sign -> SurfaceGui -> Template -> TIMER
         local sign = bossSign:FindFirstChild("Sign")
         if sign then
             local surfaceGui = sign:FindFirstChild("SurfaceGui")
@@ -782,7 +781,6 @@ local function getBossTimerLabel(bossSignName)
             end
         end
         
-        -- Try direct children
         for _, child in ipairs(bossSign:GetDescendants()) do
             if child:IsA("TextLabel") then
                 local name = string.upper(child.Name or "")
@@ -804,13 +802,12 @@ local function isBossAlive(timerLabel)
     if string.find(text, "ALIVE") then
         return true
     end
-    -- If text is empty or just a number, assume dead/respawning
-    if text == "" then
-        return false
-    end
     local num = tonumber(text:match("(%d+)"))
     if num then
         return false -- Has a timer, so dead
+    end
+    if text == "" then
+        return true -- Assume alive if no text
     end
     return false
 end
@@ -822,7 +819,6 @@ local function getBossRespawnTime(timerLabel)
     return num or 0
 end
 
--- Format time as "Xm Ys" or just "Ys"
 local function formatRespawnTime(seconds)
     if not seconds or seconds <= 0 then return "ALIVE 🟢" end
     local mins = math.floor(seconds / 60)
@@ -835,18 +831,15 @@ local function formatRespawnTime(seconds)
 end
 
 local function findBossModel(bossName)
-    -- Direct search
     local direct = Workspace:FindFirstChild(bossName)
     if direct and direct:IsA("Model") then return direct end
     
-    -- Search all descendants
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") and obj.Name == bossName then
             return obj
         end
     end
     
-    -- Partial match
     local lowerName = string.lower(bossName)
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
@@ -860,14 +853,12 @@ local function findBossModel(bossName)
     return nil
 end
 
--- Boss farm with timer + auto follow
 local bossFarms = {}
 local bossFarmThreads = {}
 
 function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabel)
     local key = bossName
     
-    -- TURN OFF
     if bossFarms[key] and bossFarms[key].running then
         bossFarms[key].running = false
         if bossFarmThreads[key] then
@@ -896,17 +887,16 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
         end
         status.Text = bossDisplayName .. " farm stopped"
         if btn then
-            btn.Text = "🎯 " .. bossDisplayName .. " Farm (OFF)"
+            btn.Text = bossDisplayName .. " Farm (OFF)"
             btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
         end
         if statusLabel then
-            statusLabel.Text = bossDisplayName .. " farm: OFF"
+            statusLabel.Text = bossDisplayName .. ": OFF"
             statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
         end
         return
     end
     
-    -- CHECK PLAYER
     local char = player.Character
     if not char then
         status.Text = "Character not loaded"
@@ -918,7 +908,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
         return
     end
     
-    -- TURN ON
     if not bossFarms[key] then
         bossFarms[key] = {
             running = false,
@@ -928,39 +917,29 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             isAlive = false,
             timerLabel = nil,
             timerConnection = nil,
-            scanCount = 0,
-            lastTimerText = "",
         }
     end
     
     bossFarms[key].running = true
     bossFarms[key].currentTarget = nil
-    bossFarms[key].scanCount = 0
-    bossFarms[key].lastTimerText = ""
-    
-    -- Get timer label
     bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
     
     if btn then
-        btn.Text = "🎯 " .. bossDisplayName .. " Farm (ON)"
+        btn.Text = bossDisplayName .. " Farm (ON)"
         btn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if statusLabel then
-        statusLabel.Text = bossDisplayName .. " farm: SCANNING 🔍"
+        statusLabel.Text = bossDisplayName .. ": SCANNING 🔍"
         statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
     end
     status.Text = bossDisplayName .. " farming started"
     
-    -- Listen for timer changes
     local timerLabel = bossFarms[key].timerLabel
     if timerLabel then
         if bossFarms[key].timerConnection then
             bossFarms[key].timerConnection:Disconnect()
         end
         bossFarms[key].timerConnection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
-            local newText = timerLabel.Text or ""
-            bossFarms[key].lastTimerText = newText
-            -- Force immediate scan
             task.spawn(function()
                 local mob = findBossModel(bossName)
                 if mob then
@@ -972,9 +951,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
     
     bossFarmThreads[key] = task.spawn(function()
         while bossFarms[key] and bossFarms[key].running do
-            bossFarms[key].scanCount = bossFarms[key].scanCount + 1
-            
-            -- Refresh timer label
             if not bossFarms[key].timerLabel then
                 bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
                 if bossFarms[key].timerLabel then
@@ -997,35 +973,31 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local respawnTime = getBossRespawnTime(timerLabel)
             local formattedTime = formatRespawnTime(respawnTime)
             
-            -- Update status label with timer
+            -- Update status label - show ALIVE or timer only
             if statusLabel then
                 if isAlive then
-                    statusLabel.Text = bossDisplayName .. " farm: ALIVE 🟢"
+                    statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
                     statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                 else
                     if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
+                        statusLabel.Text = bossDisplayName .. ": " .. formattedTime .. " ⏳"
                     else
-                        statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
+                        statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
+                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                     end
                     statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
             end
             
-            -- ALWAYS try to find and follow the boss
+            -- Try to find and follow the boss
             local mob = findBossModel(bossName)
             
             if mob then
-                -- Lock to the boss
                 lockToBoss(key, mob, bossDisplayName, statusLabel)
             else
-                -- Boss not found, check if alive
+                -- Boss not found, check if alive or dead
                 if isAlive then
-                    if statusLabel then
-                        statusLabel.Text = bossDisplayName .. " farm: SPAWNING... ⏳"
-                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                    end
-                    status.Text = "Waiting for " .. bossDisplayName .. " to appear..."
+                    -- Alive but not spawned yet, wait a bit
                     task.wait(0.3)
                 else
                     -- Boss is dead, remove locks
@@ -1040,15 +1012,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                     bossFarms[key].currentTarget = nil
                     bossFarms[key].isAlive = false
                     
-                    if statusLabel then
-                        if respawnTime > 0 then
-                            statusLabel.Text = bossDisplayName .. " farm: " .. formattedTime .. " ⏳"
-                        else
-                            statusLabel.Text = bossDisplayName .. " farm: WAITING ⏳"
-                        end
-                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                    end
-                    
                     if respawnTime > 0 then
                         status.Text = bossDisplayName .. " respawning in " .. formattedTime
                     else
@@ -1058,7 +1021,6 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
                 end
             end
             
-            -- Check frequency
             if mob then
                 task.wait(0.2)
             elseif respawnTime > 0 and respawnTime < 10 then
@@ -1070,13 +1032,10 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
     end)
 end
 
--- Separate function to lock to boss
 local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     if not mob or not bossFarms[key] then return end
     
-    -- Check if target changed or need to re-lock
     if bossFarms[key].currentTarget ~= mob then
-        -- Remove old locks
         if bossFarms[key].bodyVelocity then
             bossFarms[key].bodyVelocity:Destroy()
             bossFarms[key].bodyVelocity = nil
@@ -1092,7 +1051,6 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
             if char then
                 local playerRoot = char:FindFirstChild("HumanoidRootPart")
                 if playerRoot then
-                    -- Calculate position 5.1 studs ABOVE, facing DOWN
                     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
                     
                     local hum = char:FindFirstChild("Humanoid")
@@ -1100,10 +1058,8 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
                         hum.PlatformStand = true
                     end
                     
-                    -- Teleport above boss, facing down
                     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
                     
-                    -- BodyPosition to lock position
                     bossFarms[key].bodyPosition = Instance.new("BodyPosition")
                     bossFarms[key].bodyPosition.Position = targetPos
                     bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
@@ -1111,7 +1067,6 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
                     bossFarms[key].bodyPosition.P = 20000
                     bossFarms[key].bodyPosition.Parent = playerRoot
                     
-                    -- BodyVelocity to stabilize
                     bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
                     bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
                     bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
@@ -1122,14 +1077,13 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
                     status.Text = "🔒 Locked above " .. bossDisplayName
                     
                     if statusLabel then
-                        statusLabel.Text = bossDisplayName .. " farm: LOCKED ✅"
+                        statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
                         statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                     end
                 end
             end
         end
     else
-        -- Still following same boss, update position if it moved
         local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
         if rootPart then
             local char = player.Character
@@ -1163,7 +1117,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (status + Gargoyle + Boss Farms + Combat controls)
+--  FARM TAB (status + Gargoyle + Boss Farms)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1172,15 +1126,116 @@ status.Parent = farmScroller
 
 refreshInventory()
 
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, 0, 0, 24)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "Attack speed: 0.30s"
-infoLabel.TextColor3 = Color3.fromRGB(200,200,220)
-infoLabel.Font = Enum.Font.Gotham
-infoLabel.TextSize = bigText(14)
-infoLabel.TextXAlignment = Enum.TextXAlignment.Center
-infoLabel.Parent = farmScroller
+-- GARGOYLE FARM SECTION
+local gargoyleSection = Instance.new("Frame")
+gargoyleSection.Size = UDim2.new(1, 0, 0, s(60))
+gargoyleSection.BackgroundTransparency = 1
+gargoyleSection.Parent = farmScroller
+
+local gargoyleHeader = Instance.new("TextLabel")
+gargoyleHeader.Size = UDim2.new(1, 0, 0, 22)
+gargoyleHeader.BackgroundTransparency = 1
+gargoyleHeader.Text = "🧛 Gargoyle Farm"
+gargoyleHeader.TextColor3 = Color3.fromRGB(255, 150, 200)
+gargoyleHeader.Font = Enum.Font.GothamBold
+gargoyleHeader.TextSize = bigText(15)
+gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
+gargoyleHeader.Parent = gargoyleSection
+
+gargoyleBtn = Instance.new("TextButton")
+gargoyleBtn.Size = UDim2.new(0.6, 0, 0.5, 0)
+gargoyleBtn.Position = UDim2.new(0.2, 0, 0.25, 0)
+gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+gargoyleBtn.BorderSizePixel = 0
+gargoyleBtn.Text = "Gargoyle Farm (OFF)"
+gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+gargoyleBtn.Font = Enum.Font.GothamBold
+gargoyleBtn.TextSize = bigText(14)
+gargoyleBtn.Parent = gargoyleSection
+gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
+
+gargoyleStatusLabel = Instance.new("TextLabel")
+gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
+gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
+gargoyleStatusLabel.BackgroundTransparency = 1
+gargoyleStatusLabel.Text = "Gargoyle: OFF"
+gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+gargoyleStatusLabel.Font = Enum.Font.Gotham
+gargoyleStatusLabel.TextSize = bigText(13)
+gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+gargoyleStatusLabel.Parent = gargoyleSection
+
+-- BOSS FARMS SECTION
+local bossFarmSection = Instance.new("Frame")
+bossFarmSection.Size = UDim2.new(1, 0, 0, s(110))
+bossFarmSection.BackgroundTransparency = 1
+bossFarmSection.Parent = farmScroller
+
+local bossFarmHeader = Instance.new("TextLabel")
+bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
+bossFarmHeader.BackgroundTransparency = 1
+bossFarmHeader.Text = "🎯 Boss Farms (Timer + Auto Follow)"
+bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
+bossFarmHeader.Font = Enum.Font.GothamBold
+bossFarmHeader.TextSize = bigText(15)
+bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
+bossFarmHeader.Parent = bossFarmSection
+
+local bossFarmGrid = Instance.new("Frame")
+bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
+bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
+bossFarmGrid.BackgroundTransparency = 1
+bossFarmGrid.Parent = bossFarmSection
+
+local bossFarmGridLayout = Instance.new("UIGridLayout")
+bossFarmGridLayout.Parent = bossFarmGrid
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(45))
+bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
+bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local bossFarmDefs = {
+    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken"},
+    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss"}
+}
+
+for _, def in ipairs(bossFarmDefs) do
+    local cell = Instance.new("Frame")
+    cell.Size = UDim2.new(1, 0, 1, 0)
+    cell.BackgroundTransparency = 1
+    cell.Parent = bossFarmGrid
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0.5, 0)
+    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    btn.BorderSizePixel = 0
+    btn.Text = def.display .. " Farm (OFF)"
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = bigText(11)
+    btn.Parent = cell
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = def.display .. ": OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = bigText(11)
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = cell
+    
+    local bossBtn = btn
+    local bossStatusLabel = statusLabel
+    local bossName = def.key
+    local bossSign = def.sign
+    local bossDisplay = def.display
+    
+    btn.Activated:Connect(function()
+        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
+    end)
+end
 
 -- Combat Controls
 local combatSection = Instance.new("Frame")
@@ -1206,7 +1261,7 @@ combatGrid.Parent = combatSection
 
 local combatGridLayout = Instance.new("UIGridLayout")
 combatGridLayout.Parent = combatGrid
-combatGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(30))
+combatGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(28))
 combatGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
 combatGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
@@ -1251,117 +1306,6 @@ lootNowBtn.Activated:Connect(instantLoot)
 
 local autoCollectToggle = addToggleRow(farmScroller, "Auto-Collect Gold", true)
 local autoLootToggle = addToggleRow(farmScroller, "Auto-Loot", false)
-
--- GARGOYLE FARM SECTION
-local gargoyleSection = Instance.new("Frame")
-gargoyleSection.Size = UDim2.new(1, 0, 0, s(72))
-gargoyleSection.BackgroundTransparency = 1
-gargoyleSection.Parent = farmScroller
-
-local gargoyleHeader = Instance.new("TextLabel")
-gargoyleHeader.Size = UDim2.new(1, 0, 0, 22)
-gargoyleHeader.BackgroundTransparency = 1
-gargoyleHeader.Text = "🧛 Gargoyle Farm"
-gargoyleHeader.TextColor3 = Color3.fromRGB(255, 150, 200)
-gargoyleHeader.Font = Enum.Font.GothamBold
-gargoyleHeader.TextSize = bigText(15)
-gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
-gargoyleHeader.Parent = gargoyleSection
-
-gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.8, 0, 0.5, 0)
-gargoyleBtn.Position = UDim2.new(0.1, 0, 0.25, 0)
-gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-gargoyleBtn.BorderSizePixel = 0
-gargoyleBtn.Text = "🧛 Gargoyle Farm (OFF)"
-gargoyleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-gargoyleBtn.Font = Enum.Font.GothamBold
-gargoyleBtn.TextSize = bigText(14)
-gargoyleBtn.Parent = gargoyleSection
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
-
-gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
-gargoyleStatusLabel.BackgroundTransparency = 1
-gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
-gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-gargoyleStatusLabel.Font = Enum.Font.Gotham
-gargoyleStatusLabel.TextSize = bigText(13)
-gargoyleStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-gargoyleStatusLabel.Parent = gargoyleSection
-
--- BOSS FARMS SECTION
-local bossFarmSection = Instance.new("Frame")
-bossFarmSection.Size = UDim2.new(1, 0, 0, s(140))
-bossFarmSection.BackgroundTransparency = 1
-bossFarmSection.Parent = farmScroller
-
-local bossFarmHeader = Instance.new("TextLabel")
-bossFarmHeader.Size = UDim2.new(1, 0, 0, 22)
-bossFarmHeader.BackgroundTransparency = 1
-bossFarmHeader.Text = "🎯 Boss Farms (Timer + Auto Follow)"
-bossFarmHeader.TextColor3 = Color3.fromRGB(255, 200, 100)
-bossFarmHeader.Font = Enum.Font.GothamBold
-bossFarmHeader.TextSize = bigText(15)
-bossFarmHeader.TextXAlignment = Enum.TextXAlignment.Left
-bossFarmHeader.Parent = bossFarmSection
-
-local bossFarmGrid = Instance.new("Frame")
-bossFarmGrid.Size = UDim2.new(1, 0, 1, -s(22))
-bossFarmGrid.Position = UDim2.new(0, 0, 0, s(22))
-bossFarmGrid.BackgroundTransparency = 1
-bossFarmGrid.Parent = bossFarmSection
-
-local bossFarmGridLayout = Instance.new("UIGridLayout")
-bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(55))
-bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
-bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local bossFarmDefs = {
-    {key = "King ChickenSpawn", sign = "ChickenKingSign", display = "🐔 King Chicken", entrance = CHICKEN_BOSS_ENTRANCE},
-    {key = "SpiderSpawn", sign = "SpiderSign", display = "🕷 Spider Boss", entrance = SPIDER_BOSS_ENTRANCE}
-}
-
-for _, def in ipairs(bossFarmDefs) do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
-    cell.Parent = bossFarmGrid
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0.5, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    btn.BorderSizePixel = 0
-    btn.Text = "🎯 " .. def.display .. " Farm (OFF)"
-    btn.TextColor3 = Color3.fromRGB(255,255,255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = bigText(12)
-    btn.Parent = cell
-    
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0.4, 0)
-    statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = def.display .. " farm: OFF"
-    statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = bigText(11)
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Parent = cell
-    
-    local bossBtn = btn
-    local bossStatusLabel = statusLabel
-    local bossName = def.key
-    local bossSign = def.sign
-    local bossDisplay = def.display
-    
-    btn.Activated:Connect(function()
-        toggleBossFarm(bossName, bossSign, bossDisplay, bossBtn, bossStatusLabel)
-    end)
-end
 
 -- ============================================================
 --  AUTO TAB (Sell, Upgrade, Dismantle)
@@ -1920,7 +1864,7 @@ playerToggles.antiAFKToggle.button.Activated:Connect(function()
 end)
 
 -- ============================================================
---  TELEPORT TAB (Locations only - Clean)
+--  TELEPORT TAB (Locations only - Clean & Spaced)
 -- ============================================================
 local teleportLabel = Instance.new("TextLabel")
 teleportLabel.Size = UDim2.new(1, 0, 0, 24)
