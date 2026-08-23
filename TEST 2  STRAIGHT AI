@@ -39,11 +39,14 @@ local CONFIG = {
     AntiAFKInterval = 45,
     EnableAttack = true,
     EnableCollect = false,
-    LootHoldSeconds = 5,  -- Hold E for 5 seconds
+    LootHoldSeconds = 5,          -- Hold E for this many seconds
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
     AutoClickX = 730,
     AutoClickY = 300,
+    -- NEW options
+    CollectUseTeleport = false,   -- false = walk, true = teleport
+    BatchMode = false,            -- true = no wait between sell/dismantle/upgrade
 }
 
 -- ===== COORDINATES =====
@@ -1040,7 +1043,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
---  PICKUP/LOOT FUNCTIONS (HOLD E FOR 5 SECONDS)
+--  PICKUP/LOOT FUNCTIONS (HOLD E FOR CONFIGURABLE SECONDS)
 -- ============================================================
 
 local function holdKey(keyCode, duration)
@@ -1074,8 +1077,8 @@ local function pickupItem(drop)
     if not drop then return false end
     
     local success, err = pcall(function()
-        -- Hold E for 5 seconds to pickup
-        holdKey(Enum.KeyCode.E, 5)
+        -- Hold E for configured seconds to pickup
+        holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
         
         -- Also try remotes
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
@@ -1214,23 +1217,35 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Looting item... (holding E for 5s)"
+    status.Text = "Looting item... (holding E for " .. CONFIG.LootHoldSeconds .. "s)"
     
     -- Tween to item
     tweenToPosition(targetPos, 0.3)
-    task.wait(0.3)
+    task.wait(0.3) -- ensure tween finishes
     
-    -- Hold E for 5 seconds to pickup
-    holdKey(Enum.KeyCode.E, 5)
+    -- Verify item still exists
+    local stillExists = false
+    if item:IsA("BasePart") and item.Parent then
+        stillExists = true
+    elseif item:IsA("Model") and item.Parent then
+        stillExists = true
+    end
+    if not stillExists then
+        status.Text = "Loot disappeared, skipping"
+        return
+    end
+    
+    -- Hold E for configured duration
+    holdKey(Enum.KeyCode.E, CONFIG.LootHoldSeconds)
     
     -- Also try remote pickup
     pickupItem(item)
     
     status.Text = "Item pickup attempted"
     
-    task.wait(1)
+    task.wait(0.5)
     
-    -- Tween back
+    -- Tween back to original position
     tweenToPosition(originalCF.Position, 0.3)
     status.Text = running and "Status: Running" or "Status: Stopped"
 end
@@ -1483,7 +1498,7 @@ for _, def in ipairs(bossFarmDefs) do
 end
 
 -- Section 3: Auto Controls
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 95)
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150) -- increased height for new toggles
 
 -- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
@@ -1552,6 +1567,76 @@ lootBtn.Activated:Connect(function()
     lootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
     lootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
+end)
+
+-- NEW: Batch Mode toggle
+local batchRow = Instance.new("Frame")
+batchRow.Size = UDim2.new(1, 0, 0, s(38))
+batchRow.Position = UDim2.new(0, 0, 0, s(80))
+batchRow.BackgroundTransparency = 1
+batchRow.Parent = autoContainer
+
+local batchLabel = Instance.new("TextLabel")
+batchLabel.Size = UDim2.new(0.5, 0, 1, 0)
+batchLabel.BackgroundTransparency = 1
+batchLabel.Text = "Batch Mode: OFF"
+batchLabel.TextColor3 = Color3.fromRGB(200,200,220)
+batchLabel.Font = Enum.Font.Gotham
+batchLabel.TextSize = bigText(14)
+batchLabel.TextXAlignment = Enum.TextXAlignment.Left
+batchLabel.Parent = batchRow
+
+local batchBtn = Instance.new("TextButton")
+batchBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+batchBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+batchBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+batchBtn.BorderSizePixel = 0
+batchBtn.Text = "OFF"
+batchBtn.TextColor3 = Color3.fromRGB(255,255,255)
+batchBtn.Font = Enum.Font.GothamBold
+batchBtn.TextSize = bigText(14)
+batchBtn.Parent = batchRow
+
+batchBtn.Activated:Connect(function()
+    CONFIG.BatchMode = not CONFIG.BatchMode
+    batchBtn.Text = CONFIG.BatchMode and "ON" or "OFF"
+    batchBtn.BackgroundColor3 = CONFIG.BatchMode and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
+end)
+
+-- NEW: Collect Teleport toggle
+local teleportRow = Instance.new("Frame")
+teleportRow.Size = UDim2.new(1, 0, 0, s(38))
+teleportRow.Position = UDim2.new(0, 0, 0, s(120))
+teleportRow.BackgroundTransparency = 1
+teleportRow.Parent = autoContainer
+
+local teleportLabel = Instance.new("TextLabel")
+teleportLabel.Size = UDim2.new(0.5, 0, 1, 0)
+teleportLabel.BackgroundTransparency = 1
+teleportLabel.Text = "Teleport to Mine: OFF"
+teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
+teleportLabel.Font = Enum.Font.Gotham
+teleportLabel.TextSize = bigText(14)
+teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
+teleportLabel.Parent = teleportRow
+
+local teleportBtn = Instance.new("TextButton")
+teleportBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+teleportBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+teleportBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+teleportBtn.BorderSizePixel = 0
+teleportBtn.Text = "OFF"
+teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
+teleportBtn.Font = Enum.Font.GothamBold
+teleportBtn.TextSize = bigText(14)
+teleportBtn.Parent = teleportRow
+
+teleportBtn.Activated:Connect(function()
+    CONFIG.CollectUseTeleport = not CONFIG.CollectUseTeleport
+    teleportBtn.Text = CONFIG.CollectUseTeleport and "ON" or "OFF"
+    teleportBtn.BackgroundColor3 = CONFIG.CollectUseTeleport and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    teleportLabel.Text = "Teleport to Mine: " .. (CONFIG.CollectUseTeleport and "ON" or "OFF")
 end)
 
 -- ============================================================
@@ -2228,6 +2313,9 @@ local function doAntiAFK()
     end
 end
 
+-- ============================================================
+--  COLLECT GOLD (UPDATED WITH WALK/STAY)
+-- ============================================================
 local function collectGold()
     local char = player.Character
     if not char then return end
@@ -2236,13 +2324,18 @@ local function collectGold()
     
     local originalPos = root.Position
     
-    status.Text = "Teleporting to Gold Mine..."
-    teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
-    task.wait(0.1)
+    if CONFIG.CollectUseTeleport then
+        status.Text = "Teleporting to Gold Mine..."
+        teleportToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0))
+    else
+        status.Text = "Walking to Gold Mine..."
+        tweenToPosition(GOLD_MINE_POS + Vector3.new(0, 5, 0), 0.6)
+    end
+    task.wait(0.2)
     
     isAtGoldMine = true
     goldMineStartTime = tick()
-    status.Text = "Collecting gold for 2s..."
+    status.Text = "Collecting gold for " .. CONFIG.CollectHoldTime .. "s..."
     
     while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
         local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
@@ -2268,12 +2361,22 @@ local function collectGold()
     end
     
     isAtGoldMine = false
-    status.Text = "Teleporting back..."
-    teleportToPosition(originalPos)
-    
     status.Text = "Gold collection complete (" .. collectCount .. " total)"
+    
+    -- Only teleport back if we used teleport to go there
+    if CONFIG.CollectUseTeleport then
+        status.Text = "Teleporting back..."
+        teleportToPosition(originalPos)
+    else
+        status.Text = "Staying at Gold Mine"
+        -- (optional: walk back to original position if desired)
+        -- tweenToPosition(originalPos, 0.6)
+    end
 end
 
+-- ============================================================
+--  PERFORM ACTION (UPDATED: SKIPS FAILURES, BATCH MODE)
+-- ============================================================
 local function performAction(action)
     if not inventoryCache or next(inventoryCache) == nil then
         status.Text = "Inventory empty – press Refresh Inventory"
@@ -2282,31 +2385,40 @@ local function performAction(action)
     
     local processed = 0
     local skipped = 0
+    local failed = 0
     
     for serial, item in pairs(inventoryCache) do
-        local success = pcall(function()
+        local success, result = pcall(function()
             if action == "Sell" then
-                sellItem(item)
+                return sellItem(item)
             elseif action == "Dismantle" then
-                dismantleItem(item)
+                return dismantleItem(item)
             elseif action == "Upgrade" then
-                upgradeItem(item, "Damage")
+                return upgradeItem(item, "Damage")
             end
-            processed = processed + 1
         end)
-        if not success then
-            skipped = skipped + 1
+        if success and result then
+            processed = processed + 1
+        elseif success and not result then
+            failed = failed + 1
+        else
+            failed = failed + 1
         end
-        task.wait(0.05)
+        if not CONFIG.BatchMode then
+            task.wait(0.02)  -- small delay if batch mode off
+        end
     end
     
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
-    elseif skipped > 0 then
-        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items (favorites)"
+    elseif failed > 0 then
+        status.Text = "Auto-" .. action .. " failed/skipped " .. failed .. " items"
     end
 end
 
+-- ============================================================
+--  START/STOP FARM
+-- ============================================================
 local function startFarm()
     if running then return end
     running = true
