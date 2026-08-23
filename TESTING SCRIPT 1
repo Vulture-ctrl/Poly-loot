@@ -57,7 +57,7 @@ local CONFIG = {
     CollectAmount = 1119,
     AntiAFKInterval = 45,
     EnableAttack = true,
-    EnableCollect = true,
+    EnableCollect = false,  -- Changed to OFF by default
     LootHoldSeconds = 5,
     TweenDuration = 0.4,
     AutoClickSpeed = 0.1,
@@ -213,7 +213,7 @@ for name, data in pairs(ITEM_DB) do
 end
 
 -- ============================================================
---  STATUS TEXT LABEL (must exist before any function uses it)
+--  STATUS TEXT LABEL
 -- ============================================================
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, 0, 0, 28)
@@ -240,7 +240,7 @@ local function bigText(size)
 end
 
 -- ============================================================
---  GUI CREATION (FULL - CLEAN & ORGANIZED)
+--  GUI CREATION
 -- ============================================================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "POLYLOOT"
@@ -455,13 +455,13 @@ local function createSection(parent, title, height)
     header.Parent = section
     
     local spacer = Instance.new("Frame")
-    spacer.Size = UDim2.new(1, 0, 0, s(6))
+    spacer.Size = UDim2.new(1, 0, 0, s(8))
     spacer.BackgroundTransparency = 1
     spacer.Parent = section
     
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 1, -s(30))
-    container.Position = UDim2.new(0, 0, 0, s(30))
+    container.Size = UDim2.new(1, 0, 1, -s(32))
+    container.Position = UDim2.new(0, 0, 0, s(32))
     container.BackgroundTransparency = 1
     container.Parent = section
     
@@ -502,7 +502,7 @@ end
 
 local function addToggleRow(parent, labelText, initial)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, s(34))
+    row.Size = UDim2.new(1, 0, 0, s(38))
     row.BackgroundTransparency = 1
     row.Parent = parent
     
@@ -1205,7 +1205,6 @@ local inventoryCache = {}
 
 local function refreshInventory()
     inventoryCache = {}
-    -- Add all items from our database
     for name, data in pairs(ITEM_DB) do
         inventoryCache[data.serial] = {name = name, serial = data.serial, rarity = data.rarity}
     end
@@ -1215,7 +1214,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB
+--  FARM TAB (SPACED PROPERLY)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1282,46 +1281,80 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Auto Controls
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 85)
+-- Section 3: Auto Controls (SPACED PROPERLY - TWO SEPARATE ROWS)
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 95)
 
-local autoCollectToggle = addToggleRow(autoContainer, "Auto-Collect Gold", true)
+-- Auto-Collect Gold - Row 1 (LOWERED)
+local collectRow = Instance.new("Frame")
+collectRow.Size = UDim2.new(1, 0, 0, s(38))
+collectRow.BackgroundTransparency = 1
+collectRow.Parent = autoContainer
 
-local autoLootRow = Instance.new("Frame")
-autoLootRow.Size = UDim2.new(1, 0, 0, s(34))
-autoLootRow.BackgroundTransparency = 1
-autoLootRow.Parent = autoContainer
+local collectLabel = Instance.new("TextLabel")
+collectLabel.Size = UDim2.new(0.5, 0, 1, 0)
+collectLabel.BackgroundTransparency = 1
+collectLabel.Text = "Auto-Collect Gold: OFF"
+collectLabel.TextColor3 = Color3.fromRGB(200,200,220)
+collectLabel.Font = Enum.Font.Gotham
+collectLabel.TextSize = bigText(14)
+collectLabel.TextXAlignment = Enum.TextXAlignment.Left
+collectLabel.Parent = collectRow
 
-local autoLootLabel = Instance.new("TextLabel")
-autoLootLabel.Size = UDim2.new(0.5, 0, 1, 0)
-autoLootLabel.BackgroundTransparency = 1
-autoLootLabel.Text = "Auto-Loot: OFF"
-autoLootLabel.TextColor3 = Color3.fromRGB(200,200,220)
-autoLootLabel.Font = Enum.Font.Gotham
-autoLootLabel.TextSize = bigText(14)
-autoLootLabel.TextXAlignment = Enum.TextXAlignment.Left
-autoLootLabel.Parent = autoLootRow
+local collectBtn = Instance.new("TextButton")
+collectBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+collectBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+collectBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+collectBtn.BorderSizePixel = 0
+collectBtn.Text = "OFF"
+collectBtn.TextColor3 = Color3.fromRGB(255,255,255)
+collectBtn.Font = Enum.Font.GothamBold
+collectBtn.TextSize = bigText(14)
+collectBtn.Parent = collectRow
 
-local autoLootBtn = Instance.new("TextButton")
-autoLootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-autoLootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
-autoLootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-autoLootBtn.BorderSizePixel = 0
-autoLootBtn.Text = "OFF"
-autoLootBtn.TextColor3 = Color3.fromRGB(255,255,255)
-autoLootBtn.Font = Enum.Font.GothamBold
-autoLootBtn.TextSize = bigText(14)
-autoLootBtn.Parent = autoLootRow
+collectBtn.Activated:Connect(function()
+    CONFIG.EnableCollect = not CONFIG.EnableCollect
+    collectBtn.Text = CONFIG.EnableCollect and "ON" or "OFF"
+    collectBtn.BackgroundColor3 = CONFIG.EnableCollect and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
+end)
 
-autoLootBtn.Activated:Connect(function()
+-- Auto-Loot - Row 2 (Separate row, not overlapping)
+local lootRow = Instance.new("Frame")
+lootRow.Size = UDim2.new(1, 0, 0, s(38))
+lootRow.Position = UDim2.new(0, 0, 0, s(40))
+lootRow.BackgroundTransparency = 1
+lootRow.Parent = autoContainer
+
+local lootLabel = Instance.new("TextLabel")
+lootLabel.Size = UDim2.new(0.5, 0, 1, 0)
+lootLabel.BackgroundTransparency = 1
+lootLabel.Text = "Auto-Loot: OFF"
+lootLabel.TextColor3 = Color3.fromRGB(200,200,220)
+lootLabel.Font = Enum.Font.Gotham
+lootLabel.TextSize = bigText(14)
+lootLabel.TextXAlignment = Enum.TextXAlignment.Left
+lootLabel.Parent = lootRow
+
+local lootBtn = Instance.new("TextButton")
+lootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
+lootBtn.Position = UDim2.new(0.6, 0, 0, s(3))
+lootBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
+lootBtn.BorderSizePixel = 0
+lootBtn.Text = "OFF"
+lootBtn.TextColor3 = Color3.fromRGB(255,255,255)
+lootBtn.Font = Enum.Font.GothamBold
+lootBtn.TextSize = bigText(14)
+lootBtn.Parent = lootRow
+
+lootBtn.Activated:Connect(function()
     CONFIG.AutoLoot = not CONFIG.AutoLoot
-    autoLootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
-    autoLootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    autoLootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
+    lootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
+    lootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
+    lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
 
 -- ============================================================
---  AUTO TAB (TWO COLUMN LAYOUT + FULL INVENTORY SCANNING)
+--  AUTO TAB (TWO COLUMN LAYOUT WITH BOXES)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Upgrade", "Dismantle"}
@@ -1334,7 +1367,7 @@ autoGrid.Parent = autoScroller
 
 local autoGridLayout = Instance.new("UIGridLayout")
 autoGridLayout.Parent = autoGrid
-autoGridLayout.CellSize = UDim2.new(0.48, 0, 0, s(160))
+autoGridLayout.CellSize = UDim2.new(0.48, 0, 0, s(175))
 autoGridLayout.CellPadding = UDim2.new(0, s(8), 0, s(8))
 autoGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
@@ -1355,15 +1388,19 @@ refreshBtn.Activated:Connect(refreshInventory)
 for idx, action in ipairs(autoActions) do
     local currentAction = action
     
-    -- Each action gets its own cell in the grid
+    -- Each action gets its own cell in the grid WITH A BOX
     local cell = Instance.new("Frame")
     cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
+    cell.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
+    cell.BackgroundTransparency = 0.3
+    cell.BorderSizePixel = 1
+    cell.BorderColor3 = Color3.fromRGB(60, 80, 120)
     cell.Parent = autoGrid
     
     -- Header
     local header = Instance.new("TextLabel")
     header.Size = UDim2.new(1, 0, 0, s(24))
+    header.Position = UDim2.new(0, s(4), 0, s(2))
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. currentAction .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
@@ -1374,8 +1411,8 @@ for idx, action in ipairs(autoActions) do
     
     -- Checkbox container
     local checkboxContainer = Instance.new("Frame")
-    checkboxContainer.Size = UDim2.new(1, 0, 0, s(80))
-    checkboxContainer.Position = UDim2.new(0, 0, 0, s(24))
+    checkboxContainer.Size = UDim2.new(1, -s(8), 0, s(85))
+    checkboxContainer.Position = UDim2.new(0, s(4), 0, s(28))
     checkboxContainer.BackgroundTransparency = 1
     checkboxContainer.Parent = cell
     
@@ -1474,8 +1511,8 @@ for idx, action in ipairs(autoActions) do
     
     -- Toggle row
     local toggleRow = Instance.new("Frame")
-    toggleRow.Size = UDim2.new(1, 0, 0, s(34))
-    toggleRow.Position = UDim2.new(0, 0, 0, s(104))
+    toggleRow.Size = UDim2.new(1, -s(8), 0, s(34))
+    toggleRow.Position = UDim2.new(0, s(4), 0, s(115))
     toggleRow.BackgroundTransparency = 1
     toggleRow.Parent = cell
     
@@ -1517,7 +1554,6 @@ for idx, action in ipairs(autoActions) do
             for r, v in pairs(rarityStates) do
                 if v then table.insert(selected, r) end
             end
-            -- If "All" is selected, return all rarities
             for _, r in ipairs(selected) do
                 if r == "All" then
                     local allRarities = {}
@@ -2131,26 +2167,34 @@ local function performRarityAction(action, rarityList)
     end
     
     local processed = 0
+    local skipped = 0
     local totalItems = 0
     
-    -- If no rarities selected or "All" is selected, process all items
+    -- If no rarities selected or empty, process all items
     if not rarityList or #rarityList == 0 then
         for serial, item in pairs(inventoryCache) do
             totalItems = totalItems + 1
-            if action == "Sell" and sellRequest then
-                sellRequest:FireServer({[serial] = 1})
-                processed = processed + 1
-            elseif action == "Upgrade" and upgradeRequest then
-                upgradeRequest:FireServer(serial)
-                processed = processed + 1
-            elseif action == "Dismantle" and dismantleRequest then
-                dismantleRequest:FireServer(serial)
-                processed = processed + 1
+            local success, err = pcall(function()
+                if action == "Sell" and sellRequest then
+                    sellRequest:FireServer({[serial] = 1})
+                    processed = processed + 1
+                elseif action == "Upgrade" and upgradeRequest then
+                    upgradeRequest:FireServer(serial)
+                    processed = processed + 1
+                elseif action == "Dismantle" and dismantleRequest then
+                    dismantleRequest:FireServer(serial)
+                    processed = processed + 1
+                end
+            end)
+            if not success then
+                skipped = skipped + 1
             end
             task.wait(0.05)
         end
         if processed > 0 then
-            status.Text = "Auto-" .. action .. " processed " .. processed .. "/" .. totalItems .. " items"
+            status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
+        elseif skipped > 0 then
+            status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items (favorited/unavailable)"
         end
         return
     end
@@ -2177,15 +2221,20 @@ local function performRarityAction(action, rarityList)
         end
         
         if shouldProcess then
-            if action == "Sell" and sellRequest then
-                sellRequest:FireServer({[serial] = 1})
-                processed = processed + 1
-            elseif action == "Upgrade" and upgradeRequest then
-                upgradeRequest:FireServer(serial)
-                processed = processed + 1
-            elseif action == "Dismantle" and dismantleRequest then
-                dismantleRequest:FireServer(serial)
-                processed = processed + 1
+            local success, err = pcall(function()
+                if action == "Sell" and sellRequest then
+                    sellRequest:FireServer({[serial] = 1})
+                    processed = processed + 1
+                elseif action == "Upgrade" and upgradeRequest then
+                    upgradeRequest:FireServer(serial)
+                    processed = processed + 1
+                elseif action == "Dismantle" and dismantleRequest then
+                    dismantleRequest:FireServer(serial)
+                    processed = processed + 1
+                end
+            end)
+            if not success then
+                skipped = skipped + 1
             end
             task.wait(0.05)
         end
@@ -2193,6 +2242,8 @@ local function performRarityAction(action, rarityList)
     
     if processed > 0 then
         status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
+    elseif skipped > 0 then
+        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " items"
     end
 end
 
