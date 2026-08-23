@@ -1,4 +1,4 @@
---[[ POLY LOOT – ULTIMATE (SPEED CAPPED AT 74) ]] 
+--[[ POLY LOOT – ULTIMATE (SPEED CAPPED + FACING FIX) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,7 +31,7 @@ local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Se
 
 -- ===== CONFIG =====
 local CONFIG = {
-    AttackDelay = 0.8,            -- safe to avoid rate‑limiting
+    AttackDelay = 0.8,
     DelayVariation = 0.1,
     CollectInterval = 30,
     CollectAmount = 1119,
@@ -384,7 +384,7 @@ local function addToggleRow(parent, labelText, initial)
     return {label = lbl, button = btn, value = initial, row = row}
 end
 
--- Speed slider max is now 74 (safe limit)
+-- Speed slider max is 74
 local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, 0, 0, s(48))
@@ -446,9 +446,8 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
             if width > 0 then
                 local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
                 local val = minVal + percent * (maxVal - minVal)
-                -- Clamp value for speed if this is the speed slider (labelText contains "Walk Speed")
                 if labelText == "Walk Speed" then
-                    val = math.min(val, 74) -- enforce safe cap
+                    val = math.min(val, 74)
                 end
                 fill.Size = UDim2.new(percent, 0, 1, 0)
                 valLabel.Text = string.format("%.1f", val) .. unit
@@ -811,6 +810,18 @@ end
 local function lockToBoss(key, mob, bossDisplayName, statusLabel)
     if not mob or not bossFarms[key] then return end
     
+    -- Update target even if same, to keep facing
+    local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
+    if not rootPart then return end
+    
+    local char = player.Character
+    if not char then return end
+    local playerRoot = char:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
+    
+    -- If target changed, recreate body parts
     if bossFarms[key].currentTarget ~= mob then
         if bossFarms[key].bodyVelocity then
             bossFarms[key].bodyVelocity:Destroy()
@@ -821,57 +832,35 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
             bossFarms[key].bodyPosition = nil
         end
         
-        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-        if rootPart then
-            local char = player.Character
-            if char then
-                local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                if playerRoot then
-                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-                    
-                    -- No PlatformStand – player can still attack
-                    
-                    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-                    
-                    bossFarms[key].bodyPosition = Instance.new("BodyPosition")
-                    bossFarms[key].bodyPosition.Position = targetPos
-                    bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                    bossFarms[key].bodyPosition.D = 5000
-                    bossFarms[key].bodyPosition.P = 20000
-                    bossFarms[key].bodyPosition.Parent = playerRoot
-                    
-                    bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
-                    bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-                    bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                    bossFarms[key].bodyVelocity.Parent = playerRoot
-                    
-                    bossFarms[key].currentTarget = mob
-                    bossFarms[key].isAlive = true
-                    status.Text = "🔒 Locked above " .. bossDisplayName
-                    
-                    if statusLabel then
-                        statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
-                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                    end
-                end
-            end
+        bossFarms[key].bodyPosition = Instance.new("BodyPosition")
+        bossFarms[key].bodyPosition.Position = targetPos
+        bossFarms[key].bodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bossFarms[key].bodyPosition.D = 5000
+        bossFarms[key].bodyPosition.P = 20000
+        bossFarms[key].bodyPosition.Parent = playerRoot
+        
+        bossFarms[key].bodyVelocity = Instance.new("BodyVelocity")
+        bossFarms[key].bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bossFarms[key].bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bossFarms[key].bodyVelocity.Parent = playerRoot
+        
+        bossFarms[key].currentTarget = mob
+        bossFarms[key].isAlive = true
+        
+        if statusLabel then
+            statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
+            statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
         end
     else
-        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-        if rootPart then
-            local char = player.Character
-            if char then
-                local playerRoot = char:FindFirstChild("HumanoidRootPart")
-                if playerRoot then
-                    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-                    if bossFarms[key].bodyPosition then
-                        bossFarms[key].bodyPosition.Position = targetPos
-                    end
-                    playerRoot.CFrame = CFrame.new(playerRoot.Position, rootPart.Position)
-                end
-            end
+        -- Update bodyPosition target (in case mob moved)
+        if bossFarms[key].bodyPosition then
+            bossFarms[key].bodyPosition.Position = targetPos
         end
     end
+    
+    -- Always update CFrame to face the mob (look down)
+    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
+    status.Text = "🔒 Locked above " .. bossDisplayName
 end
 
 -- ============================================================
@@ -1220,7 +1209,7 @@ local function instantLoot()
 end
 
 -- ============================================================
---  GARGOYLE FARM (NO PLATFORMSTAND)
+--  GARGOYLE FARM (FACING FIX – updates CFrame every loop)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1266,32 +1255,44 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    if gargoyleBodyVelocity then
-        gargoyleBodyVelocity:Destroy()
-        gargoyleBodyVelocity = nil
-    end
-    if gargoyleBodyPosition then
-        gargoyleBodyPosition:Destroy()
-        gargoyleBodyPosition = nil
+    -- If target changed, recreate body parts
+    if currentGargoyleTarget ~= targetMob then
+        if gargoyleBodyVelocity then
+            gargoyleBodyVelocity:Destroy()
+            gargoyleBodyVelocity = nil
+        end
+        if gargoyleBodyPosition then
+            gargoyleBodyPosition:Destroy()
+            gargoyleBodyPosition = nil
+        end
+        
+        gargoyleBodyPosition = Instance.new("BodyPosition")
+        gargoyleBodyPosition.Position = targetPos
+        gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        gargoyleBodyPosition.D = 5000
+        gargoyleBodyPosition.P = 20000
+        gargoyleBodyPosition.Parent = playerRoot
+        
+        gargoyleBodyVelocity = Instance.new("BodyVelocity")
+        gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        gargoyleBodyVelocity.Parent = playerRoot
+        
+        currentGargoyleTarget = targetMob
+        
+        if gargoyleStatusLabel then
+            gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
+            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+        end
+    else
+        -- Update position if mob moved
+        if gargoyleBodyPosition then
+            gargoyleBodyPosition.Position = targetPos
+        end
     end
     
-    -- No PlatformStand – player can attack
-    
+    -- Always face the gargoyle (look down)
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    gargoyleBodyPosition = Instance.new("BodyPosition")
-    gargoyleBodyPosition.Position = targetPos
-    gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    gargoyleBodyPosition.D = 5000
-    gargoyleBodyPosition.P = 20000
-    gargoyleBodyPosition.Parent = playerRoot
-    
-    gargoyleBodyVelocity = Instance.new("BodyVelocity")
-    gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    gargoyleBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    gargoyleBodyVelocity.Parent = playerRoot
-    
-    currentGargoyleTarget = targetMob
 end
 
 function toggleGargoyleFarm()
@@ -1350,22 +1351,9 @@ function toggleGargoyleFarm()
             local mob, dist = getNearestGargoyle()
             
             if mob then
-                if currentGargoyleTarget ~= mob then
-                    if gargoyleBodyVelocity then
-                        gargoyleBodyVelocity:Destroy()
-                        gargoyleBodyVelocity = nil
-                    end
-                    if gargoyleBodyPosition then
-                        gargoyleBodyPosition:Destroy()
-                        gargoyleBodyPosition = nil
-                    end
-                    lockAboveGargoyle(mob)
-                    status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
-                    if gargoyleStatusLabel then
-                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                    end
-                end
+                -- Update lock and facing every loop
+                lockAboveGargoyle(mob)
+                status.Text = "🔒 Locked above Gargoyle (dist " .. math.floor(dist) .. ")"
             else
                 status.Text = "No Gargoyle found, scanning..."
                 if gargoyleStatusLabel then
@@ -1712,9 +1700,7 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    -- Speed slider now max = 74 (safe limit)
     local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 16, "", function(val)
-        -- Clamp again just in case
         val = math.min(val, 74)
         cheats.speed = val
         local char = player.Character
@@ -2070,7 +2056,6 @@ RunService.Heartbeat:Connect(function()
     if char then
         local hum = char:FindFirstChild("Humanoid")
         if hum and hum.WalkSpeed ~= cheats.speed then
-            -- Clamp to 74 just in case
             local safeSpeed = math.min(cheats.speed, 74)
             hum.WalkSpeed = safeSpeed
         end
@@ -2420,7 +2405,7 @@ player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.WalkSpeed = math.min(cheats.speed, 74) -- enforce cap
+        hum.WalkSpeed = math.min(cheats.speed, 74)
     end
 end)
 
@@ -2458,4 +2443,4 @@ makeDraggable(miniBar, miniBar)
 -- Auto-start the farm
 startFarm()
 
-print("✅ POLY LOOT – SPEED CAPPED AT 74 loaded!")
+print("✅ POLY LOOT – SPEED CAPPED + FACING FIX loaded!")
