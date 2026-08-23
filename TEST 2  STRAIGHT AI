@@ -1,4 +1,4 @@
---[[ POLY LOOT – RESTORED WORKING GUI + SPEED 40 + SMOOTH AUTO-LOOT ]] 
+--[[ POLY LOOT – FINAL (SPEED 55, GARGOYLE TWEEN, REMOVED BAD TOGGLES) ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,7 +29,7 @@ end
 -- ===== RARITY =====
 local RARITY_LIST = {"All", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "Unknown"}
 
--- ===== CONFIG (SPEED 40) =====
+-- ===== CONFIG (SPEED 55) =====
 local CONFIG = {
     AttackDelay = 0.8,
     DelayVariation = 0.1,
@@ -47,7 +47,7 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 40,
+    WalkSpeed = 55,   -- Changed to 55
 }
 
 -- ===== COORDINATES =====
@@ -60,7 +60,7 @@ local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
 -- ===== PLAYER CHEATS =====
 local cheats = {
-    speed = 16,
+    speed = 55,          -- default speed matches CONFIG
     fly = false,
     flySpeed = 50,
     antiAFK = true,
@@ -997,7 +997,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT FUNCTIONS (FIXED – NO STUTTER)
+-- PICKUP/LOOT FUNCTIONS (improved)
 -- ============================================================
 local function holdKey(keyCode, duration)
     if VirtualInputManager then
@@ -1116,7 +1116,6 @@ local function getLootPosition(item)
     return nil
 end
 
--- FIXED: smoother hold, less frequent checks
 local function instantLoot()
     local char = player.Character
     if not char then return end
@@ -1144,7 +1143,7 @@ local function instantLoot()
         return
     end
     
-    -- Try remote pickup first (quick)
+    -- Try remote pickup first
     local remoteSuccess = false
     pcall(function()
         local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
@@ -1186,12 +1185,11 @@ local function instantLoot()
         return
     end
     
-    -- Hold E with early cancel if loot disappears
+    -- Hold E with early cancel
     status.Text = "Holding E for pickup..."
     local startTime = tick()
     local holdDuration = CONFIG.LootHoldSeconds or 5
     
-    -- Send key down
     pcall(function()
         if VirtualInputManager then
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
@@ -1204,7 +1202,6 @@ local function instantLoot()
         end
     end)
     
-    -- Check every 0.2s instead of 0.1 to reduce stutter
     while (tick() - startTime) < holdDuration do
         if not lootStillExists(item) then
             status.Text = "Loot picked up! Cancelling E."
@@ -1213,7 +1210,6 @@ local function instantLoot()
         task.wait(0.2)
     end
     
-    -- Release E
     pcall(function()
         if VirtualInputManager then
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
@@ -1230,7 +1226,7 @@ local function instantLoot()
 end
 
 -- ============================================================
--- GARGOYLE FARM (unchanged)
+-- GARGOYLE FARM – NOW USES TWEEN (speed 55)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1282,8 +1278,14 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
+    -- Use tween to move to the gargoyle instead of teleport
+    tweenAtWalkSpeed(targetPos)
+    task.wait(0.1)
+    
+    -- After arriving, set CFrame to face down (optional, but keep for lock)
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
+    -- BodyPosition to hover
     if not gargoyleBodyPosition or not gargoyleBodyPosition.Parent then
         if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
         gargoyleBodyPosition = Instance.new("BodyPosition")
@@ -1383,7 +1385,7 @@ function toggleGargoyleFarm()
             
             if mob then
                 lockAboveGargoyle(mob)
-                status.Text = "🔒 Locked above Gargoyle"
+                status.Text = "🔒 Locked above Gargoyle (tweened)"
             else
                 status.Text = "No Gargoyle found, scanning..."
                 if gargoyleStatusLabel then
@@ -1405,7 +1407,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB (unchanged)
+-- FARM TAB – Removed Teleport to Mine and Batch Mode
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1464,9 +1466,10 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- ===== Auto Controls =====
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 150)
+-- Auto Controls – only keep Auto-Collect Gold and Auto-Loot
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)  -- reduced height
 
+-- Auto-Collect Gold
 local collectRow = Instance.new("Frame")
 collectRow.Size = UDim2.new(1, 0, 0, s(38))
 collectRow.BackgroundTransparency = 1
@@ -1500,6 +1503,7 @@ collectBtn.Activated:Connect(function()
     collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
 end)
 
+-- Auto-Loot
 local lootRow = Instance.new("Frame")
 lootRow.Size = UDim2.new(1, 0, 0, s(38))
 lootRow.Position = UDim2.new(0, 0, 0, s(40))
@@ -1534,73 +1538,7 @@ lootBtn.Activated:Connect(function()
     lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
 end)
 
-local batchRow = Instance.new("Frame")
-batchRow.Size = UDim2.new(1, 0, 0, s(38))
-batchRow.Position = UDim2.new(0, 0, 0, s(80))
-batchRow.BackgroundTransparency = 1
-batchRow.Parent = autoContainer
-
-local batchLabel = Instance.new("TextLabel")
-batchLabel.Size = UDim2.new(0.5, 0, 1, 0)
-batchLabel.BackgroundTransparency = 1
-batchLabel.Text = "Batch Mode: OFF"
-batchLabel.TextColor3 = Color3.fromRGB(200,200,220)
-batchLabel.Font = Enum.Font.Gotham
-batchLabel.TextSize = bigText(14)
-batchLabel.TextXAlignment = Enum.TextXAlignment.Left
-batchLabel.Parent = batchRow
-
-local batchBtn = Instance.new("TextButton")
-batchBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-batchBtn.Position = UDim2.new(0.6, 0, 0, s(3))
-batchBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-batchBtn.BorderSizePixel = 0
-batchBtn.Text = "OFF"
-batchBtn.TextColor3 = Color3.fromRGB(255,255,255)
-batchBtn.Font = Enum.Font.GothamBold
-batchBtn.TextSize = bigText(14)
-batchBtn.Parent = batchRow
-
-batchBtn.Activated:Connect(function()
-    CONFIG.BatchMode = not CONFIG.BatchMode
-    batchBtn.Text = CONFIG.BatchMode and "ON" or "OFF"
-    batchBtn.BackgroundColor3 = CONFIG.BatchMode and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    batchLabel.Text = "Batch Mode: " .. (CONFIG.BatchMode and "ON" or "OFF")
-end)
-
-local teleportRow = Instance.new("Frame")
-teleportRow.Size = UDim2.new(1, 0, 0, s(38))
-teleportRow.Position = UDim2.new(0, 0, 0, s(120))
-teleportRow.BackgroundTransparency = 1
-teleportRow.Parent = autoContainer
-
-local teleportLabel = Instance.new("TextLabel")
-teleportLabel.Size = UDim2.new(0.5, 0, 1, 0)
-teleportLabel.BackgroundTransparency = 1
-teleportLabel.Text = "Teleport to Mine: OFF"
-teleportLabel.TextColor3 = Color3.fromRGB(200,200,220)
-teleportLabel.Font = Enum.Font.Gotham
-teleportLabel.TextSize = bigText(14)
-teleportLabel.TextXAlignment = Enum.TextXAlignment.Left
-teleportLabel.Parent = teleportRow
-
-local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0, s(60), 1, -s(6))
-teleportBtn.Position = UDim2.new(0.6, 0, 0, s(3))
-teleportBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "OFF"
-teleportBtn.TextColor3 = Color3.fromRGB(255,255,255)
-teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = bigText(14)
-teleportBtn.Parent = teleportRow
-
-teleportBtn.Activated:Connect(function()
-    CONFIG.CollectUseTeleport = not CONFIG.CollectUseTeleport
-    teleportBtn.Text = CONFIG.CollectUseTeleport and "ON" or "OFF"
-    teleportBtn.BackgroundColor3 = CONFIG.CollectUseTeleport and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    teleportLabel.Text = "Teleport to Mine: " .. (CONFIG.CollectUseTeleport and "ON" or "OFF")
-end)
+-- NOTE: Batch Mode and Teleport to Mine have been removed
 
 -- ============================================================
 -- AUTO TAB (unchanged)
@@ -1716,7 +1654,7 @@ end
 local playerToggles = {}
 
 local function addPlayerTabContent()
-    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 40, "", function(val)
+    local speedSlider = addSliderRow(playerScroller, "Walk Speed", 0, 74, 55, "", function(val)
         val = math.min(val, 74)
         cheats.speed = val
         CONFIG.WalkSpeed = val
@@ -1744,7 +1682,7 @@ end
 playerToggles = addPlayerTabContent()
 
 -- ============================================================
--- MINI BAR
+-- MINI BAR (unchanged)
 -- ============================================================
 local miniBar = Instance.new("Frame")
 miniBar.Size = UDim2.new(0, s(480), 0, s(40))
@@ -1860,7 +1798,7 @@ restoreBtn.Activated:Connect(function() mainFrame.Visible = true; miniBar.Visibl
 minBtn.Activated:Connect(function() mainFrame.Visible = false; miniBar.Visible = true end)
 
 -- ============================================================
--- AUTO CLICKER TOGGLE
+-- AUTO CLICKER TOGGLE (unchanged)
 -- ============================================================
 function toggleAutoClicker()
     if not cheats.autoClick and cheats.autoClickCooldown > tick() then
@@ -2464,5 +2402,5 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – RESTORED WORKING GUI + SPEED 40 + SMOOTH LOOT")
-print("✅ Auto-Loot now holds E without stutter (check every 0.2s)")
+print("✅ POLY LOOT – FINAL (SPEED 55, GARGOYLE TWEEN, REMOVED BAD TOGGLES)")
+print("✅ Auto-Loot smooth, Gargoyle farm now walks to target.")
