@@ -688,7 +688,7 @@ function toggleGargoyleFarm()
             gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
         end
         if gargoyleStatusLabel then
-            gargoyleStatusLabel.Text = "Gargoyle farm: OFF"
+            gargoyleStatusLabel.Text = "Gargoyle: OFF"
             gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
         end
         return
@@ -712,7 +712,7 @@ function toggleGargoyleFarm()
         gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
     end
     if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle farm: ACTIVE"
+        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
     status.Text = "Gargoyle farming started"
@@ -734,14 +734,14 @@ function toggleGargoyleFarm()
                     lockAboveGargoyle(mob)
                     status.Text = "🔒 Locked above Gargoyle (facing down, dist " .. math.floor(dist) .. ")"
                     if gargoyleStatusLabel then
-                        gargoyleStatusLabel.Text = "Gargoyle farm: LOCKED ✅"
+                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
                         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
                     end
                 end
             else
                 status.Text = "No Gargoyle found, scanning..."
                 if gargoyleStatusLabel then
-                    gargoyleStatusLabel.Text = "Gargoyle farm: SCANNING 🔍"
+                    gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
                     gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
                 end
                 if gargoyleBodyVelocity then
@@ -761,7 +761,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
---  BOSS FARM WITH TIMER + AUTO FOLLOW (FULLY FIXED - NO SPAWNING)
+--  BOSS FARM WITH TIMER + AUTO FOLLOW (FIXED TIMER)
 -- ============================================================
 
 local function getBossTimerLabel(bossSignName)
@@ -815,8 +815,28 @@ end
 local function getBossRespawnTime(timerLabel)
     if not timerLabel then return 0 end
     local text = timerLabel.Text or ""
+    -- Extract ALL numbers (could be "4m 30s" or just "4s")
+    local mins = tonumber(text:match("(%d+)m"))
+    local secs = tonumber(text:match("(%d+)s"))
+    
+    if mins and secs then
+        return (mins * 60) + secs
+    elseif mins then
+        return mins * 60
+    elseif secs then
+        return secs
+    end
+    
+    -- Fallback: try to get any number
     local num = tonumber(text:match("(%d+)"))
-    return num or 0
+    if num then
+        -- If the number is large, assume it's seconds (e.g., 270 = 4m 30s)
+        if num > 60 then
+            return num
+        end
+        return num
+    end
+    return 0
 end
 
 local function formatRespawnTime(seconds)
@@ -824,7 +844,11 @@ local function formatRespawnTime(seconds)
     local mins = math.floor(seconds / 60)
     local secs = seconds % 60
     if mins > 0 then
-        return string.format("%dm %ds", mins, secs)
+        if secs > 0 then
+            return string.format("%dm %ds", mins, secs)
+        else
+            return string.format("%dm", mins)
+        end
     else
         return string.format("%ds", secs)
     end
@@ -973,7 +997,7 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             local respawnTime = getBossRespawnTime(timerLabel)
             local formattedTime = formatRespawnTime(respawnTime)
             
-            -- Update status label - show ALIVE or timer only
+            -- Update status label - show ALIVE or full timer
             if statusLabel then
                 if isAlive then
                     statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
@@ -995,12 +1019,9 @@ function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabe
             if mob then
                 lockToBoss(key, mob, bossDisplayName, statusLabel)
             else
-                -- Boss not found, check if alive or dead
                 if isAlive then
-                    -- Alive but not spawned yet, wait a bit
                     task.wait(0.3)
                 else
-                    -- Boss is dead, remove locks
                     if bossFarms[key].bodyVelocity then
                         bossFarms[key].bodyVelocity:Destroy()
                         bossFarms[key].bodyVelocity = nil
@@ -1117,7 +1138,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (status + Gargoyle + Boss Farms)
+--  FARM TAB (status + Gargoyle + Boss Farms - NO START BUTTON)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1143,8 +1164,8 @@ gargoyleHeader.TextXAlignment = Enum.TextXAlignment.Left
 gargoyleHeader.Parent = gargoyleSection
 
 gargoyleBtn = Instance.new("TextButton")
-gargoyleBtn.Size = UDim2.new(0.6, 0, 0.5, 0)
-gargoyleBtn.Position = UDim2.new(0.2, 0, 0.25, 0)
+gargoyleBtn.Size = UDim2.new(0.6, 0, 0.4, 0)
+gargoyleBtn.Position = UDim2.new(0.2, 0, 0.2, 0)
 gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 gargoyleBtn.BorderSizePixel = 0
 gargoyleBtn.Text = "Gargoyle Farm (OFF)"
@@ -1155,8 +1176,8 @@ gargoyleBtn.Parent = gargoyleSection
 gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
 
 gargoyleStatusLabel = Instance.new("TextLabel")
-gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.35, 0)
-gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
+gargoyleStatusLabel.Size = UDim2.new(0.8, 0, 0.3, 0)
+gargoyleStatusLabel.Position = UDim2.new(0.1, 0, 0.65, 0)
 gargoyleStatusLabel.BackgroundTransparency = 1
 gargoyleStatusLabel.Text = "Gargoyle: OFF"
 gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
@@ -1189,7 +1210,7 @@ bossFarmGrid.Parent = bossFarmSection
 
 local bossFarmGridLayout = Instance.new("UIGridLayout")
 bossFarmGridLayout.Parent = bossFarmGrid
-bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(45))
+bossFarmGridLayout.CellSize = UDim2.new(0.45, 0, 0, s(48))
 bossFarmGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
 bossFarmGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
@@ -1205,8 +1226,8 @@ for _, def in ipairs(bossFarmDefs) do
     cell.Parent = bossFarmGrid
     
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0.5, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
+    btn.Size = UDim2.new(1, 0, 0.45, 0)
+    btn.Position = UDim2.new(0, 0, 0.05, 0)
     btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
     btn.BorderSizePixel = 0
     btn.Text = def.display .. " Farm (OFF)"
@@ -1237,9 +1258,9 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Combat Controls
+-- Combat Controls (NO START BUTTON)
 local combatSection = Instance.new("Frame")
-combatSection.Size = UDim2.new(1, 0, 0, s(80))
+combatSection.Size = UDim2.new(1, 0, 0, s(70))
 combatSection.BackgroundTransparency = 1
 combatSection.Parent = farmScroller
 
@@ -1264,23 +1285,6 @@ combatGridLayout.Parent = combatGrid
 combatGridLayout.CellSize = UDim2.new(0.3, 0, 0, s(28))
 combatGridLayout.CellPadding = UDim2.new(0, s(6), 0, s(6))
 combatGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(1, 0, 1, 0)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Text = "▶ Start"
-toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-toggleBtn.Font = Enum.Font.GothamBold
-toggleBtn.TextSize = bigText(14)
-toggleBtn.Parent = combatGrid
-toggleBtn.Activated:Connect(function()
-    if running then
-        stopFarm()
-    else
-        startFarm()
-    end
-end)
 
 local collectBtn = Instance.new("TextButton")
 collectBtn.Size = UDim2.new(1, 0, 1, 0)
@@ -2043,7 +2047,7 @@ end)
 RunService.Heartbeat:Connect(updateBossStatus)
 
 -- ============================================================
---  FARM LOOP
+--  FARM LOOP (NO START BUTTON - runs automatically if enabled)
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2135,6 +2139,7 @@ local function performRarityAction(action, rarityList)
     end
 end
 
+-- Start farm automatically when script loads
 local function startFarm()
     if running then return end
     if not weaponAttack then
@@ -2142,8 +2147,6 @@ local function startFarm()
         return
     end
     running = true
-    toggleBtn.Text = "⏹ Stop"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
     status.Text = "Status: Running"
     status.TextColor3 = Color3.fromRGB(0,255,150)
     attackCount = 0
@@ -2151,46 +2154,46 @@ local function startFarm()
     lastCollect = tick()
     lastAFK = tick()
     
-    while running do
-        if CONFIG.EnableAttack then
-            weaponAttack:FireServer(0)
-            attackCount = attackCount + 1
-            if attackCount % 50 == 0 then
-                status.Text = "Status: "..attackCount.." attacks"
+    task.spawn(function()
+        while running do
+            if CONFIG.EnableAttack then
+                weaponAttack:FireServer(0)
+                attackCount = attackCount + 1
+                if attackCount % 50 == 0 then
+                    status.Text = "Status: "..attackCount.." attacks"
+                end
+            end
+            
+            local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
+            task.wait(delay)
+            
+            if CONFIG.EnableCollect and collectRequest and tick() - lastCollect > CONFIG.CollectInterval then
+                collectGold()
+                lastCollect = tick()
+            end
+            
+            if CONFIG.AutoLoot and tick() % 4 < 0.1 then
+                -- instantLoot defined below
+            end
+            
+            for _, action in ipairs(autoActions) do
+                if actionToggles[action] and actionToggles[action].enabled() then
+                    local rarities = actionToggles[action].getRarities()
+                    performRarityAction(action, rarities)
+                    task.wait(0.3)
+                end
+            end
+            
+            if cheats.antiAFK and tick() - lastAFK > CONFIG.AntiAFKInterval then
+                doAntiAFK()
+                lastAFK = tick()
             end
         end
-        
-        local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
-        task.wait(delay)
-        
-        if CONFIG.EnableCollect and collectRequest and tick() - lastCollect > CONFIG.CollectInterval then
-            collectGold()
-            lastCollect = tick()
-        end
-        
-        if CONFIG.AutoLoot and tick() % 4 < 0.1 then
-            -- instantLoot defined below
-        end
-        
-        for _, action in ipairs(autoActions) do
-            if actionToggles[action] and actionToggles[action].enabled() then
-                local rarities = actionToggles[action].getRarities()
-                performRarityAction(action, rarities)
-                task.wait(0.3)
-            end
-        end
-        
-        if cheats.antiAFK and tick() - lastAFK > CONFIG.AntiAFKInterval then
-            doAntiAFK()
-            lastAFK = tick()
-        end
-    end
+    end)
 end
 
 local function stopFarm()
     running = false
-    toggleBtn.Text = "▶ Start"
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(0,200,80)
     status.Text = "Status: Stopped"
     status.TextColor3 = Color3.fromRGB(255,100,100)
 end
@@ -2337,5 +2340,8 @@ end
 
 makeDraggable(titleBar, mainFrame)
 makeDraggable(miniBar, miniBar)
+
+-- Auto-start the farm
+startFarm()
 
 print("✅ POLY LOOT – ULTIMATE script loaded (GARGOYLE FARM + BOSS FARMS on FARM TAB with TIMER & AUTO FOLLOW)")
