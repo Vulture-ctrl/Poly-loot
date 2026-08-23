@@ -1,4 +1,4 @@
---[[ POLY LOOT – FINAL (INVENTORY SCAN + TWEEN SPEED 50) ]] 
+--[[ POLY LOOT – LOOT PICKUP SPEED 20, GARGOYLE SPEED 50 ]] 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -45,7 +45,8 @@ local CONFIG = {
     AutoClickY = 300,
     CollectUseTeleport = false,
     BatchMode = false,
-    WalkSpeed = 50,   -- All tweens use this speed
+    WalkSpeed = 50,            -- Gargoyle movement, gold collection
+    LootPickupSpeed = 20,      -- Loot pickup and return speed
 }
 
 -- ===== COORDINATES =====
@@ -427,7 +428,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
 end
 
 -- ============================================================
--- MOVEMENT HELPERS (all use WalkSpeed 50)
+-- MOVEMENT HELPERS (WalkSpeed 50 for general, LootPickupSpeed 20)
 -- ============================================================
 local function tweenToPosition(targetPos, duration)
     duration = duration or CONFIG.TweenDuration
@@ -450,6 +451,22 @@ local function tweenAtWalkSpeed(targetPos)
     if not root then return false end
     local distance = (targetPos - root.Position).Magnitude
     local speed = CONFIG.WalkSpeed
+    local duration = distance / speed
+    if duration < 0.2 then duration = 0.2 end
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPos)})
+    tween:Play()
+    tween.Completed:Wait()
+    return true
+end
+
+-- New function to tween at a custom speed
+local function tweenAtSpeed(targetPos, speed)
+    local char = player.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local distance = (targetPos - root.Position).Magnitude
     local duration = distance / speed
     if duration < 0.2 then duration = 0.2 end
     local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -503,28 +520,24 @@ local function performClick()
 end
 
 -- ============================================================
--- INVENTORY SYSTEM – DYNAMIC SCANNING
+-- INVENTORY SYSTEM – DYNAMIC SCANNING (unchanged)
 -- ============================================================
-local inventoryItems = {}    -- actual item objects from game
-local skippedItems = {}      -- items we determined are favorites or cannot be processed
+local inventoryItems = {}
+local skippedItems = {}
 
--- Try to find the inventory container
 local function getInventoryContainer()
-    -- Check player's Backpack
     local backpack = player:FindFirstChild("Backpack")
     if backpack then return backpack end
     
-    -- Check player's Character for tools
     local char = player.Character
     if char then
         for _, child in ipairs(char:GetChildren()) do
             if child:IsA("Tool") then
-                return char  -- but we need a container that holds all items, not just equipped
+                return char
             end
         end
     end
     
-    -- Check PlayerGui for a folder named Inventory
     local pgui = player:FindFirstChild("PlayerGui")
     if pgui then
         for _, child in ipairs(pgui:GetChildren()) do
@@ -534,7 +547,6 @@ local function getInventoryContainer()
         end
     end
     
-    -- Check ReplicatedStorage for common inventory folders
     local rs = ReplicatedStorage
     for _, child in ipairs(rs:GetChildren()) do
         if child.Name:lower():find("inventory") or child.Name:lower():find("items") then
@@ -545,16 +557,13 @@ local function getInventoryContainer()
     return nil
 end
 
--- Fetch items from the container
 local function fetchItemsFromContainer(container)
     local items = {}
     if not container then return items end
     for _, child in ipairs(container:GetChildren()) do
-        -- Look for objects that represent items (Tool, BasePart, Model, or Folder with item data)
         if child:IsA("Tool") or child:IsA("BasePart") or child:IsA("Model") then
             table.insert(items, child)
         elseif child:IsA("Folder") then
-            -- might contain item sub-objects
             for _, sub in ipairs(child:GetChildren()) do
                 if sub:IsA("Tool") or sub:IsA("BasePart") or sub:IsA("Model") then
                     table.insert(items, sub)
@@ -565,10 +574,8 @@ local function fetchItemsFromContainer(container)
     return items
 end
 
--- Try to get inventory via RemoteFunction
 local function requestInventoryViaRemote()
     local success, result = pcall(function()
-        -- Common remote names that might return inventory list
         local remoteNames = {"GetInventory", "RequestInventory", "InventoryRequest", "GetItems", "RequestItems"}
         for _, name in ipairs(remoteNames) do
             local remote = ReplicatedStorage:FindFirstChild(name, true)
@@ -587,7 +594,6 @@ local function requestInventoryViaRemote()
     return nil
 end
 
--- Main inventory refresh
 local function refreshInventory()
     local items = {}
     local container = getInventoryContainer()
@@ -595,7 +601,6 @@ local function refreshInventory()
         items = fetchItemsFromContainer(container)
     end
     
-    -- If no items found via container, try remote
     if #items == 0 then
         local remoteItems = requestInventoryViaRemote()
         if remoteItems then
@@ -603,15 +608,12 @@ local function refreshInventory()
         end
     end
     
-    -- Fallback: use static ITEM_DB if nothing else (but this is not dynamic)
     if #items == 0 then
-        -- We'll keep static list as fallback, but we'll mark them as "unknown" items
         for name, data in pairs(ITEM_DB) do
             table.insert(items, {Name = name, Rarity = data.rarity})
         end
     end
     
-    -- Filter out skipped items (favorites or failed)
     local filtered = {}
     for _, item in ipairs(items) do
         local itemName = item.Name or item.name or ""
@@ -625,14 +627,11 @@ local function refreshInventory()
     return inventoryItems
 end
 
--- Check if an item is favorited (by property or by name)
 local function isItemFavorite(item)
     if not item then return false end
-    -- Check if item has a Favorited property
     if item.Favorited == true or item.Favorite == true or item.favorited == true or item.favorite == true then
         return true
     end
-    -- Check by name against FAVORITE_ITEMS list
     local name = item.Name or item.name or ""
     if name ~= "" then
         for favName in pairs(FAVORITE_ITEMS) do
@@ -713,11 +712,10 @@ local FAVORITE_ITEMS = {
     ["Red Elemental"] = true,
 }
 
--- Initialize inventory (dynamic)
 refreshInventory()
 
 -- ============================================================
--- SELL/DISMANTLE/UPGRADE FUNCTIONS (with favorite skip)
+-- SELL/DISMANTLE/UPGRADE FUNCTIONS (unchanged)
 -- ============================================================
 local function sellItem(item)
     if not item then return false end
@@ -811,7 +809,7 @@ local function upgradeItem(item, stat)
 end
 
 -- ============================================================
--- PICKUP/LOOT – WITH RETURN TO ORIGINAL POSITION (SPEED 50)
+-- PICKUP/LOOT – NOW USES LootPickupSpeed (20) FOR MOVEMENT
 -- ============================================================
 local function getNearestLoot()
     local char = player.Character
@@ -910,6 +908,7 @@ local function instantLoot()
     if not root then return end
     
     local originalPos = root.Position  -- save original position
+    local lootSpeed = CONFIG.LootPickupSpeed or 20  -- use 20 by default
     
     local item, dist = getNearestLoot()
     if not item then
@@ -923,13 +922,13 @@ local function instantLoot()
         return
     end
     
-    status.Text = "Walking to loot..."
-    tweenAtWalkSpeed(targetPos)  -- speed 50
+    status.Text = "Walking to loot (speed " .. lootSpeed .. ")"
+    tweenAtSpeed(targetPos, lootSpeed)
     task.wait(0.1)
     
     if not lootStillExists(item) then
         status.Text = "Loot disappeared, returning..."
-        tweenAtWalkSpeed(originalPos)  -- return to original position
+        tweenAtSpeed(originalPos, lootSpeed)
         return
     end
     
@@ -972,7 +971,7 @@ local function instantLoot()
     
     if remoteSuccess then
         status.Text = "Picked up via remote, returning..."
-        tweenAtWalkSpeed(originalPos)
+        tweenAtSpeed(originalPos, lootSpeed)
         return
     end
     
@@ -1013,13 +1012,13 @@ local function instantLoot()
         end
     end)
     
-    -- Return to original position
-    tweenAtWalkSpeed(originalPos)
+    -- Return to original position at loot speed
+    tweenAtSpeed(originalPos, lootSpeed)
     status.Text = "Loot done, returned."
 end
 
 -- ============================================================
--- COLLECT GOLD – WITH RETURN (SPEED 50)
+-- COLLECT GOLD – uses WalkSpeed 50
 -- ============================================================
 local function collectGold()
     local char = player.Character
@@ -1062,15 +1061,15 @@ local function collectGold()
     
     isAtGoldMine = false
     status.Text = "Gold collected, returning..."
-    tweenAtWalkSpeed(originalPos)   -- return to where we were
+    tweenAtWalkSpeed(originalPos)
     status.Text = "Gold done, returned."
 end
 
 -- ============================================================
--- AUTO-SELL/DISMANTLE/UPGRADE (scans real inventory)
+-- AUTO-SELL/DISMANTLE/UPGRADE (unchanged)
 -- ============================================================
 local function performAction(action)
-    refreshInventory()  -- get latest inventory
+    refreshInventory()
     if #inventoryItems == 0 then
         status.Text = "Inventory empty or not found"
         return
@@ -1084,7 +1083,6 @@ local function performAction(action)
         local itemName = item.Name or item.name or "unknown"
         if isItemFavorite(item) then
             skipped = skipped + 1
-            -- Add to skipped list to avoid future attempts
             skippedItems[itemName] = true
         else
             local success, result = pcall(function()
@@ -1098,11 +1096,8 @@ local function performAction(action)
             end)
             if success and result then
                 processed = processed + 1
-                -- Remove from inventory list so we don't try again
-                -- (but we'll refresh on next cycle)
             else
                 failed = failed + 1
-                -- If it failed, maybe it's not sellable; we'll skip it next time
                 skippedItems[itemName] = true
             end
         end
@@ -1116,7 +1111,7 @@ local function performAction(action)
     elseif skipped > 0 then
         status.Text = "Auto-" .. action .. " skipped " .. skipped .. " favorites"
     elseif failed > 0 then
-        status.Text = "Auto-" .. action .. " failed " .. failed .. " items (may be protected)"
+        status.Text = "Auto-" .. action .. " failed " .. failed .. " items"
     end
 end
 
@@ -1466,7 +1461,7 @@ local function lockToBoss(key, mob, bossDisplayName, statusLabel)
 end
 
 -- ============================================================
--- GARGOYLE FARM (unchanged – works)
+-- GARGOYLE FARM (unchanged, uses WalkSpeed 50 for gargoyle movement)
 -- ============================================================
 local gargoyleFarmRunning = false
 local gargoyleFarmThread = nil
@@ -1518,7 +1513,7 @@ local function lockAboveGargoyle(targetMob)
     
     local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
     
-    tweenAtWalkSpeed(targetPos)   -- uses speed 50
+    tweenAtWalkSpeed(targetPos)   -- uses WalkSpeed 50
     task.wait(0.1)
     
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
@@ -1573,7 +1568,7 @@ local function checkAndLoot()
         gargoyleBodyVelocity = nil
         gargoyleBodyGyro = nil
         
-        instantLoot()  -- this now returns to original position
+        instantLoot()  -- uses LootPickupSpeed (20)
         
         local hum = char:FindFirstChild("Humanoid")
         if hum then hum.AutoRotate = true end
@@ -1640,7 +1635,7 @@ function toggleGargoyleFarm()
         gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
         gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
     end
-    status.Text = "Gargoyle farming started (speed 50)"
+    status.Text = "Gargoyle farming started (loot speed 20)"
     
     gargoyleFarmThread = task.spawn(function()
         while gargoyleFarmRunning do
@@ -1679,7 +1674,7 @@ function toggleGargoyleFarm()
 end
 
 -- ============================================================
--- FARM TAB (only Auto-Collect Gold and Auto-Loot)
+-- FARM TAB (unchanged)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1810,7 +1805,7 @@ lootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- AUTO TAB (Sell, Dismantle, Upgrade) – now scans real inventory
+-- AUTO TAB (unchanged)
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Dismantle", "Upgrade"}
@@ -2021,7 +2016,7 @@ miniCloseBtn.Parent = miniBar
 miniCloseBtn.ZIndex = 10
 
 -- ============================================================
--- CLOSE HANDLER
+-- CLOSE HANDLER (unchanged)
 -- ============================================================
 local function closeGUI()
     if running then running = false end
@@ -2447,7 +2442,7 @@ teleportBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
--- FARM LOOP
+-- FARM LOOP (unchanged)
 -- ============================================================
 local running = false
 local attackCount = 0
@@ -2532,7 +2527,7 @@ local function stopFarm()
 end
 
 -- ============================================================
--- CHARACTER RESET
+-- CHARACTER RESET (unchanged)
 -- ============================================================
 player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
@@ -2545,7 +2540,7 @@ player.CharacterAdded:Connect(function(char)
 end)
 
 -- ============================================================
--- DRAGGABLE
+-- DRAGGABLE (unchanged)
 -- ============================================================
 local function makeDraggable(handle, target)
     local dragStart, startPos, dragging = nil, nil, false
@@ -2580,6 +2575,6 @@ makeDraggable(miniBar, miniBar)
 -- ============================================================
 startFarm()
 
-print("✅ POLY LOOT – FINAL (INVENTORY SCAN + TWEEN SPEED 50)")
-print("✅ All tweens use speed 50, loot returns to original spot.")
-print("✅ Auto-sell/dismantle now scans your real inventory and skips favorites.")
+print("✅ POLY LOOT – LOOT PICKUP SPEED 20, GARGOYLE SPEED 50")
+print("✅ Loot movement uses speed 20, gargoyle movement uses speed 50.")
+print("✅ If speed 20 doesn't work, set CONFIG.LootPickupSpeed = 50.")
