@@ -701,8 +701,7 @@ local function lockAboveGargoyle(targetMob)
     
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.PlatformStand = true
-    end
+        hum.PlatformStand = true    end
     
     playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
     
@@ -1195,7 +1194,7 @@ local function refreshInventory()
 end
 
 -- ============================================================
---  FARM TAB (ONLY GARGOYLE + BOSS FARMS - NO COMBAT CONTROLS)
+--  FARM TAB (ONLY GARGOYLE + BOSS FARMS)
 -- ============================================================
 status.Size = UDim2.new(1, 0, 0, 28)
 status.Text = "Status: Stopped"
@@ -1262,15 +1261,15 @@ for _, def in ipairs(bossFarmDefs) do
     end)
 end
 
--- Section 3: Auto Controls (Only two toggles - spaced properly)
-local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 90)
+-- Section 3: Auto Controls
+local autoSection, autoContainer = createSection(farmScroller, "⚙️ Auto Controls", 85)
 
 local autoCollectToggle = addToggleRow(autoContainer, "Auto-Collect Gold", true)
 
-local autoLootToggle = Instance.new("Frame")
-autoLootToggle.Size = UDim2.new(1, 0, 0, s(34))
-autoLootToggle.BackgroundTransparency = 1
-autoLootToggle.Parent = autoContainer
+local autoLootRow = Instance.new("Frame")
+autoLootRow.Size = UDim2.new(1, 0, 0, s(34))
+autoLootRow.BackgroundTransparency = 1
+autoLootRow.Parent = autoContainer
 
 local autoLootLabel = Instance.new("TextLabel")
 autoLootLabel.Size = UDim2.new(0.5, 0, 1, 0)
@@ -1280,7 +1279,7 @@ autoLootLabel.TextColor3 = Color3.fromRGB(200,200,220)
 autoLootLabel.Font = Enum.Font.Gotham
 autoLootLabel.TextSize = bigText(14)
 autoLootLabel.TextXAlignment = Enum.TextXAlignment.Left
-autoLootLabel.Parent = autoLootToggle
+autoLootLabel.Parent = autoLootRow
 
 local autoLootBtn = Instance.new("TextButton")
 autoLootBtn.Size = UDim2.new(0, s(60), 1, -s(6))
@@ -1291,7 +1290,7 @@ autoLootBtn.Text = "OFF"
 autoLootBtn.TextColor3 = Color3.fromRGB(255,255,255)
 autoLootBtn.Font = Enum.Font.GothamBold
 autoLootBtn.TextSize = bigText(14)
-autoLootBtn.Parent = autoLootToggle
+autoLootBtn.Parent = autoLootRow
 
 autoLootBtn.Activated:Connect(function()
     CONFIG.AutoLoot = not CONFIG.AutoLoot
@@ -1301,7 +1300,7 @@ autoLootBtn.Activated:Connect(function()
 end)
 
 -- ============================================================
---  AUTO TAB (Sell, Upgrade, Dismantle)
+--  AUTO TAB (Sell, Upgrade, Dismantle) - FIXED TO PROCESS ALL ITEMS
 -- ============================================================
 local actionToggles = {}
 local autoActions = {"Sell", "Upgrade", "Dismantle"}
@@ -1318,11 +1317,18 @@ refreshBtn.TextSize = bigText(15)
 refreshBtn.Parent = autoScroller
 refreshBtn.Activated:Connect(refreshInventory)
 
+-- Add spacing after refresh button
+local refreshSpacer = Instance.new("Frame")
+refreshSpacer.Size = UDim2.new(1, 0, 0, s(6))
+refreshSpacer.BackgroundTransparency = 1
+refreshSpacer.Parent = autoScroller
+
 for idx, action in ipairs(autoActions) do
     local currentAction = action
     
+    -- Section header
     local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 24)
+    header.Size = UDim2.new(1, 0, 0, s(24))
     header.BackgroundTransparency = 1
     header.Text = "Auto-" .. currentAction .. ":"
     header.TextColor3 = Color3.fromRGB(200,200,220)
@@ -1331,6 +1337,7 @@ for idx, action in ipairs(autoActions) do
     header.TextXAlignment = Enum.TextXAlignment.Left
     header.Parent = autoScroller
     
+    -- Checkbox container
     local checkboxContainer = Instance.new("Frame")
     checkboxContainer.Size = UDim2.new(1, -s(10), 0, s(80))
     checkboxContainer.BackgroundTransparency = 1
@@ -1368,13 +1375,6 @@ for idx, action in ipairs(autoActions) do
         checkBtn.Font = Enum.Font.GothamBold
         checkBtn.TextSize = bigText(18)
         checkBtn.Parent = cbContainer
-        
-        checkBtn.MouseEnter:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-        end)
-        checkBtn.MouseLeave:Connect(function()
-            TweenService:Create(checkBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-        end)
         
         local label = Instance.new("TextLabel")
         label.Size = UDim2.new(1, -s(32), 1, 0)
@@ -1436,6 +1436,7 @@ for idx, action in ipairs(autoActions) do
         end)
     end
     
+    -- Toggle row with spacing
     local toggleRow = addToggleRow(autoScroller, currentAction .. " (toggle)", false)
     local enabled = false
     
@@ -1454,15 +1455,27 @@ for idx, action in ipairs(autoActions) do
             for r, v in pairs(rarityStates) do
                 if v then table.insert(selected, r) end
             end
+            -- If "All" is selected, return all rarities
+            for _, r in ipairs(selected) do
+                if r == "All" then
+                    local allRarities = {}
+                    for _, rarity in ipairs(RARITY_LIST) do
+                        if rarity ~= "All" then
+                            table.insert(allRarities, rarity)
+                        end
+                    end
+                    return allRarities
+                end
+            end
             return selected
         end,
     }
     
+    -- Add spacer between sections
     if idx < #autoActions then
         local sep = Instance.new("Frame")
-        sep.Size = UDim2.new(1, 0, 0, s(3))
-        sep.BackgroundColor3 = Color3.fromRGB(60,60,80)
-        sep.BorderSizePixel = 0
+        sep.Size = UDim2.new(1, 0, 0, s(6))
+        sep.BackgroundTransparency = 1
         sep.Parent = autoScroller
     end
 end
@@ -2064,6 +2077,28 @@ local function performRarityAction(action, rarityList)
     end
     
     local processed = 0
+    
+    -- If no rarities selected, process all
+    if not rarityList or #rarityList == 0 then
+        for serial, item in pairs(inventoryCache) do
+            if action == "Sell" and sellRequest then
+                sellRequest:FireServer({[serial] = 1})
+                processed = processed + 1
+            elseif action == "Upgrade" and upgradeRequest then
+                upgradeRequest:FireServer(serial)
+                processed = processed + 1
+            elseif action == "Dismantle" and dismantleRequest then
+                dismantleRequest:FireServer(serial)
+                processed = processed + 1
+            end
+            task.wait(0.05)
+        end
+        if processed > 0 then
+            status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
+        end
+        return
+    end
+    
     local processAll = false
     for _, r in ipairs(rarityList) do
         if r == "All" then processAll = true; break end
@@ -2095,6 +2130,7 @@ local function performRarityAction(action, rarityList)
                 dismantleRequest:FireServer(serial)
                 processed = processed + 1
             end
+            task.wait(0.05)
         end
     end
     
