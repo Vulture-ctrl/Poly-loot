@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
 local TweenService = game:GetService("TweenService")
+local PathfindingService = game:GetService("PathfindingService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 print("🚀 POLY LOOT STARTED")
@@ -52,8 +53,8 @@ local CONFIG = {
     AutoClickX = 730,
     AutoClickY = 300,
     BatchMode = false,
-    WalkSpeed = 25,           -- changed to 25 max
-    LootPickupSpeed = 25,     -- changed to 25 max
+    WalkSpeed = 35,
+    LootPickupSpeed = 35,
     CFrameUpdateDelay = 0.05,
 }
 
@@ -67,7 +68,7 @@ local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
 
 -- ===== PLAYER CHEATS =====
 local cheats = {
-    speed = 25,            -- changed to 25 max
+    speed = 35,
     fly = false,
     flySpeed = 50,
     antiAFK = true,
@@ -88,58 +89,141 @@ status.TextSize = 18
 status.Parent = nil
 
 -- ============================================================
--- MOVEMENT HELPERS (ALL TWEEN)
+-- MOVEMENT HELPERS
+-- Path-based TweenService movement: follows Roblox path waypoints
+-- while moving slightly above the ground for a "flying" look.
 -- ============================================================
-local function tweenAtWalkSpeed(targetPos)
+local function tweenAlongPath(targetPos, speed)
     local char = player.Character
     if not char then return false end
     local root = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
     if not root then return false end
 
-    local distance = (targetPos - root.Position).Magnitude
-    local speed = math.max(CONFIG.WalkSpeed, 1)
-    local duration = math.max(distance / speed, 0.2)
-    local startCFrame = root.CFrame
-    local targetCFrame = CFrame.new(targetPos)
-    local elapsed = 0
-    local step = math.max(CONFIG.CFrameUpdateDelay or 0.05, 0.03)
+    speed = math.max(tonumber(speed) or 30, 1)
 
-    while elapsed < duration do
-        if not root.Parent then return false end
-        local dt = math.min(step, duration - elapsed)
-        task.wait(dt)
-        elapsed += dt
-        local alpha = math.clamp(elapsed / duration, 0, 1)
-        root.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+    local startPos = root.Position
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        AgentCanClimb = true,
+        WaypointSpacing = 5,
+    })
+
+    local computed = pcall(function()
+        path:ComputeAsync(startPos, targetPos)
+    end)
+
+    local waypoints = {}
+    if computed and path.Status == Enum.PathStatus.Success then
+        waypoints = path:GetWaypoints()
     end
-    root.CFrame = targetCFrame
+
+    -- If Roblox cannot build a path, use a short direct tween instead of
+    -- getting stuck waiting for a path that does not exist.
+    if #waypoints < 2 then
+        waypoints = {
+            {Position = startPos, Action = Enum.PathWaypointAction.Walk},
+            {Position = targetPos, Action = Enum.PathWaypointAction.Walk},
+        }
+    end
+
+    local oldAutoRotate = hum and hum.AutoRotate
+    local oldPlatformStand = hum and hum.PlatformStand
+    local wasAnchored = root.Anchored
+    if hum then
+        hum.AutoRotate = false
+        hum.PlatformStand = true
+    end
+    -- Keep physics from fighting the tween and causing a fling on arrival.
+    root.Anchored = true
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+
+    for i = 2, #waypoints do
+        if not root.Parent then
+            if hum then
+                hum.AutoRotate = oldAutoRotate
+                hum.PlatformStand = oldPlatformStand
+            end
+            root.Anchored = wasAnchored
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            return false
+        end
+
+        local waypointPos = waypoints[i].Position
+
+        -- Stay a little above the normal walking surface. This makes the
+        -- movement look like a smooth low flight instead of walking.
+        local isFinal = (i == #waypoints)
+        local flyHeight = isFinal and 2.5 or 4
+        local movePos = waypointPos + Vector3.new(0, flyHeight, 0)
+
+        -- Handle path jump points without forcing the Humanoid to jump.
+        -- The tween simply flies over the obstacle.
+        local distance = (movePos - root.Position).Magnitude
+        local duration = math.max(distance / speed, 0.08)
+
+        local direction = movePos - root.Position
+        local lookAt = direction.Magnitude > 0.05 and (movePos + direction.Unit) or (movePos + root.CFrame.LookVector)
+        local targetCFrame = CFrame.lookAt(movePos, lookAt)
+
+        local tweenInfo = TweenInfo.new(
+            duration,
+            Enum.EasingStyle.Linear,
+            Enum.EasingDirection.Out
+        )
+
+        local tween = TweenService:Create(root, tweenInfo, {
+            CFrame = targetCFrame
+        })
+        tween:Play()
+        tween.Completed:Wait()
+
+        -- Recompute if the character drifted badly from the planned path.
+        if (root.Position - movePos).Magnitude > 7 then
+            break
+        end
+    end
+
+    -- Always finish exactly at the requested target.
+    if root.Parent then
+        local finalPos = targetPos + Vector3.new(0, 2.5, 0)
+        local distance = (finalPos - root.Position).Magnitude
+        local duration = math.max(distance / speed, 0.08)
+        local direction = finalPos - root.Position
+        local lookAt = direction.Magnitude > 0.05 and (finalPos + direction.Unit) or (finalPos + root.CFrame.LookVector)
+
+        local finalTween = TweenService:Create(
+            root,
+            TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+            {CFrame = CFrame.lookAt(finalPos, lookAt)}
+        )
+        finalTween:Play()
+        finalTween.Completed:Wait()
+    end
+
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+    root.Anchored = wasAnchored
+    if hum then
+        hum.AutoRotate = oldAutoRotate
+        hum.PlatformStand = oldPlatformStand
+    end
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+
     return true
 end
 
+local function tweenAtWalkSpeed(targetPos)
+    return tweenAlongPath(targetPos, 30)
+end
+
 local function tweenAtSpeed(targetPos, speed)
-    local char = player.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    speed = math.max(tonumber(speed) or CONFIG.LootPickupSpeed, 1)
-    local distance = (targetPos - root.Position).Magnitude
-    local duration = math.max(distance / speed, 0.2)
-    local startCFrame = root.CFrame
-    local targetCFrame = CFrame.new(targetPos)
-    local elapsed = 0
-    local step = math.max(CONFIG.CFrameUpdateDelay or 0.05, 0.03)
-
-    while elapsed < duration do
-        if not root.Parent then return false end
-        local dt = math.min(step, duration - elapsed)
-        task.wait(dt)
-        elapsed += dt
-        local alpha = math.clamp(elapsed / duration, 0, 1)
-        root.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-    end
-    root.CFrame = targetCFrame
-    return true
+    return tweenAlongPath(targetPos, math.max(tonumber(speed) or CONFIG.LootPickupSpeed or 50, 1))
 end
 
 -- ============================================================
@@ -1703,7 +1787,7 @@ local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, ca
                 local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
                 local val = minVal + percent * (maxVal - minVal)
                 if labelText == "Walk Speed" then
-                    val = math.min(val, 25)   -- cap at 25
+                    val = math.min(val, 74)
                 end
                 fill.Size = UDim2.new(percent, 0, 1, 0)
                 valLabel.Text = string.format("%.1f", val) .. unit
@@ -1971,9 +2055,8 @@ end)
 -- ============================================================
 local playerToggles = {}
 
--- Walk Speed slider: max 25, init 25
-local speedRow, speedSliderObj = addSliderRow(playerTab, "Walk Speed", 0, 25, 25, "", function(val)  -- changed max to 25
-    val = math.min(val, 25)
+local speedRow, speedSliderObj = addSliderRow(playerTab, "Walk Speed", 0, 74, 35, "", function(val)
+    val = math.min(val, 74)
     cheats.speed = val
     CONFIG.WalkSpeed = val
     CONFIG.LootPickupSpeed = val
@@ -2476,7 +2559,7 @@ RunService.Heartbeat:Connect(function()
     if char then
         local hum = char:FindFirstChild("Humanoid")
         if hum and hum.WalkSpeed ~= cheats.speed then
-            local safeSpeed = math.min(cheats.speed, 25)   -- cap at 25
+            local safeSpeed = math.min(cheats.speed, 74)
             hum.WalkSpeed = safeSpeed
         end
     end
@@ -2489,7 +2572,7 @@ player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     local hum = char:FindFirstChild("Humanoid")
     if hum then
-        hum.WalkSpeed = math.min(cheats.speed, 25)
+        hum.WalkSpeed = math.min(cheats.speed, 74)
         hum.AutoRotate = true
         hum.PlatformStand = false
     end
