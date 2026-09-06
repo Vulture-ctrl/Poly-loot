@@ -1,2526 +1,2500 @@
---[[ POLY LOOT – ALL TWEEN @50 – FULLY FIXED ]] 
+-- POLY LOOT - V20 LIVE ROUND TRACKING
+-- Built from the mapped game systems only. No code copied from previous scripts.
+-- Intended for testing in the user's own Roblox experience.
+-- Archery aim locks to the first front-facing contest target to prevent adjacent-target twitching.
+
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local PathfindingService = game:GetService("PathfindingService")
+local CollectionService = game:GetService("CollectionService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
-print("🚀 POLY LOOT STARTED")
+local Player = Players.LocalPlayer
 
--- ===== GUI PARENT =====
-local guiParent
-pcall(function()
-    if player then
-        guiParent = player:WaitForChild("PlayerGui", 10)
-    end
-end)
-if not guiParent then
-    pcall(function()
-        if typeof(gethui) == "function" then
-            guiParent = gethui()
-        end
-    end)
+-- Cross-run cleanup. New POLY LOOT versions call the previous registered shutdown
+-- before creating another GUI/loop set. Older versions that predate this registry
+-- cannot be reached through their old local variables, so a fresh rejoin once is
+-- still the guaranteed way to clear those legacy RenderStepped connections.
+local POLY_SHARED = (getgenv and getgenv()) or _G
+local POLY_ARCHERY_BIND = "PolyLootArcheryAim_" .. tostring(Player.UserId)
+if type(POLY_SHARED.POLY_LOOT_SHUTDOWN) == "function" then
+    pcall(POLY_SHARED.POLY_LOOT_SHUTDOWN)
 end
-if not guiParent then
-    pcall(function()
-        guiParent = game:GetService("CoreGui")
-    end)
-end
-if not guiParent then
-    warn("POLY LOOT: Could not find a GUI parent")
-    return
-end
-print("✅ GUI Parent:", guiParent.Name)
+pcall(function() RunService:UnbindFromRenderStep(POLY_ARCHERY_BIND) end)
 
--- ===== CONFIG =====
+-- ============================================================
+-- CONFIG
+-- ============================================================
 local CONFIG = {
-    AttackDelay = 0.8,
-    DelayVariation = 0.1,
-    CollectInterval = 30,
-    CollectAmount = 1119,
-    CollectHoldTime = 2,
-    AntiAFKInterval = 45,
-    EnableAttack = true,
-    EnableCollect = false,
+    WalkSpeed = 34,
+    TravelSpeed = 25,
+    AttackDelay = 0.80,
+    LootRadius = 150,
+    MobRadius = 250,
+    ScanInterval = 0.20,
+    TeleportTweenTime = 0.65,
+    ArrivalDistance = 5,
+    AttackDelayMin = 0.30,
+    AttackDelayMax = 1.20,
+    FarmRadius = 120,
+    FarmMoveSpeed = 25,
+    GoldCollectAmount = 1119,
+    GoldCollectInterval = 30,
+    InventoryActionDelay = 0.15,
+    AFKInterval = 45,
+}
+
+local MOB_ALIASES = {
+    Chicken = {"A_34"},
+    Sheep = {"Cube"},
+    Cow = {"A_42"},
+    Pig = {"Cube.001"},
+    Bear = {"A_01"},
+    Bat = {"A_11"},
+    Silverfish = {"Cube.002"},
+    Snail = {"A_43"},
+    Wolf = {"A_50"},
+    Gargoyle = {"SM_GARGORYLE_BAT"},
+    Spider = {"Plane"},
+    ["King Chicken"] = {"A_34"},
+    Skeleton = {"HumanoidRootPart"},
+}
+
+local PASSIVE_SPECIES = {Chicken=true, Sheep=true, Cow=true, Pig=true, Bear=true, Bat=true, Silverfish=true, Snail=true}
+local AGGRESSIVE_SPECIES = {Wolf=true, Skeleton=true, Gargoyle=true, Spider=true, ["King Chicken"]=true}
+
+local LOCATIONS = {
+    GoldMine = Vector3.new(484.7, 164.5, -545.2),
+    Spawn = Vector3.new(689.8, 176.8, 95.8),
+    Shop = Vector3.new(708.6, 176.8, 35.4),
+    Dismantle = Vector3.new(674.6, 178.9, 171.0),
+    Upgrade = Vector3.new(734.2, 176.9, 137.9),
+    Tiers = Vector3.new(715.1, 176.9, 96.6),
+}
+
+local state = {
     AutoLoot = false,
-    LootHoldSeconds = 2,
-    AutoClickSpeed = 0.1,
-    AutoClickX = 730,
-    AutoClickY = 300,
-    BatchMode = false,
-    WalkSpeed = 25,           -- changed to 25 max
-    LootPickupSpeed = 25,     -- changed to 25 max
-    CFrameUpdateDelay = 0.05,
+    AutoAttack = false,
+    AutoSell = false,
+    AutoDismantle = false,
+    AutoUpgrade = false,
+    GoldMineCollect = false,
+    AntiAFK = false,
+    MobESP = false,
+    TreeScan = false,
+    AutoOre = false,
+    ManualTravel = false,
+    CurrentTarget = nil,
+    CurrentTab = "Farm",
+    FarmKind = "All",
+    FarmSpecies = "All",
+    SelectedFarm = false,
+    NearbyMobScan = {},
+    SelectedTargetScan = {},
+    TravelSpeedLocked = true,
+    FarmMoveSpeedLocked = true,
+    EnvironmentCollisionTest = false,
+    ArcheryCenterAim = false,
+    ArcheryAutoShoot = false,
+    ArcheryAutoMinScore = 8,
 }
 
--- ===== COORDINATES =====
-local GOLD_MINE_POS = Vector3.new(484.7, 164.5, -545.2)
-local SPAWN_POS = Vector3.new(689.8, 176.8, 95.8)
-local SHOP_POS = Vector3.new(708.6, 176.8, 35.4)
-local DISMANTLE_SHOP_POS = Vector3.new(674.6, 178.9, 171.0)
-local UPGRADE_SHOP_POS = Vector3.new(734.2, 176.9, 137.9)
-local TIERS_POS = Vector3.new(715.1, 176.9, 96.6)
+local connections = {}
+local stopFlags = {}
+local guiObjects = {}
+local killSwitchActivated = false
+local activeMovementTween = nil
+local fullShutdown = nil
+local stopArcheryAim = nil
+local stopArcheryAutoShoot = nil
+local setEnvironmentDeleteTest = nil
 
--- ===== PLAYER CHEATS =====
-local cheats = {
-    speed = 25,            -- changed to 25 max
-    fly = false,
-    flySpeed = 50,
-    antiAFK = true,
-    autoClick = false,
-    autoClickStartTime = 0,
-    autoClickActive = false,
-    autoClickCooldown = 0,
-}
-
--- ===== STATUS TEXT =====
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, 0, 0, 28)
-status.BackgroundTransparency = 1
-status.Text = "Status: Initializing..."
-status.TextColor3 = Color3.fromRGB(255,255,255)
-status.Font = Enum.Font.GothamBold
-status.TextSize = 18
-status.Parent = nil
+-- Archery locals are declared here so the kill switch/X button close over the
+-- ACTUAL variables instead of accidentally referring to unrelated globals.
+local archeryAimEnabled = false
+local archeryLateConn = nil
+local archeryLockedTarget = nil
+local archeryLockedBull = nil
+local archeryLastSearchTime = 0
+local archeryLastBullPart = nil
+local archeryLastBullPosition = nil
+local archeryLastBullTime = 0
+local archeryTrackedVelocity = Vector3.zero
+local archerySmoothedAimPoint = nil
+local archerySmoothedTarget = nil
+local archeryLastAimTime = 0
+local archeryLastDirectionChangeAt = 0
+local archeryLatestScore = 0
+local archeryLatestScoreError = math.huge
+local archeryLatestScoreTime = 0
+local archeryAutoOwnsDraw = false
+local archeryAutoDrawStartedAt = 0
+local archeryAutoNextShotAt = 0
+local archeryAutoGoodFrames = 0
+local archeryBowClient = nil
+local archeryAutoInputMode = nil
+local archeryAutoVirtualMouseHeld = false
+local archeryAutoDrawVerifyAt = 0
 
 -- ============================================================
--- MOVEMENT HELPERS (ALL TWEEN)
+-- STARTUP SAFETY: EVERYTHING OFF
 -- ============================================================
-local function tweenAtWalkSpeed(targetPos)
-    local char = player.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    local distance = (targetPos - root.Position).Magnitude
-    local speed = math.max(CONFIG.WalkSpeed, 1)
-    local duration = math.max(distance / speed, 0.2)
-    local startCFrame = root.CFrame
-    local targetCFrame = CFrame.new(targetPos)
-    local elapsed = 0
-    local step = math.max(CONFIG.CFrameUpdateDelay or 0.05, 0.03)
-
-    while elapsed < duration do
-        if not root.Parent then return false end
-        local dt = math.min(step, duration - elapsed)
-        task.wait(dt)
-        elapsed += dt
-        local alpha = math.clamp(elapsed / duration, 0, 1)
-        root.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+-- Nothing is enabled automatically when the script loads.
+for key, value in pairs(state) do
+    if type(value) == "boolean" then
+        state[key] = false
     end
-    root.CFrame = targetCFrame
-    return true
 end
-
-local function tweenAtSpeed(targetPos, speed)
-    local char = player.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    speed = math.max(tonumber(speed) or CONFIG.LootPickupSpeed, 1)
-    local distance = (targetPos - root.Position).Magnitude
-    local duration = math.max(distance / speed, 0.2)
-    local startCFrame = root.CFrame
-    local targetCFrame = CFrame.new(targetPos)
-    local elapsed = 0
-    local step = math.max(CONFIG.CFrameUpdateDelay or 0.05, 0.03)
-
-    while elapsed < duration do
-        if not root.Parent then return false end
-        local dt = math.min(step, duration - elapsed)
-        task.wait(dt)
-        elapsed += dt
-        local alpha = math.clamp(elapsed / duration, 0, 1)
-        root.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-    end
-    root.CFrame = targetCFrame
-    return true
-end
+state.CurrentTarget = nil
+state.CurrentTab = "Farm"
+for k,v in pairs(state) do if type(v)=="boolean" then state[k]=false end end
+state.AntiAFK = false
 
 -- ============================================================
--- INVENTORY & ITEM DB
+-- HELPERS
 -- ============================================================
-local inventoryItems = {}
-local skippedItems = {}
-
--- Forward declarations: these must exist before functions capture them.
-local ITEM_DB = {}
-local FAVORITE_ITEMS = {}
-local actionToggles = {}
-local clickConnection = nil
-
-local function getInventoryContainer()
-    local backpack = player:FindFirstChild("Backpack")
-    if backpack then return backpack end
-    local char = player.Character
-    if char then
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then
-                return char
+local function disconnect(name)
+    stopFlags[name] = true
+    local c = connections[name]
+    if c then
+        pcall(function()
+            if typeof(c) == "RBXScriptConnection" then
+                c:Disconnect()
+            elseif typeof(c) == "thread" then
+                task.cancel(c)
             end
-        end
+        end)
+        connections[name] = nil
     end
-    local pgui = player:FindFirstChild("PlayerGui")
-    if pgui then
-        for _, child in ipairs(pgui:GetChildren()) do
-            if child.Name:lower():find("inventory") then
-                return child
-            end
-        end
-    end
-    local rs = ReplicatedStorage
-    for _, child in ipairs(rs:GetChildren()) do
-        if child.Name:lower():find("inventory") or child.Name:lower():find("items") then
-            return child
-        end
-    end
-    return nil
+    task.wait()
+    stopFlags[name] = nil
 end
 
-local function fetchItemsFromContainer(container)
-    local items = {}
-    if not container then return items end
-    for _, child in ipairs(container:GetChildren()) do
-        if child:IsA("Tool") or child:IsA("BasePart") or child:IsA("Model") then
-            table.insert(items, child)
-        elseif child:IsA("Folder") then
-            for _, sub in ipairs(child:GetChildren()) do
-                if sub:IsA("Tool") or sub:IsA("BasePart") or sub:IsA("Model") then
-                    table.insert(items, sub)
-                end
-            end
-        end
-    end
-    return items
+local function getCharacter()
+    return Player.Character or Player.CharacterAdded:Wait()
 end
 
-local function requestInventoryViaRemote()
-    local success, result = pcall(function()
-        local remoteNames = {"GetInventory", "RequestInventory", "InventoryRequest", "GetItems", "RequestItems"}
-        for _, name in ipairs(remoteNames) do
-            local remote = ReplicatedStorage:FindFirstChild(name, true)
-            if remote and remote:IsA("RemoteFunction") then
-                local inv = remote:InvokeServer()
-                if type(inv) == "table" and #inv > 0 then
-                    return inv
-                end
-            end
-        end
-        return nil
-    end)
-    if success and result then
-        return result
-    end
-    return nil
+local function getRoot()
+    local character = Player.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
 end
 
-local function refreshInventory()
-    local items = {}
-    local container = getInventoryContainer()
-    if container then
-        items = fetchItemsFromContainer(container)
-    end
-    if #items == 0 then
-        local remoteItems = requestInventoryViaRemote()
-        if remoteItems then
-            items = remoteItems
-        end
-    end
-    if #items == 0 then
-        for name, data in pairs(ITEM_DB) do
-            table.insert(items, {Name = name, Rarity = data.rarity})
-        end
-    end
-    local filtered = {}
-    for _, item in ipairs(items) do
-        local itemName = item.Name or item.name or ""
-        if not skippedItems[itemName] then
-            table.insert(filtered, item)
-        end
-    end
-    inventoryItems = filtered
-    status.Text = "Inventory: " .. #inventoryItems .. " items"
-    return inventoryItems
+local function getHumanoid()
+    local character = Player.Character
+    return character and character:FindFirstChildOfClass("Humanoid")
 end
 
-local function isItemFavorite(item)
-    if not item then return false end
-    if item.Favorited == true or item.Favorite == true then return true end
-    local name = item.Name or item.name or ""
-    for fav in pairs(FAVORITE_ITEMS) do
-        if string.lower(name) == string.lower(fav) then return true end
-    end
-    return false
-end
-
--- ===== ITEM DB =====
-ITEM_DB = {
-    ["Basic Sword"] = {serial = "s_basic_sword", rarity = "Common"},
-    ["Leather Helmet"] = {serial = "s_leather_helmet", rarity = "Common"},
-    ["Basic Dagger"] = {serial = "s_648e486a_972", rarity = "Common"},
-    ["Basic Axe"] = {serial = "s_basic_axe", rarity = "Common"},
-    ["Basic Spear"] = {serial = "s_basic_spear", rarity = "Common"},
-    ["Basic Hammer"] = {serial = "s_basic_hammer", rarity = "Common"},
-    ["Basic Katana"] = {serial = "s_basic_katana", rarity = "Common"},
-    ["Leather Boots"] = {serial = "s_leather_boots", rarity = "Common"},
-    ["Basic Scythe"] = {serial = "s_basic_scythe", rarity = "Common"},
-    ["Basic Great Axe"] = {serial = "s_basic_great_axe", rarity = "Common"},
-    ["Basic Great Sword"] = {serial = "s_basic_great_sword", rarity = "Common"},
-    ["Leather Leggings"] = {serial = "s_leather_leggings", rarity = "Common"},
-    ["Basic Twinblade Axe"] = {serial = "s_basic_twinblade", rarity = "Common"},
-    ["Primal Axe"] = {serial = "s_primal_axe", rarity = "Common"},
-    ["Leather ChestPlate"] = {serial = "s_leather_chest", rarity = "Common"},
-    ["Cobweb"] = {serial = "s_98f95e2b_6c", rarity = "Common"},
-    ["Iron Helmet"] = {serial = "s_iron_helmet", rarity = "Rare"},
-    ["Gold Helmet"] = {serial = "s_gold_helmet", rarity = "Rare"},
-    ["Iron Boots"] = {serial = "s_iron_boots", rarity = "Rare"},
-    ["Red Elemental"] = {serial = "s_0b247be6_41", rarity = "Rare"},
-    ["Gold Boots"] = {serial = "s_gold_boots", rarity = "Rare"},
-    ["Iron Leggings"] = {serial = "s_iron_leggings", rarity = "Rare"},
-    ["Hunter Spear"] = {serial = "s_hunter_spear", rarity = "Rare"},
-    ["Gold Leggings"] = {serial = "s_gold_leggings", rarity = "Rare"},
-    ["Iron ChestPlate"] = {serial = "s_iron_chest", rarity = "Rare"},
-    ["Quartz Hammer"] = {serial = "s_648e486a_975", rarity = "Rare"},
-    ["Rune Sword"] = {serial = "s_rune_sword", rarity = "Rare"},
-    ["Gold ChestPlate"] = {serial = "s_gold_chest", rarity = "Rare"},
-    ["Blue Elemental"] = {serial = "s_blue_elemental", rarity = "Rare"},
-    ["Rune Helmet"] = {serial = "s_rune_helmet", rarity = "Epic"},
-    ["Rune Boots"] = {serial = "s_rune_boots", rarity = "Epic"},
-    ["Rune Leggings"] = {serial = "s_rune_leggings", rarity = "Epic"},
-    ["Rune Greatsword"] = {serial = "s_648e486a_98f", rarity = "Epic"},
-    ["Rune ChestPlate"] = {serial = "s_rune_chest", rarity = "Epic"},
-    ["Phantom Katana"] = {serial = "s_130c28fc_81", rarity = "Epic"},
-    ["Spider Helmet"] = {serial = "s_648e486a_948", rarity = "Legendary"},
-    ["Spider Boots"] = {serial = "s_130c28fc_82", rarity = "Legendary"},
-    ["Spider Leggings"] = {serial = "s_648e486a_946", rarity = "Legendary"},
-    ["Spider ChestPlate"] = {serial = "s_spider_chest", rarity = "Legendary"},
-    ["Royal Axe"] = {serial = "s_130c28fc_6d", rarity = "Legendary"},
-    ["Amethyst Sword"] = {serial = "s_648e486a_970", rarity = "Legendary"},
-    ["Spider Dagger"] = {serial = "s_648e486a_97b", rarity = "Legendary"},
-    ["Bone Sword"] = {serial = "s_bone_sword", rarity = "Legendary"},
-    ["Chicken Crown"] = {serial = "s_648e486a_91f", rarity = "Mythic"},
-    ["Coffin Blade"] = {serial = "s_648e486a_956", rarity = "Mythic"},
-    ["Galaxy Axe"] = {serial = "s_galaxy_axe", rarity = "Secret"},
-    ["Galaxy Hammer"] = {serial = "s_galaxy_hammer", rarity = "Secret"},
-    ["Nether Boots"] = {serial = "s_nether_boots", rarity = "Secret"},
-    ["Nether ChestPlate"] = {serial = "s_nether_chest", rarity = "Secret"},
-    ["Nether Helmet"] = {serial = "s_648e486a_973", rarity = "Secret"},
-    ["Nether Leggings"] = {serial = "s_nether_leggings", rarity = "Secret"},
-    ["Release Helmet"] = {serial = "s_release_helmet", rarity = "Secret"},
-    ["Slime Hammer"] = {serial = "s_slime_hammer", rarity = "Secret"},
-    ["Coin Sword"] = {serial = "s_coin_sword", rarity = "Secret"},
-    ["Nether Greatsword"] = {serial = "s_nether_greatsword", rarity = "Secret"},
-    ["Hacker Scythe"] = {serial = "s_hacker_scythe", rarity = "Secret"},
-    ["Rouxx Greatsword"] = {serial = "s_rouxx_greatsword", rarity = "Secret"},
-    ["Nether Scythe"] = {serial = "s_648e486a_984", rarity = "Unknown"},
-}
-FAVORITE_ITEMS = {
-    ["Basic Sword"] = true,
-    ["Red Elemental"] = true,
-}
-refreshInventory()
-
--- ============================================================
--- SELL/DISMANTLE/UPGRADE REMOTES
--- ============================================================
-local function sellItem(item)
-    if not item or isItemFavorite(item) then return false end
-    local sellRemote = ReplicatedStorage:FindFirstChild("Sell", true)
-    if sellRemote and sellRemote:IsA("RemoteEvent") then
-        pcall(function() sellRemote:FireServer(item) end)
-        return true
-    end
-    local invSell = ReplicatedStorage:FindFirstChild("Inventory_Engine", true)
-    if invSell then
-        local sell = invSell:FindFirstChild("Sell", true)
-        if sell and sell:IsA("RemoteEvent") then
-            pcall(function() sell:FireServer(item) end)
-            return true
-        end
-    end
-    return false
-end
-
-local function dismantleItem(item)
-    if not item or isItemFavorite(item) then return false end
-    local dismantleRemote = ReplicatedStorage:FindFirstChild("DismantleRequest", true)
-    if dismantleRemote and dismantleRemote:IsA("RemoteEvent") then
-        pcall(function() dismantleRemote:FireServer(item) end)
-        return true
-    end
-    local craftEngine = ReplicatedStorage:FindFirstChild("Crafting_Engine", true)
-    if craftEngine then
-        local dismantle = craftEngine:FindFirstChild("DismantleRequest", true)
-        if dismantle and dismantle:IsA("RemoteEvent") then
-            pcall(function() dismantle:FireServer(item) end)
-            return true
-        end
-    end
-    return false
-end
-
-local function upgradeItem(item, stat)
-    if not item or isItemFavorite(item) then return false end
-    stat = stat or "Damage"
-    local upgradeRemote = ReplicatedStorage:FindFirstChild("UpgradeRequest", true)
-    if upgradeRemote and upgradeRemote:IsA("RemoteEvent") then
-        pcall(function() upgradeRemote:FireServer(item, stat) end)
-        return true
-    end
-    local upgradeEngine = ReplicatedStorage:FindFirstChild("Upgrade_Engine", true)
-    if upgradeEngine then
-        local upgrade = upgradeEngine:FindFirstChild("UpgradeRequest", true)
-        if upgrade and upgrade:IsA("RemoteEvent") then
-            pcall(function() upgrade:FireServer(item, stat) end)
-            return true
-        end
-    end
-    return false
-end
-
--- ============================================================
--- AUTO CLICKER
--- ============================================================
-local function performClick()
-    local x = CONFIG.AutoClickX
-    local y = CONFIG.AutoClickY
-    local ok = false
-
-    pcall(function()
-        if typeof(mouse1click) == "function" then
-            mouse1click(x, y)
-            ok = true
-            return
-        end
-        if VirtualInputManager then
-            VirtualInputManager:SendMouseMoveEvent(x, y, game)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            task.wait(0.02)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-            ok = true
-        end
-    end)
-
-    return ok
-end
-
--- ============================================================
--- LOOT FUNCTIONS
--- ============================================================
-local function getNearestLoot()
-    local char = player.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
+local function findRecursive(root, name)
     if not root then return nil end
-    local pos = root.Position
-    local nearest, nearestDist = nil, 50
-    
-    local dropsFolder = Workspace:FindFirstChild("Drops")
-    if dropsFolder then
-        for _, obj in ipairs(dropsFolder:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
-                local d = 999
-                if obj:IsA("BasePart") then
-                    d = (obj.Position - pos).Magnitude
-                elseif obj:IsA("Model") and obj.PrimaryPart then
-                    d = (obj.PrimaryPart.Position - pos).Magnitude
-                elseif obj:IsA("Model") then
-                    local part = obj:FindFirstChildWhichIsA("BasePart")
-                    if part then
-                        d = (part.Position - pos).Magnitude
-                    end
-                end
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    
-    local serverDrops = Workspace:FindFirstChild("Animal_ServerDrops")
-    if serverDrops then
-        for _, obj in ipairs(serverDrops:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
-                local d = 999
-                if obj:IsA("BasePart") then
-                    d = (obj.Position - pos).Magnitude
-                elseif obj:IsA("Model") and obj.PrimaryPart then
-                    d = (obj.PrimaryPart.Position - pos).Magnitude
-                end
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") then
-            local name = string.lower(obj.Name)
-            if name:match("drop") or name:match("crate") or name:match("item") or name:match("loot") or name:match("chest") or name:match("bag") then
-                local d = (obj.Position - pos).Magnitude
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    return nearest, nearestDist
+    return root:FindFirstChild(name, true)
 end
 
-local function lootStillExists(item)
-    if not item then return false end
-    if item:IsA("BasePart") then
-        return item.Parent ~= nil and item.Parent:IsDescendantOf(Workspace)
-    elseif item:IsA("Model") then
-        return item.Parent ~= nil and item:IsDescendantOf(Workspace)
+local function getRemote(name)
+    local direct = ReplicatedStorage:FindFirstChild(name, true)
+    if direct and (direct:IsA("RemoteEvent") or direct:IsA("RemoteFunction")) then
+        return direct
     end
-    return false
+    return nil
 end
 
-local function getLootPosition(item)
-    if not item then return nil end
-    if item:IsA("BasePart") then
-        return item.Position + Vector3.new(0, 2, 0)
-    elseif item:IsA("Model") and item.PrimaryPart then
-        return item.PrimaryPart.Position + Vector3.new(0, 2, 0)
-    elseif item:IsA("Model") then
-        local part = item:FindFirstChildWhichIsA("BasePart")
-        if part then
-            return part.Position + Vector3.new(0, 2, 0)
+local function fireRemote(name, ...)
+    local args = {...}
+    local remote = getRemote(name)
+    if not remote then
+        return false, "Remote not found: " .. name
+    end
+    if remote:IsA("RemoteEvent") then
+        local ok, err = pcall(function()
+            remote:FireServer(table.unpack(args))
+        end)
+        return ok, err
+    end
+    return false, "RemoteFunction requires an explicit InvokeServer contract: " .. name
+end
+
+local function findFolder(name)
+    return Workspace and Workspace:FindFirstChild(name)
+end
+
+local function getPosition(instance)
+    if not instance then return nil end
+    if instance:IsA("BasePart") then
+        return instance.Position
+    end
+    if instance:IsA("Model") then
+        local mobRoot = instance:FindFirstChild("HumanoidRootPart", true)
+        if mobRoot and mobRoot:IsA("BasePart") then
+            return mobRoot.Position
+        end
+        local primary = instance.PrimaryPart
+        if primary then return primary.Position end
+        local ok, pivot = pcall(function() return instance:GetPivot() end)
+        if ok and pivot then
+            return pivot.Position
+        end
+        local anyPart = instance:FindFirstChildWhichIsA("BasePart", true)
+        if anyPart then return anyPart.Position end
+    end
+    return nil
+end
+
+local function within(instance, origin, radius)
+    local pos = getPosition(instance)
+    return pos and origin and (pos - origin).Magnitude <= radius
+end
+
+local function getMobFolder()
+    local live = Workspace:FindFirstChild("Animal_Live")
+    return live
+end
+
+local function firstDescendantOfClass(root, className)
+    if not root then return nil end
+    return root:FindFirstChildWhichIsA(className, true)
+end
+
+local function mobSpecies(mob)
+    if not mob then return nil end
+    local attr = mob:GetAttribute("Animal")
+    if type(attr) == "string" and attr ~= "" then return attr end
+    local lowName = string.lower(mob.Name)
+    for species, aliases in pairs(MOB_ALIASES) do
+        for _, alias in ipairs(aliases) do
+            if lowName == string.lower(alias) then
+                return species
+            end
+        end
+    end
+    for species in pairs(MOB_ALIASES) do
+        if string.find(lowName, string.lower(species), 1, true) then
+            return species
         end
     end
     return nil
 end
 
-local function instantLoot()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local originalPos = root.Position
-    local lootSpeed = CONFIG.LootPickupSpeed or 50
-    
-    local item, dist = getNearestLoot()
-    if not item then
-        status.Text = "No loot found nearby"
-        return
+local function mobKind(mob)
+    local species = mobSpecies(mob)
+    if species and PASSIVE_SPECIES[species] then return "Passive" end
+    if species and AGGRESSIVE_SPECIES[species] then return "Aggressive" end
+    local live = getMobFolder()
+    if live then
+        local ag = live:FindFirstChild("Aggressors")
+        local pa = live:FindFirstChild("Passives")
+        if ag and mob:IsDescendantOf(ag) then return "Aggressive" end
+        if pa and mob:IsDescendantOf(pa) then return "Passive" end
     end
-    
-    local targetPos = getLootPosition(item)
-    if not targetPos then
-        status.Text = "Could not determine loot position"
-        return
-    end
-    
-    status.Text = "Walking to loot..."
-    tweenAtSpeed(targetPos, lootSpeed)
-    task.wait(0.1)
-    
-    if not lootStillExists(item) then
-        status.Text = "Loot disappeared, returning..."
-        tweenAtSpeed(originalPos, lootSpeed)
-        return
-    end
-    
-    -- Remote pickup first
-    local remoteSuccess = false
-    pcall(function()
-        local pickupRemote = ReplicatedStorage:FindFirstChild("Pickup_Client", true)
-        if pickupRemote and pickupRemote:IsA("RemoteEvent") then
-            pickupRemote:FireServer(item)
-            remoteSuccess = true
-            return
-        end
-        local itemEngine = ReplicatedStorage:FindFirstChild("Item_Engine", true)
-        if itemEngine then
-            local pickup = itemEngine:FindFirstChild("PickupItem", true)
-            if pickup and pickup:IsA("RemoteEvent") then
-                pickup:FireServer(item)
-                remoteSuccess = true
-                return
-            end
-        end
-        local remote = ReplicatedStorage:FindFirstChild("Remote", true)
-        if remote and remote:IsA("RemoteEvent") then
-            remote:FireServer("Pickup", item)
-            remoteSuccess = true
-            return
-        end
-        local prompt = nil
-        if item.Parent then
-            prompt = item.Parent:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if not prompt then
-            prompt = item:FindFirstChildWhichIsA("ProximityPrompt")
-        end
-        if prompt then
-            prompt:Fire(player)
-            remoteSuccess = true
-        end
-    end)
-    
-    if remoteSuccess then
-        status.Text = "Picked up via remote, returning..."
-        tweenAtSpeed(originalPos, lootSpeed)
-        return
-    end
-    
-    -- Hold E
-    status.Text = "Holding E..."
-    local startTime = tick()
-    local holdDuration = CONFIG.LootHoldSeconds or 2
-    
-    pcall(function()
-        if VirtualInputManager then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, nil)
-        else
-            local downInput = Instance.new("InputObject")
-            downInput.UserInputType = Enum.UserInputType.Keyboard
-            downInput.KeyCode = Enum.KeyCode.E
-            downInput.UserInputState = Enum.UserInputState.Begin
-            UserInputService:FireInput(downInput)
-        end
-    end)
-    
-    while (tick() - startTime) < holdDuration do
-        if not lootStillExists(item) then
-            status.Text = "Loot picked up! Returning..."
-            break
-        end
-        task.wait(0.15)
-    end
-    
-    pcall(function()
-        if VirtualInputManager then
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, nil)
-        else
-            local upInput = Instance.new("InputObject")
-            upInput.UserInputType = Enum.UserInputType.Keyboard
-            upInput.KeyCode = Enum.KeyCode.E
-            upInput.UserInputState = Enum.UserInputState.End
-            UserInputService:FireInput(upInput)
-        end
-    end)
-    
-    tweenAtSpeed(originalPos, lootSpeed)
-    status.Text = "Loot done."
+    return "Unknown"
 end
 
--- ============================================================
--- GOLD COLLECTION
--- ============================================================
-local collectCount = 0
-local isAtGoldMine = false
-local goldMineStartTime = 0
-
-local function collectGold()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local originalPos = root.Position
-    
-    status.Text = "Walking to Gold Mine..."
-    tweenAtWalkSpeed(GOLD_MINE_POS + Vector3.new(0, 5, 0))
-    task.wait(0.2)
-    
-    isAtGoldMine = true
-    goldMineStartTime = tick()
-    status.Text = "Collecting gold..."
-    
-    while isAtGoldMine and (tick() - goldMineStartTime) < CONFIG.CollectHoldTime do
-        local collectRemote = ReplicatedStorage:FindFirstChild("CollectRequest", true)
-        if collectRemote and collectRemote:IsA("RemoteEvent") then
-            pcall(function()
-                collectRemote:FireServer(CONFIG.CollectAmount)
-                collectCount = collectCount + 1
-            end)
-        end
-        local goldEngine = ReplicatedStorage:FindFirstChild("GoldMine_Engine", true)
-        if goldEngine then
-            local collect = goldEngine:FindFirstChild("CollectRequest", true)
-            if collect and collect:IsA("RemoteEvent") then
-                pcall(function()
-                    collect:FireServer(CONFIG.CollectAmount)
-                    collectCount = collectCount + 1
-                end)
-            end
-        end
-        task.wait(0.5)
-    end
-    
-    isAtGoldMine = false
-    status.Text = "Gold collected, returning..."
-    tweenAtWalkSpeed(originalPos)
-    status.Text = "Gold done."
+local function getMobRoot(mob)
+    if not mob then return nil end
+    if mob:IsA("BasePart") then return mob end
+    local root = mob:FindFirstChild("HumanoidRootPart", true)
+    if root and root:IsA("BasePart") then return root end
+    local primary = mob:IsA("Model") and mob.PrimaryPart or nil
+    if primary then return primary end
+    return mob:FindFirstChildWhichIsA("BasePart", true)
 end
 
--- ============================================================
--- BOSS FARM
--- ============================================================
-local bossFarms = {}
-local bossFarmThreads = {}
-
-local function getBossTimerLabel(bossSignName)
-    local success, result = pcall(function()
-        local bossSign = Workspace:FindFirstChild(bossSignName)
-        if not bossSign then return nil end
-        local sign = bossSign:FindFirstChild("Sign")
-        if sign then
-            local surfaceGui = sign:FindFirstChild("SurfaceGui")
-            if surfaceGui then
-                local template = surfaceGui:FindFirstChild("Template")
-                if template then
-                    local timer = template:FindFirstChild("TIMER")
-                    if timer then return timer end
-                end
-            end
-        end
-        for _, child in ipairs(bossSign:GetDescendants()) do
-            if child:IsA("TextLabel") then
-                local name = string.upper(child.Name or "")
-                local text = string.upper(child.Text or "")
-                if name:find("TIMER") or text:find("ALIVE") or tonumber(text:match("(%d+)")) then
-                    return child
-                end
-            end
-        end
-        return nil
-    end)
-    return success and result or nil
+local function isAliveMob(mob)
+    if not mob or not mob.Parent then return false end
+    local tagged = CollectionService:HasTag(mob, "Mob")
+    local live = getMobFolder()
+    local inLive = live and mob:IsDescendantOf(live)
+    if not tagged and not inLive then return false end
+    local hum = mob:FindFirstChildOfClass("Humanoid") or firstDescendantOfClass(mob, "Humanoid")
+    if hum and hum.Health <= 0 then return false end
+    if mob:GetAttribute("_Dying") == true then return false end
+    return getPosition(mob) ~= nil
 end
 
-local function isBossAlive(timerLabel)
-    if not timerLabel then return true end
-    local text = string.upper(timerLabel.Text or "")
-    if string.find(text, "ALIVE") then
-        return true
-    end
-    local num = tonumber(text:match("(%d+)"))
-    if num then
-        return false
-    end
-    return true
-end
-
-local function getBossRespawnTime(timerLabel)
-    if not timerLabel then return 0 end
-    local text = timerLabel.Text or ""
-    local mins = tonumber(text:match("(%d+)m"))
-    local secs = tonumber(text:match("(%d+)s"))
-    if mins and secs then return (mins * 60) + secs end
-    if mins then return mins * 60 end
-    if secs then return secs end
-    local num = tonumber(text:match("(%d+)"))
-    if num then
-        if num > 60 then return num end
-        return num
-    end
-    return 0
-end
-
-local function formatRespawnTime(seconds)
-    if not seconds or seconds <= 0 then return "ALIVE 🟢" end
-    local mins = math.floor(seconds / 60)
-    local secs = seconds % 60
-    if mins > 0 then
-        if secs > 0 then
-            return string.format("%dm %ds", mins, secs)
-        else
-            return string.format("%dm", mins)
-        end
-    else
-        return string.format("%ds", secs)
-    end
-end
-
-local function findBossModel(bossName)
-    local mobs = Workspace:FindFirstChild("Mobs")
-    if mobs then
-        for _, obj in ipairs(mobs:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name == bossName then
-                return obj
-            end
-        end
-    end
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name == bossName then
-            return obj
-        end
-    end
-    local lowerName = string.lower(bossName)
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local objLower = string.lower(obj.Name)
-            if objLower:find(lowerName) then
-                return obj
-            end
-        end
-    end
-    return nil
-end
-
-function toggleBossFarm(bossName, bossSignName, bossDisplayName, btn, statusLabel)
-    local key = bossName
-    if bossFarms[key] and bossFarms[key].running then
-        bossFarms[key].running = false
-        if bossFarmThreads[key] then
-            task.cancel(bossFarmThreads[key])
-            bossFarmThreads[key] = nil
-        end
-        local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                for _, obj in ipairs(root:GetChildren()) do
-                    if obj:IsA("BodyPosition") or obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") then
-                        obj:Destroy()
+local function collectMobs(radius, kindFilter, speciesFilter)
+    local root = getRoot()
+    if not root then return {} end
+    local found, seen = {}, {}
+    local candidates = CollectionService:GetTagged("Mob")
+    local live = getMobFolder()
+    if live then
+        local ag = live:FindFirstChild("Aggressors")
+        local pa = live:FindFirstChild("Passives")
+        for _, folder in ipairs({ag, pa}) do
+            if folder then
+                for _, mob in ipairs(folder:GetChildren()) do
+                    if not seen[mob] then
+                        seen[mob] = true
+                        table.insert(candidates, mob)
                     end
                 end
             end
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then hum.AutoRotate = true end
         end
-        if bossFarms[key].timerConnection then
-            bossFarms[key].timerConnection:Disconnect()
-            bossFarms[key].timerConnection = nil
-        end
-        bossFarms[key].currentTarget = nil
-        status.Text = bossDisplayName .. " farm stopped"
-        if btn then
-            btn.Text = bossDisplayName .. " Farm (OFF)"
-            btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-        end
-        if statusLabel then
-            statusLabel.Text = bossDisplayName .. ": OFF"
-            statusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-        end
-        return
     end
-    
-    local char = player.Character
-    if not char then
-        status.Text = "Character not loaded"
-        return
-    end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then
-        status.Text = "RootPart not found"
-        return
-    end
-    
-    if not bossFarms[key] then
-        bossFarms[key] = {
-            running = false,
-            currentTarget = nil,
-            isAlive = false,
-            timerLabel = nil,
-            timerConnection = nil,
-            bodyPosition = nil,
-            bodyVelocity = nil,
-            bodyGyro = nil,
-        }
-    end
-    
-    bossFarms[key].running = true
-    bossFarms[key].currentTarget = nil
-    bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
-    
-    if btn then
-        btn.Text = bossDisplayName .. " Farm (ON)"
-        btn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-    end
-    if statusLabel then
-        statusLabel.Text = bossDisplayName .. ": SCANNING 🔍"
-        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-    end
-    status.Text = bossDisplayName .. " farming started"
-    
-    local timerLabel = bossFarms[key].timerLabel
-    if timerLabel then
-        if bossFarms[key].timerConnection then
-            bossFarms[key].timerConnection:Disconnect()
-        end
-        bossFarms[key].timerConnection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
-            task.spawn(function()
-                local mob = findBossModel(bossName)
-                if mob then
-                    lockToBoss(key, mob, bossDisplayName, statusLabel)
-                end
-            end)
-        end)
-    end
-    
-    bossFarmThreads[key] = task.spawn(function()
-        while bossFarms[key] and bossFarms[key].running do
-            if not bossFarms[key].timerLabel then
-                bossFarms[key].timerLabel = getBossTimerLabel(bossSignName)
-                if bossFarms[key].timerLabel then
-                    if bossFarms[key].timerConnection then
-                        bossFarms[key].timerConnection:Disconnect()
-                    end
-                    bossFarms[key].timerConnection = bossFarms[key].timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
-                        task.spawn(function()
-                            local mob = findBossModel(bossName)
-                            if mob then
-                                lockToBoss(key, mob, bossDisplayName, statusLabel)
-                            end
-                        end)
-                    end)
-                end
-            end
-            
-            local timerLabel = bossFarms[key].timerLabel
-            local isAlive = isBossAlive(timerLabel)
-            local respawnTime = getBossRespawnTime(timerLabel)
-            local formattedTime = formatRespawnTime(respawnTime)
-            
-            if statusLabel then
-                if isAlive then
-                    statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
-                    statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                else
-                    if respawnTime > 0 then
-                        statusLabel.Text = bossDisplayName .. ": " .. formattedTime .. " ⏳"
-                        statusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                    else
-                        statusLabel.Text = bossDisplayName .. ": ALIVE 🟢"
-                        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                    end
-                end
-            end
-            
-            local mob = findBossModel(bossName)
-            
-            if mob then
-                lockToBoss(key, mob, bossDisplayName, statusLabel)
-            else
-                if isAlive then
-                    task.wait(0.3)
-                else
-                    bossFarms[key].currentTarget = nil
-                    bossFarms[key].isAlive = false
-                    if respawnTime > 0 then
-                        status.Text = bossDisplayName .. " respawning in " .. formattedTime
-                    else
-                        status.Text = bossDisplayName .. " waiting for respawn..."
-                    end
-                    task.wait(1)
-                end
-            end
-            
-            if mob then
-                task.wait(0.2)
-            elseif respawnTime > 0 and respawnTime < 10 then
-                task.wait(0.5)
-            else
-                task.wait(1)
+    for _, mob in ipairs(candidates) do
+        if not seen[mob] then seen[mob] = true end
+        if isAliveMob(mob) then
+            local species = mobSpecies(mob)
+            local kind = mobKind(mob)
+            local pos = getPosition(mob)
+            local matchesKind = (not kindFilter or kind == kindFilter)
+            local matchesSpecies = (not speciesFilter or species == speciesFilter)
+            if pos and (pos-root.Position).Magnitude <= (radius or CONFIG.MobRadius) and matchesKind and matchesSpecies then
+                table.insert(found, mob)
             end
         end
+    end
+    table.sort(found, function(a,b)
+        local ap,bp = getPosition(a), getPosition(b)
+        return ap and bp and (ap-root.Position).Magnitude < (bp-root.Position).Magnitude
     end)
+    return found
 end
 
-local function lockToBoss(key, mob, bossDisplayName, statusLabel)
-    if not mob or not bossFarms[key] then return end
-    local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChildWhichIsA("BasePart")
-    if not rootPart then return end
-    local char = player.Character
-    if not char then return end
-    local playerRoot = char:FindFirstChild("HumanoidRootPart")
-    if not playerRoot then return end
-    local hum = char:FindFirstChild("Humanoid")
+local function collectOre(radius, oreFilter)
+    local root = getRoot()
+    local folder = Workspace:FindFirstChild("Ore_Live")
+    if not root or not folder then return {} end
+    local found = {}
+    for _, ore in ipairs(folder:GetChildren()) do
+        if ore:IsA("BasePart") or ore:IsA("Model") then
+            local pos = getPosition(ore)
+            local name = ore.Name
+            local oreName = string.match(name, "^(.-) Ore Node$") or name
+            if pos and (pos-root.Position).Magnitude <= (radius or 300) and (not oreFilter or oreName == oreFilter) then
+                table.insert(found, {object=ore, name=oreName, position=pos})
+            end
+        end
+    end
+    table.sort(found, function(a,b) return (a.position-root.Position).Magnitude < (b.position-root.Position).Magnitude end)
+    return found
+end
+
+local function collectDrops(radius)
+    local root = getRoot()
+    if not root then return {} end
+    local result, seen = {}, {}
+    for _, folderName in ipairs({"WorldBits", "Animal_LocalDrops"}) do
+        local folder = Workspace:FindFirstChild(folderName)
+        if folder then
+            for _, obj in ipairs(folder:GetDescendants()) do
+                local candidate = obj:IsA("ProximityPrompt") and obj.Parent or obj
+                if candidate and not seen[candidate] then
+                    local prompt = getPromptForObject and getPromptForObject(candidate) or candidate:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    local pos = getPosition(candidate)
+                    if prompt and pos and (pos-root.Position).Magnitude <= (radius or CONFIG.LootRadius) then
+                        seen[candidate] = true
+                        table.insert(result, candidate)
+                    end
+                end
+            end
+        end
+    end
+    table.sort(result, function(a,b)
+        local ap,bp = getPosition(a),getPosition(b)
+        return ap and bp and (ap-root.Position).Magnitude < (bp-root.Position).Magnitude
+    end)
+    return result
+end
+
+local function setWalkSpeed(enabled)
+    local hum = getHumanoid()
     if hum then
-        hum.AutoRotate = false
-        hum.PlatformStand = false
-    end
-    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-    
-    tweenAtWalkSpeed(targetPos)
-    task.wait(0.1)
-    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    local bp = bossFarms[key].bodyPosition
-    if not bp or not bp.Parent then
-        bp = Instance.new("BodyPosition")
-        bp.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bp.D = 5000
-        bp.P = 20000
-        bp.Parent = playerRoot
-        bossFarms[key].bodyPosition = bp
-    end
-    bp.Position = targetPos
-    
-    local bv = bossFarms[key].bodyVelocity
-    if not bv or not bv.Parent then
-        bv = Instance.new("BodyVelocity")
-        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bv.Velocity = Vector3.new(0,0,0)
-        bv.Parent = playerRoot
-        bossFarms[key].bodyVelocity = bv
-    end
-    
-    local gyro = bossFarms[key].bodyGyro
-    if not gyro or not gyro.Parent then
-        gyro = Instance.new("BodyGyro")
-        gyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-        gyro.Parent = playerRoot
-        bossFarms[key].bodyGyro = gyro
-    end
-    gyro.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    bossFarms[key].currentTarget = mob
-    bossFarms[key].isAlive = true
-    status.Text = "🔒 Locked above " .. bossDisplayName
-    if statusLabel then
-        statusLabel.Text = bossDisplayName .. ": LOCKED ✅"
-        statusLabel.TextColor3 = Color3.fromRGB(0,255,100)
+        hum.WalkSpeed = enabled and math.clamp(CONFIG.WalkSpeed, 1, 34) or 16
     end
 end
 
--- ============================================================
--- GARGOYLE FARM (CORRECTED – no 'continue')
--- ============================================================
-local gargoyleFarmRunning = false
-local gargoyleFarmThread = nil
-local gargoyleBtn = nil
-local gargoyleStatusLabel = nil
-local currentGargoyleTarget = nil
-local gargoyleBodyPosition = nil
-local gargoyleBodyVelocity = nil
-local gargoyleBodyGyro = nil
-
-local function getNearestGargoyle()
-    local char = player.Character
-    if not char then return nil, nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil, nil end
-    local pos = root.Position
-    local nearest, nearestDist = nil, math.huge
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and string.lower(obj.Name):find("gargoyle") then
-            local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-            if part then
-                local d = (part.Position - pos).Magnitude
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest = obj
-                end
-            end
-        end
-    end
-    return nearest, nearestDist
-end
-
-local function lockAboveGargoyle(targetMob)
-    if not targetMob then return end
-    local rootPart = targetMob:FindFirstChild("HumanoidRootPart") or targetMob:FindFirstChildWhichIsA("BasePart")
-    if not rootPart then return end
-    local char = player.Character
-    if not char then return end
-    local playerRoot = char:FindFirstChild("HumanoidRootPart")
-    if not playerRoot then return end
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then
-        hum.AutoRotate = false
-        hum.PlatformStand = false
-    end
-    local targetPos = rootPart.Position + Vector3.new(0, 5.1, 0)
-    
-    tweenAtWalkSpeed(targetPos)
-    task.wait(0.1)
-    playerRoot.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    if not gargoyleBodyPosition or not gargoyleBodyPosition.Parent then
-        if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
-        gargoyleBodyPosition = Instance.new("BodyPosition")
-        gargoyleBodyPosition.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyPosition.D = 5000
-        gargoyleBodyPosition.P = 20000
-        gargoyleBodyPosition.Parent = playerRoot
-    end
-    gargoyleBodyPosition.Position = targetPos
-    
-    if not gargoyleBodyVelocity or not gargoyleBodyVelocity.Parent then
-        if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
-        gargoyleBodyVelocity = Instance.new("BodyVelocity")
-        gargoyleBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyVelocity.Velocity = Vector3.new(0,0,0)
-        gargoyleBodyVelocity.Parent = playerRoot
-    end
-    
-    if not gargoyleBodyGyro or not gargoyleBodyGyro.Parent then
-        if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
-        gargoyleBodyGyro = Instance.new("BodyGyro")
-        gargoyleBodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-        gargoyleBodyGyro.Parent = playerRoot
-    end
-    gargoyleBodyGyro.CFrame = CFrame.new(targetPos, rootPart.Position)
-    
-    currentGargoyleTarget = targetMob
-    if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end
-end
-
-local function checkAndLoot()
-    local char = player.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
+local function tweenTo(position, duration)
+    if killSwitchActivated then return false end
+    local root = getRoot()
     if not root then return false end
-    local item, dist = getNearestLoot()
-    if item and dist < 30 then
-        if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
-        if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
-        if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
-        gargoyleBodyPosition = nil
-        gargoyleBodyVelocity = nil
-        gargoyleBodyGyro = nil
-        instantLoot()
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then hum.AutoRotate = true end
-        return true
-    end
-    return false
-end
+    local dist = (root.Position - position).Magnitude
+    if dist <= CONFIG.ArrivalDistance then return true end
 
-function toggleGargoyleFarm()
-    if gargoyleFarmRunning then
-        gargoyleFarmRunning = false
-        if gargoyleFarmThread then
-            task.cancel(gargoyleFarmThread)
-            gargoyleFarmThread = nil
-        end
-        local char = player.Character
-        if char then
-            local root = char:FindFirstChild("HumanoidRootPart")
-            if root then
-                if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
-                if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
-                if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
-            end
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then hum.AutoRotate = true end
-        end
-        gargoyleBodyPosition = nil
-        gargoyleBodyVelocity = nil
-        gargoyleBodyGyro = nil
-        currentGargoyleTarget = nil
-        status.Text = "Gargoyle farm stopped"
-        if gargoyleBtn then
-            gargoyleBtn.Text = "Gargoyle Farm (OFF)"
-            gargoyleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-        end
-        if gargoyleStatusLabel then
-            gargoyleStatusLabel.Text = "Gargoyle: OFF"
-            gargoyleStatusLabel.TextColor3 = Color3.fromRGB(200,200,200)
-        end
-        return
-    end
-
-    local char = player.Character
-    if not char then
-        status.Text = "Character not loaded"
-        return
-    end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then
-        status.Text = "RootPart not found"
-        return
-    end
-
-    gargoyleFarmRunning = true
-    currentGargoyleTarget = nil
-    if gargoyleBtn then
-        gargoyleBtn.Text = "Gargoyle Farm (ON)"
-        gargoyleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-    end
-    if gargoyleStatusLabel then
-        gargoyleStatusLabel.Text = "Gargoyle: ACTIVE"
-        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-    end
-    status.Text = "Gargoyle farming started"
-
-    gargoyleFarmThread = task.spawn(function()
-        while gargoyleFarmRunning do
-            if not checkAndLoot() then
-                local mob, dist = getNearestGargoyle()
-                if mob then
-                    lockAboveGargoyle(mob)
-                    status.Text = "🔒 Locked above Gargoyle"
-                    if gargoyleStatusLabel then
-                        gargoyleStatusLabel.Text = "Gargoyle: LOCKED ✅"
-                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(0,255,100)
-                    end
-                else
-                    status.Text = "No Gargoyle found, scanning..."
-                    if gargoyleStatusLabel then
-                        gargoyleStatusLabel.Text = "Gargoyle: SCANNING 🔍"
-                        gargoyleStatusLabel.TextColor3 = Color3.fromRGB(255,200,50)
-                    end
-                    if gargoyleBodyPosition then gargoyleBodyPosition:Destroy() end
-                    if gargoyleBodyVelocity then gargoyleBodyVelocity:Destroy() end
-                    if gargoyleBodyGyro then gargoyleBodyGyro:Destroy() end
-                    gargoyleBodyPosition = nil
-                    gargoyleBodyVelocity = nil
-                    gargoyleBodyGyro = nil
-                    currentGargoyleTarget = nil
-                    task.wait(1)
-                end
-                task.wait(0.25)
-            else
-                task.wait(0.2)
-            end
-        end
-    end)
-end
-
--- ============================================================
--- AUTO ACTION (sell/dismantle/upgrade)
--- ============================================================
-local function performAction(action)
-    refreshInventory()
-    if #inventoryItems == 0 then
-        status.Text = "Inventory empty or not found"
-        return
-    end
-    local processed = 0
-    local skipped = 0
-    local failed = 0
-    for _, item in ipairs(inventoryItems) do
-        local itemName = item.Name or item.name or "unknown"
-        if isItemFavorite(item) then
-            skipped = skipped + 1
-            skippedItems[itemName] = true
-        else
-            local success, result = pcall(function()
-                if action == "Sell" then
-                    return sellItem(item)
-                elseif action == "Dismantle" then
-                    return dismantleItem(item)
-                elseif action == "Upgrade" then
-                    return upgradeItem(item, "Damage")
-                end
-            end)
-            if success and result then
-                processed = processed + 1
-            else
-                failed = failed + 1
-                skippedItems[itemName] = true
-            end
-        end
-        if not CONFIG.BatchMode then
-            task.wait(0.05)
-        end
-    end
-    if processed > 0 then
-        status.Text = "Auto-" .. action .. " processed " .. processed .. " items"
-    elseif skipped > 0 then
-        status.Text = "Auto-" .. action .. " skipped " .. skipped .. " favorites"
-    elseif failed > 0 then
-        status.Text = "Auto-" .. action .. " failed " .. failed .. " items"
-    end
-end
-
--- ============================================================
--- FLY LOGIC
--- ============================================================
-local flyConnection = nil
-
-local function enableFly()
-    local char = player.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    if not flyConnection then
-        flyConnection = RunService.Heartbeat:Connect(function()
-            if not cheats.fly then return end
-            local c = player.Character
-            local r = c and c:FindFirstChild("HumanoidRootPart")
-            if not r then return end
-
-            local att = r:FindFirstChild("PolyFlyAttachment")
-            if not att then
-                att = Instance.new("Attachment")
-                att.Name = "PolyFlyAttachment"
-                att.Parent = r
-            end
-
-            local lv = r:FindFirstChild("PolyFlyVelocity")
-            if not lv then
-                lv = Instance.new("LinearVelocity")
-                lv.Name = "PolyFlyVelocity"
-                lv.Attachment0 = att
-                lv.RelativeTo = Enum.ActuatorRelativeTo.World
-                lv.MaxForce = math.huge
-                lv.VectorVelocity = Vector3.zero
-                lv.Parent = r
-            end
-
-            local moveDir = Vector3.zero
-            local hum = c:FindFirstChildOfClass("Humanoid")
-            if hum and hum.MoveDirection.Magnitude > 0.05 then
-                moveDir += hum.MoveDirection
-            end
-
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir += Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir -= Camera.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir += Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir -= Camera.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir += Vector3.yAxis end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir -= Vector3.yAxis end
-
-            lv.VectorVelocity = moveDir.Magnitude > 0 and moveDir.Unit * cheats.flySpeed or Vector3.zero
-        end)
-    end
-    return true
-end
-
-local function disableFly()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local lv = root:FindFirstChild("PolyFlyVelocity")
-            if lv then lv:Destroy() end
-            local att = root:FindFirstChild("PolyFlyAttachment")
-            if att then att:Destroy() end
-        end
-    end
-    if flyConnection then
-        flyConnection:Disconnect()
-        flyConnection = nil
-    end
-end
-
--- ============================================================
--- ANTI-AFK
--- ============================================================
-local function doAntiAFK()
-    if not cheats.antiAFK then return end
-    local char = player.Character
-    if char and char:FindFirstChild("Humanoid") then
-        local hum = char.Humanoid
-        local moveDir = Vector3.new(math.random(-1,1), 0, math.random(-1,1))
-        if moveDir.Magnitude > 0 then
-            hum:Move(moveDir.Unit, true)
-            task.wait(0.15)
-            hum:Move(Vector3.new(0,0,0), true)
-        end
-    end
-end
-
--- ============================================================
--- FARM LOOP (main)
--- ============================================================
-local running = false
-local attackCount = 0
-local lastCollect = tick()
-local lastAFK = tick()
-
-local function startFarm()
-    if running then return end
-    running = true
-    status.Text = "Status: Running"
-    status.TextColor3 = Color3.fromRGB(0,255,150)
-    attackCount = 0
-    lastCollect = tick()
-    lastAFK = tick()
-    
-    task.spawn(function()
-        while running do
-            local weaponRemote = ReplicatedStorage:FindFirstChild("WeaponAttack", true)
-            if CONFIG.EnableAttack and weaponRemote and weaponRemote:IsA("RemoteEvent") then
-                pcall(function()
-                    weaponRemote:FireServer(0)
-                    attackCount = attackCount + 1
-                    if attackCount % 50 == 0 then
-                        status.Text = "Status: "..attackCount.." attacks"
-                    end
-                end)
-            end
-            
-            local delay = CONFIG.AttackDelay + math.random() * CONFIG.DelayVariation
-            task.wait(delay)
-            
-            if CONFIG.EnableCollect and (tick() - lastCollect) >= CONFIG.CollectInterval then
-                collectGold()
-                lastCollect = tick()
-            end
-            
-            if CONFIG.AutoLoot then
-                local lootItem, lootDist = getNearestLoot()
-                if lootItem and lootDist < 30 then
-                    instantLoot()
-                end
-            end
-            
-            for _, action in ipairs({"Sell", "Dismantle", "Upgrade"}) do
-                if actionToggles[action] and actionToggles[action].enabled() then
-                    performAction(action)
-                    task.wait(0.3)
-                end
-            end
-            
-            if cheats.antiAFK and tick() - lastAFK > CONFIG.AntiAFKInterval then
-                doAntiAFK()
-                lastAFK = tick()
-            end
-        end
-    end)
-end
-
-local function stopFarm()
-    running = false
-    isAtGoldMine = false
-    status.Text = "Status: Stopped"
-    status.TextColor3 = Color3.fromRGB(255,100,100)
-end
-
--- ============================================================
--- GUI CREATION (with all sections)
--- ============================================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "POLYLOOT"
-    screenGui.Enabled = true
-    screenGui.ResetOnSpawn = false
-    screenGui.IgnoreGuiInset = true
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.DisplayOrder = 999999
-screenGui.Enabled = true
-screenGui.Parent = guiParent
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 520, 0, 600)
-mainFrame.Position = UDim2.new(0.5, -260, 0.5, -300)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 30)
-mainFrame.BorderSizePixel = 2
-mainFrame.BorderColor3 = Color3.fromRGB(0, 200, 255)
-mainFrame.ClipsDescendants = true
-mainFrame.Visible = true
-mainFrame.Active = true
-mainFrame.Parent = screenGui
-mainFrame.Visible = true
-mainFrame.Active = true
-
--- Title bar
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 40)
-titleBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-titleBar.BackgroundTransparency = 0.5
-titleBar.BorderSizePixel = 0
-titleBar.Parent = mainFrame
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0.6, 0, 1, 0)
-titleLabel.Position = UDim2.new(0, 10, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "POLY LOOT"
-titleLabel.TextColor3 = Color3.fromRGB(0, 220, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 22
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = titleBar
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 30, 1, 0)
-closeBtn.Position = UDim2.new(1, -30, 0, 0)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.BorderSizePixel = 0
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 16
-closeBtn.Parent = titleBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 30, 1, 0)
-minBtn.Position = UDim2.new(1, -60, 0, 0)
-minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-minBtn.BorderSizePixel = 0
-minBtn.Text = "─"
-minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 20
-minBtn.Parent = titleBar
-
--- Tab bar
-local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, 0, 0, 32)
-tabBar.Position = UDim2.new(0, 0, 0, 40)
-tabBar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-tabBar.BackgroundTransparency = 0.4
-tabBar.BorderSizePixel = 0
-tabBar.Parent = mainFrame
-
--- Content container
-local contentContainer = Instance.new("Frame")
-contentContainer.Size = UDim2.new(1, -10, 1, -82)
-contentContainer.Position = UDim2.new(0, 5, 0, 77)
-contentContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 40)
-contentContainer.BackgroundTransparency = 0.3
-contentContainer.BorderSizePixel = 1
-contentContainer.BorderColor3 = Color3.fromRGB(40, 40, 80)
-contentContainer.ClipsDescendants = true
-contentContainer.Parent = mainFrame
-
-local scroller = Instance.new("ScrollingFrame")
-scroller.Size = UDim2.new(1, 0, 1, 0)
-scroller.BackgroundTransparency = 1
-scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
-scroller.ScrollBarThickness = 6
-scroller.Visible = true
-scroller.Parent = contentContainer
-
--- Tab frames
-local farmTab = Instance.new("Frame")
-farmTab.Size = UDim2.new(1, 0, 0, 0)
-farmTab.AutomaticSize = Enum.AutomaticSize.Y
-farmTab.BackgroundTransparency = 1
-farmTab.Parent = scroller
-
-local autoTab = Instance.new("Frame")
-autoTab.Size = UDim2.new(1, 0, 0, 0)
-autoTab.AutomaticSize = Enum.AutomaticSize.Y
-autoTab.BackgroundTransparency = 1
-autoTab.Visible = false
-autoTab.Parent = scroller
-
-local playerTab = Instance.new("Frame")
-playerTab.Size = UDim2.new(1, 0, 0, 0)
-playerTab.AutomaticSize = Enum.AutomaticSize.Y
-playerTab.BackgroundTransparency = 1
-playerTab.Visible = false
-playerTab.Parent = scroller
-
-local teleportTab = Instance.new("Frame")
-teleportTab.Size = UDim2.new(1, 0, 0, 0)
-teleportTab.AutomaticSize = Enum.AutomaticSize.Y
-teleportTab.BackgroundTransparency = 1
-teleportTab.Visible = false
-teleportTab.Parent = scroller
-
--- Setup tabs with UIListLayout
-local function setupTab(tab)
-    local layout = Instance.new("UIListLayout")
-    layout.Parent = tab
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 12)
-    return layout
-end
-setupTab(farmTab)
-setupTab(autoTab)
-setupTab(playerTab)
-setupTab(teleportTab)
-
--- Helpers for section
-local function createSection(parent, title)
-    local section = Instance.new("Frame")
-    section.Size = UDim2.new(1, 0, 0, 0)
-    section.BackgroundTransparency = 1
-    section.Parent = parent
-    
-    local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, 0, 0, 24)
-    header.BackgroundTransparency = 1
-    header.Text = title
-    header.TextColor3 = Color3.fromRGB(255, 200, 100)
-    header.Font = Enum.Font.GothamBold
-    header.TextSize = 16
-    header.TextXAlignment = Enum.TextXAlignment.Left
-    header.Parent = section
-    
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, 0, 0, 0)
-    container.BackgroundTransparency = 1
-    container.Parent = section
-    
-    local layout = Instance.new("UIListLayout")
-    layout.Parent = container
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 6)
-    
-    local rows = {}
-    local function addRow(rowFrame)
-        table.insert(rows, rowFrame)
-        rowFrame.Parent = container
-    end
-    local function finalizeSection()
-        local totalHeight = 24
-        for _, row in ipairs(rows) do
-            totalHeight = totalHeight + row.Size.Y.Offset + 6
-        end
-        container.Size = UDim2.new(1, 0, 0, totalHeight - 6)
-        section.Size = UDim2.new(1, 0, 0, totalHeight + 24)
-    end
-    return section, container, addRow, finalizeSection
-end
-
-local function addButtonRow(parent, text, color, callback, height)
-    height = height or 32
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, height)
-    row.BackgroundTransparency = 1
-    row.Parent = parent
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.6, 0, 1, -4)
-    btn.Position = UDim2.new(0.2, 0, 0, 2)
-    btn.BackgroundColor3 = color
-    btn.BorderSizePixel = 0
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.Parent = row
-    if callback then
-        btn.Activated:Connect(callback)
-    end
-    return btn, row
-end
-
-local function addStatusLabelRow(parent, text)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 22)
-    row.BackgroundTransparency = 1
-    row.Parent = parent
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.8, 0, 1, 0)
-    lbl.Position = UDim2.new(0.1, 0, 0, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
-    lbl.TextXAlignment = Enum.TextXAlignment.Center
-    lbl.Parent = row
-    return lbl, row
-end
-
-local function addToggleRow(parent, labelText, initial)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 34)
-    row.BackgroundTransparency = 1
-    row.Parent = parent
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 1, 0)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText .. ": " .. (initial and "ON" or "OFF")
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 55, 1, -4)
-    btn.Position = UDim2.new(0.6, 0, 0, 2)
-    btn.BackgroundColor3 = initial and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
-    btn.BorderSizePixel = 0
-    btn.Text = initial and "ON" or "OFF"
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.Parent = row
-    
-    return {label = lbl, button = btn, value = initial, row = row}
-end
-
-local function addSliderRow(parent, labelText, minVal, maxVal, initVal, unit, callback)
-    local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 44)
-    row.BackgroundTransparency = 1
-    row.Parent = parent
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.5, 0, 0, 18)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = labelText .. ": " .. string.format("%.1f", initVal) .. unit
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 13
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.Parent = row
-    
-    local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(0.35, 0, 0, 14)
-    slider.Position = UDim2.new(0.55, 0, 0.5, -7)
-    slider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    slider.BorderSizePixel = 0
-    slider.Parent = row
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((initVal - minVal) / (maxVal - minVal), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = slider
-    
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Size = UDim2.new(0.15, 0, 1, 0)
-    valLabel.Position = UDim2.new(0.85, 0, 0, 0)
-    valLabel.BackgroundTransparency = 1
-    valLabel.Text = string.format("%.1f", initVal) .. unit
-    valLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    valLabel.Font = Enum.Font.Gotham
-    valLabel.TextSize = 13
-    valLabel.Parent = row
-    
-    local dragging = false
-    slider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-        end
-    end)
-    slider.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local pos = input.Position
-            local framePos = slider.AbsolutePosition
-            local width = slider.AbsoluteSize.X
-            if width > 0 then
-                local percent = math.clamp((pos.X - framePos.X) / width, 0, 1)
-                local val = minVal + percent * (maxVal - minVal)
-                if labelText == "Walk Speed" then
-                    val = math.min(val, 25)   -- cap at 25
-                end
-                fill.Size = UDim2.new(percent, 0, 1, 0)
-                valLabel.Text = string.format("%.1f", val) .. unit
-                lbl.Text = labelText .. ": " .. string.format("%.1f", val) .. unit
-                callback(val)
-            end
-        end
-    end)
-    return row, {slider = slider, fill = fill, valLabel = valLabel}
-end
-
--- ============================================================
--- POPULATE FARM TAB
--- ============================================================
--- Status
-local statusRow = Instance.new("Frame")
-statusRow.Size = UDim2.new(1, 0, 0, 28)
-statusRow.BackgroundTransparency = 1
-statusRow.Parent = farmTab
-status.Parent = statusRow
-status.Size = UDim2.new(1, 0, 1, 0)
-status.Text = "Status: Stopped"
-status.TextColor3 = Color3.fromRGB(255, 100, 100)
-
--- Gargoyle
-local gargoyleSection, gargoyleContainer, addGargoyleRow, finalizeGargoyle = createSection(farmTab, "🧛 Gargoyle Farm")
-gargoyleBtn, gargoyleBtnRow = addButtonRow(gargoyleContainer, "Gargoyle Farm (OFF)", Color3.fromRGB(200, 60, 60), nil, 32)
-gargoyleStatusLabel, gargoyleStatusRow = addStatusLabelRow(gargoyleContainer, "Gargoyle: OFF")
-gargoyleBtn.Activated:Connect(toggleGargoyleFarm)
-finalizeGargoyle()
-
--- Boss
-local bossSection, bossContainer, addBossRow, finalizeBoss = createSection(farmTab, "🎯 Boss Farms")
-local bossFarmDefs = {
-    {key = "King Chicken", sign = "ChickenKingSign", display = "🐔 King Chicken"},
-    {key = "Spider", sign = "SpiderSign", display = "🕷 Spider Boss"}
-}
-local bossGrid = Instance.new("Frame")
-bossGrid.Size = UDim2.new(1, 0, 0, 0)
-bossGrid.BackgroundTransparency = 1
-bossGrid.Parent = bossContainer
-
-local bossGridLayout = Instance.new("UIGridLayout")
-bossGridLayout.Parent = bossGrid
-bossGridLayout.CellSize = UDim2.new(0.45, 0, 0, 50)
-bossGridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
-bossGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local bossRows = {}
-for _, def in ipairs(bossFarmDefs) do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
-    cell.Parent = bossGrid
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0.5, 0)
-    btn.Position = UDim2.new(0, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    btn.BorderSizePixel = 0
-    btn.Text = def.display .. " Farm (OFF)"
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 11
-    btn.Parent = cell
-    
-    local statusLbl = Instance.new("TextLabel")
-    statusLbl.Size = UDim2.new(1, 0, 0.4, 0)
-    statusLbl.Position = UDim2.new(0, 0, 0.55, 0)
-    statusLbl.BackgroundTransparency = 1
-    statusLbl.Text = def.display .. ": OFF"
-    statusLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-    statusLbl.Font = Enum.Font.Gotham
-    statusLbl.TextSize = 11
-    statusLbl.TextXAlignment = Enum.TextXAlignment.Center
-    statusLbl.Parent = cell
-    
-    btn.Activated:Connect(function()
-        toggleBossFarm(def.key, def.sign, def.display, btn, statusLbl)
-    end)
-    table.insert(bossRows, cell)
-end
-local function updateBossGrid()
-    local rowCount = math.ceil(#bossRows / 2)
-    bossGrid.Size = UDim2.new(1, 0, 0, rowCount * (50 + 8))
-end
-updateBossGrid()
-bossContainer.Size = UDim2.new(1, 0, 0, bossGrid.Size.Y.Offset + 10)
-bossSection.Size = UDim2.new(1, 0, 0, 24 + bossContainer.Size.Y.Offset + 10)
-
--- Auto controls
-local autoSection, autoContainer, addAutoRow, finalizeAuto = createSection(farmTab, "⚙️ Auto Controls")
-
--- Auto-Collect
-local collectRow = Instance.new("Frame")
-collectRow.Size = UDim2.new(1, 0, 0, 34)
-collectRow.BackgroundTransparency = 1
-collectRow.Parent = autoContainer
-
-local collectLabel = Instance.new("TextLabel")
-collectLabel.Size = UDim2.new(0.5, 0, 1, 0)
-collectLabel.BackgroundTransparency = 1
-collectLabel.Text = "Auto-Collect Gold: OFF"
-collectLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-collectLabel.Font = Enum.Font.Gotham
-collectLabel.TextSize = 13
-collectLabel.TextXAlignment = Enum.TextXAlignment.Left
-collectLabel.Parent = collectRow
-
-local collectBtn = Instance.new("TextButton")
-collectBtn.Size = UDim2.new(0, 55, 1, -4)
-collectBtn.Position = UDim2.new(0.6, 0, 0, 2)
-collectBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-collectBtn.BorderSizePixel = 0
-collectBtn.Text = "OFF"
-collectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-collectBtn.Font = Enum.Font.GothamBold
-collectBtn.TextSize = 13
-collectBtn.Parent = collectRow
-
-collectBtn.Activated:Connect(function()
-    CONFIG.EnableCollect = not CONFIG.EnableCollect
-    collectBtn.Text = CONFIG.EnableCollect and "ON" or "OFF"
-    collectBtn.BackgroundColor3 = CONFIG.EnableCollect and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
-    collectLabel.Text = "Auto-Collect Gold: " .. (CONFIG.EnableCollect and "ON" or "OFF")
-end)
-
--- Auto-Loot
-local lootRow = Instance.new("Frame")
-lootRow.Size = UDim2.new(1, 0, 0, 34)
-lootRow.Position = UDim2.new(0, 0, 0, 38)
-lootRow.BackgroundTransparency = 1
-lootRow.Parent = autoContainer
-
-local lootLabel = Instance.new("TextLabel")
-lootLabel.Size = UDim2.new(0.5, 0, 1, 0)
-lootLabel.BackgroundTransparency = 1
-lootLabel.Text = "Auto-Loot: OFF"
-lootLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-lootLabel.Font = Enum.Font.Gotham
-lootLabel.TextSize = 13
-lootLabel.TextXAlignment = Enum.TextXAlignment.Left
-lootLabel.Parent = lootRow
-
-local lootBtn = Instance.new("TextButton")
-lootBtn.Size = UDim2.new(0, 55, 1, -4)
-lootBtn.Position = UDim2.new(0.6, 0, 0, 2)
-lootBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-lootBtn.BorderSizePixel = 0
-lootBtn.Text = "OFF"
-lootBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-lootBtn.Font = Enum.Font.GothamBold
-lootBtn.TextSize = 13
-lootBtn.Parent = lootRow
-
-lootBtn.Activated:Connect(function()
-    CONFIG.AutoLoot = not CONFIG.AutoLoot
-    lootBtn.Text = CONFIG.AutoLoot and "ON" or "OFF"
-    lootBtn.BackgroundColor3 = CONFIG.AutoLoot and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
-    lootLabel.Text = "Auto-Loot: " .. (CONFIG.AutoLoot and "ON" or "OFF")
-end)
-
-finalizeAuto()
-
--- ============================================================
--- POPULATE AUTO TAB (Sell, Dismantle, Upgrade)
--- ============================================================
-local autoActions = {"Sell", "Dismantle", "Upgrade"}
-
-local refreshRow = Instance.new("Frame")
-refreshRow.Size = UDim2.new(1, 0, 0, 36)
-refreshRow.BackgroundTransparency = 1
-refreshRow.Parent = autoTab
-
-local refreshBtn = Instance.new("TextButton")
-refreshBtn.Size = UDim2.new(0.6, 0, 1, -4)
-refreshBtn.Position = UDim2.new(0.2, 0, 0, 2)
-refreshBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 200)
-refreshBtn.BorderSizePixel = 0
-refreshBtn.Text = "🔄 Refresh Inventory"
-refreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-refreshBtn.Font = Enum.Font.GothamBold
-refreshBtn.TextSize = 14
-refreshBtn.Parent = refreshRow
-
-for idx, action in ipairs(autoActions) do
-    local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, 0, 0, 70)
-    box.BackgroundColor3 = Color3.fromRGB(20, 25, 40)
-    box.BackgroundTransparency = 0.3
-    box.BorderSizePixel = 1
-    box.BorderColor3 = Color3.fromRGB(60, 80, 120)
-    box.Parent = autoTab
-    
-    local header = Instance.new("TextLabel")
-    header.Size = UDim2.new(1, -8, 0, 20)
-    header.Position = UDim2.new(0, 4, 0, 4)
-    header.BackgroundTransparency = 1
-    header.Text = "Auto-" .. action .. ":"
-    header.TextColor3 = Color3.fromRGB(200, 200, 220)
-    header.Font = Enum.Font.Gotham
-    header.TextSize = 14
-    header.TextXAlignment = Enum.TextXAlignment.Left
-    header.Parent = box
-    
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Size = UDim2.new(1, -8, 0, 16)
-    infoLabel.Position = UDim2.new(0, 4, 0, 26)
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Scans real inventory. Favorites skipped."
-    infoLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
-    infoLabel.Font = Enum.Font.Gotham
-    infoLabel.TextSize = 11
-    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-    infoLabel.Parent = box
-    
-    local toggleRow = Instance.new("Frame")
-    toggleRow.Size = UDim2.new(1, -8, 0, 30)
-    toggleRow.Position = UDim2.new(0, 4, 0, 44)
-    toggleRow.BackgroundTransparency = 1
-    toggleRow.Parent = box
-    
-    local toggleLabel = Instance.new("TextLabel")
-    toggleLabel.Size = UDim2.new(0.5, 0, 1, 0)
-    toggleLabel.BackgroundTransparency = 1
-    toggleLabel.Text = action .. ": OFF"
-    toggleLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-    toggleLabel.Font = Enum.Font.Gotham
-    toggleLabel.TextSize = 12
-    toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    toggleLabel.Parent = toggleRow
-    
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 45, 1, -4)
-    toggleBtn.Position = UDim2.new(0.5, 0, 0, 2)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Text = "OFF"
-    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.TextSize = 12
-    toggleBtn.Parent = toggleRow
-    
-    local enabled = false
-    toggleBtn.MouseButton1Click:Connect(function()
-        enabled = not enabled
-        toggleBtn.Text = enabled and "ON" or "OFF"
-        toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 60, 60)
-        toggleLabel.Text = action .. ": " .. (enabled and "ON" or "OFF")
-    end)
-    
-    actionToggles[action] = {
-        enabled = function() return enabled end,
-        toggleBtn = toggleBtn,
-    }
-end
-
-refreshBtn.Activated:Connect(function()
-    refreshInventory()
-    status.Text = "Inventory refreshed! (" .. #inventoryItems .. " items)"
-end)
-
--- ============================================================
--- POPULATE PLAYER TAB
--- ============================================================
-local playerToggles = {}
-
--- Walk Speed slider: max 25, init 25
-local speedRow, speedSliderObj = addSliderRow(playerTab, "Walk Speed", 0, 25, 25, "", function(val)  -- changed max to 25
-    val = math.min(val, 25)
-    cheats.speed = val
-    CONFIG.WalkSpeed = val
-    CONFIG.LootPickupSpeed = val
-    local char = player.Character
-    if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.WalkSpeed = val
-    end
-end)
-
-local flySpeedRow, flySliderObj = addSliderRow(playerTab, "Fly Speed", 10, 200, 50, "", function(val)
-    cheats.flySpeed = val
-end)
-
-local flyToggle = addToggleRow(playerTab, "Fly", false)
-local antiAFKToggle = addToggleRow(playerTab, "Anti-AFK", true)
-local autoClickToggle = addToggleRow(playerTab, "Auto Clicker", false)
-
-local acSpeedRow, acSliderObj = addSliderRow(playerTab, "Click Speed", 0.05, 1.0, 0.1, "s", function(val)
-    CONFIG.AutoClickSpeed = val
-end)
-
-playerToggles = {flyToggle=flyToggle, antiAFKToggle=antiAFKToggle, autoClickToggle=autoClickToggle, speedSlider=speedSliderObj, flySlider=flySliderObj, acSpeedSlider=acSliderObj}
-
--- ============================================================
--- POPULATE TELEPORT TAB
--- ============================================================
-local posRow = Instance.new("Frame")
-posRow.Size = UDim2.new(1, 0, 0, 28)
-posRow.BackgroundTransparency = 1
-posRow.Parent = teleportTab
-
-local posUpdate = Instance.new("TextLabel")
-posUpdate.Size = UDim2.new(1, 0, 1, 0)
-posUpdate.BackgroundTransparency = 1
-posUpdate.Text = "0.0, 0.0, 0.0"
-posUpdate.TextColor3 = Color3.fromRGB(0, 255, 200)
-posUpdate.Font = Enum.Font.GothamBold
-posUpdate.TextSize = 16
-posUpdate.TextXAlignment = Enum.TextXAlignment.Center
-posUpdate.Parent = posRow
-
-local function updatePos()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            posUpdate.Text = string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z)
-        end
-    end
-end
-RunService.Heartbeat:Connect(updatePos)
-player.CharacterAdded:Connect(function() task.wait(0.5); updatePos() end)
-
--- Shop section
-local shopSection, shopContainer, addShopRow, finalizeShop = createSection(teleportTab, "🏪 Shops & Locations")
-local shopGrid = Instance.new("Frame")
-shopGrid.Size = UDim2.new(1, 0, 0, 0)
-shopGrid.BackgroundTransparency = 1
-shopGrid.Parent = shopContainer
-
-local shopGridLayout = Instance.new("UIGridLayout")
-shopGridLayout.Parent = shopGrid
-shopGridLayout.CellSize = UDim2.new(0.3, 0, 0, 30)
-shopGridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
-shopGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-
-local shopButtons = {
-    {text = "⛏ GoldMine", color = Color3.fromRGB(200, 160, 60), pos = GOLD_MINE_POS},
-    {text = "🛒 Shop", color = Color3.fromRGB(200, 100, 200), pos = SHOP_POS},
-    {text = "🔨 Dismantle", color = Color3.fromRGB(200, 150, 100), pos = DISMANTLE_SHOP_POS},
-    {text = "⬆ Upgrade", color = Color3.fromRGB(100, 200, 200), pos = UPGRADE_SHOP_POS},
-    {text = "🏆 Tiers", color = Color3.fromRGB(200, 200, 100), pos = TIERS_POS},
-    {text = "🏠 Spawn", color = Color3.fromRGB(60, 120, 200), pos = SPAWN_POS},
-}
-
-for _, data in ipairs(shopButtons) do
-    local cell = Instance.new("Frame")
-    cell.Size = UDim2.new(1, 0, 1, 0)
-    cell.BackgroundTransparency = 1
-    cell.Parent = shopGrid
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 1, 0)
-    btn.BackgroundColor3 = data.color
-    btn.BorderSizePixel = 0
-    btn.Text = data.text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 11
-    btn.Parent = cell
-    btn.Activated:Connect(function()
-        local target = data.pos + Vector3.new(0, 5, 0)
-        print("Teleport button clicked:", data.text)
-        tweenAtWalkSpeed(target)
-    end)
-end
-local rowCountShop = math.ceil(#shopButtons / 3)
-shopGrid.Size = UDim2.new(1, 0, 0, rowCountShop * (30 + 6))
-shopContainer.Size = UDim2.new(1, 0, 0, shopGrid.Size.Y.Offset + 10)
-shopSection.Size = UDim2.new(1, 0, 0, 24 + shopContainer.Size.Y.Offset + 10)
-
--- Custom teleport
-local customSection, customContainer, addCustomRow, finalizeCustom = createSection(teleportTab, "🎯 Custom Teleport")
-local coordRow = Instance.new("Frame")
-coordRow.Size = UDim2.new(1, 0, 0, 32)
-coordRow.BackgroundTransparency = 1
-coordRow.Parent = customContainer
-
-local coordX = Instance.new("TextBox")
-coordX.Size = UDim2.new(0.28, 0, 1, -4)
-coordX.Position = UDim2.new(0.02, 0, 0, 2)
-coordX.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-coordX.BorderSizePixel = 0
-coordX.Text = "0"
-coordX.TextColor3 = Color3.fromRGB(255, 255, 255)
-coordX.Font = Enum.Font.Gotham
-coordX.TextSize = 13
-coordX.Parent = coordRow
-
-local coordY = Instance.new("TextBox")
-coordY.Size = UDim2.new(0.28, 0, 1, -4)
-coordY.Position = UDim2.new(0.36, 0, 0, 2)
-coordY.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-coordY.BorderSizePixel = 0
-coordY.Text = "0"
-coordY.TextColor3 = Color3.fromRGB(255, 255, 255)
-coordY.Font = Enum.Font.Gotham
-coordY.TextSize = 13
-coordY.Parent = coordRow
-
-local coordZ = Instance.new("TextBox")
-coordZ.Size = UDim2.new(0.28, 0, 1, -4)
-coordZ.Position = UDim2.new(0.70, 0, 0, 2)
-coordZ.BackgroundColor3 = Color3.fromRGB(30, 40, 60)
-coordZ.BorderSizePixel = 0
-coordZ.Text = "0"
-coordZ.TextColor3 = Color3.fromRGB(255, 255, 255)
-coordZ.Font = Enum.Font.Gotham
-coordZ.TextSize = 13
-coordZ.Parent = coordRow
-
-local copyRow = Instance.new("Frame")
-copyRow.Size = UDim2.new(1, 0, 0, 30)
-copyRow.BackgroundTransparency = 1
-copyRow.Parent = customContainer
-
-local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(0.3, 0, 1, -4)
-copyBtn.Position = UDim2.new(0.35, 0, 0, 2)
-copyBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 200)
-copyBtn.BorderSizePixel = 0
-copyBtn.Text = "📋 Copy Pos"
-copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = 12
-copyBtn.Parent = copyRow
-
-copyBtn.Activated:Connect(function()
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            coordX.Text = string.format("%.1f", p.X)
-            coordY.Text = string.format("%.1f", p.Y)
-            coordZ.Text = string.format("%.1f", p.Z)
-            status.Text = "Coordinates copied"
-        end
-    end
-end)
-
-local teleportRow = Instance.new("Frame")
-teleportRow.Size = UDim2.new(1, 0, 0, 30)
-teleportRow.BackgroundTransparency = 1
-teleportRow.Parent = customContainer
-
-local teleportBtn = Instance.new("TextButton")
-teleportBtn.Size = UDim2.new(0.3, 0, 1, -4)
-teleportBtn.Position = UDim2.new(0.35, 0, 0, 2)
-teleportBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-teleportBtn.BorderSizePixel = 0
-teleportBtn.Text = "🚀 Teleport"
-teleportBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-teleportBtn.Font = Enum.Font.GothamBold
-teleportBtn.TextSize = 12
-teleportBtn.Parent = teleportRow
-
-teleportBtn.Activated:Connect(function()
-    local x = tonumber(coordX.Text) or 0
-    local y = tonumber(coordY.Text) or 0
-    local z = tonumber(coordZ.Text) or 0
-    local target = Vector3.new(x, y, z)
-    print("Custom teleport to:", target)
-    tweenAtWalkSpeed(target)
-end)
-
-customContainer.Size = UDim2.new(1, 0, 0, 32 + 30 + 30 + 12)
-customSection.Size = UDim2.new(1, 0, 0, 24 + customContainer.Size.Y.Offset + 10)
-
--- ============================================================
--- TAB SWITCHING
--- ============================================================
-local function switchTab(tab)
-    farmTab.Position = UDim2.new(0, 0, 0, 0)
-    autoTab.Position = UDim2.new(0, 0, 0, 0)
-    playerTab.Position = UDim2.new(0, 0, 0, 0)
-    teleportTab.Position = UDim2.new(0, 0, 0, 0)
-    farmTab.Visible = (tab == "farm")
-    autoTab.Visible = (tab == "auto")
-    playerTab.Visible = (tab == "player")
-    teleportTab.Visible = (tab == "teleport")
-end
-
-local tabs = {"Farm", "Auto", "Player", "Teleport"}
-local tabButtons = {}
-local activeTab = "Farm"
-
-for i, name in ipairs(tabs) do
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.25, 0, 1, 0)
-    btn.Position = UDim2.new((i-1)*0.25, 0, 0, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    btn.BackgroundTransparency = 0.5
-    btn.Text = name
-    btn.TextColor3 = (name == "Farm") and Color3.fromRGB(0, 200, 255) or Color3.fromRGB(180, 180, 200)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
-    btn.BorderSizePixel = 0
-    btn.Parent = tabBar
-    
-    local underline = Instance.new("Frame")
-    underline.Size = UDim2.new(0.6, 0, 0, 2)
-    underline.Position = UDim2.new(0.2, 0, 1, -2)
-    underline.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-    underline.BackgroundTransparency = (name == "Farm") and 0 or 1
-    underline.BorderSizePixel = 0
-    underline.Parent = btn
-    
-    btn.MouseButton1Click:Connect(function()
-        if activeTab == name then return end
-        activeTab = name
-        for _, tb in pairs(tabButtons) do
-            tb.underline.BackgroundTransparency = 1
-            tb.button.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
-        underline.BackgroundTransparency = 0
-        btn.TextColor3 = Color3.fromRGB(0, 200, 255)
-        switchTab(name:lower())
-    end)
-    
-    tabButtons[name] = {button = btn, underline = underline}
-end
-
-switchTab("farm")
-
--- ============================================================
--- MINI BAR
--- ============================================================
-local miniBar = Instance.new("Frame")
-miniBar.Size = UDim2.new(0, 400, 0, 32)
-miniBar.Position = UDim2.new(0.5, -200, 0.1, 0)
-miniBar.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-miniBar.BackgroundTransparency = 0.3
-miniBar.BorderSizePixel = 1
-miniBar.BorderColor3 = Color3.fromRGB(0, 200, 255)
-miniBar.Visible = false
-miniBar.Active = true
-miniBar.Parent = screenGui
-
-local miniTitle = Instance.new("TextLabel")
-miniTitle.Size = UDim2.new(0.2, 0, 1, 0)
-miniTitle.Position = UDim2.new(0, 6, 0, 0)
-miniTitle.BackgroundTransparency = 1
-miniTitle.Text = "POLY LOOT"
-miniTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
-miniTitle.Font = Enum.Font.GothamBold
-miniTitle.TextSize = 12
-miniTitle.TextXAlignment = Enum.TextXAlignment.Left
-miniTitle.Parent = miniBar
-
-local miniACBtn = Instance.new("TextButton")
-miniACBtn.Size = UDim2.new(0, 100, 1, -4)
-miniACBtn.Position = UDim2.new(0.3, 0, 0, 2)
-miniACBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-miniACBtn.BorderSizePixel = 0
-miniACBtn.Text = "AC: OFF"
-miniACBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-miniACBtn.Font = Enum.Font.GothamBold
-miniACBtn.TextSize = 11
-miniACBtn.TextScaled = true
-miniACBtn.Parent = miniBar
-
-local restoreBtn = Instance.new("TextButton")
-restoreBtn.Size = UDim2.new(0, 28, 1, 0)
-restoreBtn.Position = UDim2.new(0.8, 0, 0, 0)
-restoreBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
-restoreBtn.BorderSizePixel = 0
-restoreBtn.Text = "⬆"
-restoreBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-restoreBtn.Font = Enum.Font.GothamBold
-restoreBtn.TextSize = 16
-restoreBtn.Parent = miniBar
-
-local miniCloseBtn = Instance.new("TextButton")
-miniCloseBtn.Size = UDim2.new(0, 28, 1, 0)
-miniCloseBtn.Position = UDim2.new(1, -28, 0, 0)
-miniCloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-miniCloseBtn.BorderSizePixel = 0
-miniCloseBtn.Text = "✕"
-miniCloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-miniCloseBtn.Font = Enum.Font.GothamBold
-miniCloseBtn.TextSize = 16
-miniCloseBtn.Parent = miniBar
-miniCloseBtn.ZIndex = 10
-
--- ============================================================
--- CLOSE HANDLER
--- ============================================================
-local function closeGUI()
-    running = false
-    cheats.fly = false
-    cheats.autoClick = false
-
-    pcall(disableFly)
-
-    if clickConnection then clickConnection:Disconnect(); clickConnection = nil end
-    if gargoyleFarmThread then task.cancel(gargoyleFarmThread); gargoyleFarmThread = nil end
-
-    for key, data in pairs(bossFarms) do
-        data.running = false
-        if bossFarmThreads[key] then
-            task.cancel(bossFarmThreads[key])
-            bossFarmThreads[key] = nil
-        end
-        if data.timerConnection then
-            data.timerConnection:Disconnect()
-            data.timerConnection = nil
-        end
-    end
-
-    local char = player.Character
-    if char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            for _, obj in ipairs(root:GetChildren()) do
-                if obj.Name == "PolyFlyVelocity" or obj.Name == "PolyFlyAttachment" then
-                    obj:Destroy()
-                end
-            end
-        end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.AutoRotate = true end
-    end
-
-    pcall(function() screenGui:Destroy() end)
-end
-
-closeBtn.Activated:Connect(closeGUI)
-miniCloseBtn.Activated:Connect(closeGUI)
-
-restoreBtn.Activated:Connect(function()
-    if screenGui.Parent then
-        mainFrame.Visible = true
-        miniBar.Visible = false
-    end
-end)
-
-minBtn.Activated:Connect(function()
-    if screenGui.Parent then
-        mainFrame.Visible = false
-        miniBar.Visible = true
-    end
-end)
-
--- ============================================================
--- FLY & AUTO CLICKER TOGGLE CONNECTIONS (after definitions)
--- ============================================================
-playerToggles.flyToggle.button.Activated:Connect(function()
-    cheats.fly = not cheats.fly
-    playerToggles.flyToggle.value = cheats.fly
-    playerToggles.flyToggle.button.Text = cheats.fly and "ON" or "OFF"
-    playerToggles.flyToggle.button.BackgroundColor3 = cheats.fly and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    playerToggles.flyToggle.label.Text = "Fly: " .. (cheats.fly and "ON" or "OFF")
-    if cheats.fly then
-        enableFly()
-    else
-        disableFly()
-    end
-end)
-
-playerToggles.antiAFKToggle.button.Activated:Connect(function()
-    cheats.antiAFK = not cheats.antiAFK
-    playerToggles.antiAFKToggle.value = cheats.antiAFK
-    playerToggles.antiAFKToggle.button.Text = cheats.antiAFK and "ON" or "OFF"
-    playerToggles.antiAFKToggle.button.BackgroundColor3 = cheats.antiAFK and Color3.fromRGB(0,200,100) or Color3.fromRGB(200,60,60)
-    playerToggles.antiAFKToggle.label.Text = "Anti-AFK: " .. (cheats.antiAFK and "ON" or "OFF")
-end)
-
-function toggleAutoClicker()
-    if not cheats.autoClick and cheats.autoClickCooldown > tick() then
-        local remaining = math.ceil(cheats.autoClickCooldown - tick())
-        status.Text = "Cooldown: wait " .. remaining .. "s"
-        return
-    end
-    cheats.autoClick = not cheats.autoClick
-    if cheats.autoClick then
-        cheats.autoClickStartTime = tick() + 3
-        cheats.autoClickActive = false
-        playerToggles.autoClickToggle.label.Text = "Auto Clicker: Starting in 3s..."
-        playerToggles.autoClickToggle.button.Text = "Wait"
-        playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,200,50)
-        miniACBtn.Text = "AC: Wait"
-        miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-    else
-        cheats.autoClickStartTime = 0
-        cheats.autoClickActive = false
-        cheats.autoClickCooldown = tick() + 2
-        playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF (cooldown 2s)"
-        playerToggles.autoClickToggle.button.Text = "OFF"
-        playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-        miniACBtn.Text = "AC: CD 2s"
-        miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-    end
-end
-playerToggles.autoClickToggle.button.Activated:Connect(toggleAutoClicker)
-miniACBtn.Activated:Connect(toggleAutoClicker)
-
-RunService.Heartbeat:Connect(function()
-    if not cheats.autoClick and cheats.autoClickCooldown > tick() then
-        local remaining = cheats.autoClickCooldown - tick()
-        if remaining > 0 then
-            local display = math.floor(remaining)
-            if display < 1 then display = 0 end
-            miniACBtn.Text = "AC: CD " .. display .. "s"
-            miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-            playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF (cooldown " .. display .. "s)"
-        else
-            cheats.autoClickCooldown = 0
-            miniACBtn.Text = "AC: OFF"
-            miniACBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-            playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
-            playerToggles.autoClickToggle.button.Text = "OFF"
-            playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-        end
-    elseif not cheats.autoClick and cheats.autoClickCooldown ~= 0 then
-        cheats.autoClickCooldown = 0
-        miniACBtn.Text = "AC: OFF"
-        miniACBtn.BackgroundColor3 = Color3.fromRGB(200,60,60)
-        playerToggles.autoClickToggle.label.Text = "Auto Clicker: OFF"
-        playerToggles.autoClickToggle.button.Text = "OFF"
-        playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(200,60,60)
-    end
-    if not cheats.autoClick then
-        if clickConnection then
-            clickConnection:Disconnect()
-            clickConnection = nil
-        end
-        return
-    end
-    if not clickConnection then
-        clickConnection = RunService.Heartbeat:Connect(function()
-            if not cheats.autoClick then
-                clickConnection:Disconnect()
-                clickConnection = nil
-                return
-            end
-            if cheats.autoClickStartTime > 0 then
-                local remaining = cheats.autoClickStartTime - tick()
-                if remaining > 0 then
-                    local txt = string.format("AC: Wait %.1fs", remaining)
-                    playerToggles.autoClickToggle.label.Text = "Auto Clicker: Starting in " .. string.format("%.1f", remaining) .. "s"
-                    playerToggles.autoClickToggle.button.Text = "Wait"
-                    miniACBtn.Text = txt
-                    miniACBtn.BackgroundColor3 = Color3.fromRGB(200,200,50)
-                    return
-                else
-                    cheats.autoClickActive = true
-                    cheats.autoClickStartTime = 0
-                    playerToggles.autoClickToggle.label.Text = "Auto Clicker: ACTIVE"
-                    playerToggles.autoClickToggle.button.Text = "ON"
-                    playerToggles.autoClickToggle.button.BackgroundColor3 = Color3.fromRGB(0,200,100)
-                    miniACBtn.Text = "AC: ON"
-                    miniACBtn.BackgroundColor3 = Color3.fromRGB(0,200,100)
-                end
-            end
-            if cheats.autoClickActive then
-                performClick()
-                task.wait(CONFIG.AutoClickSpeed)
-            end
-        end)
-    end
-end)
-
--- ============================================================
--- WALK SPEED APPLIER (runs every heartbeat)
--- ============================================================
-RunService.Heartbeat:Connect(function()
-    local char = player.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum and hum.WalkSpeed ~= cheats.speed then
-            local safeSpeed = math.min(cheats.speed, 25)   -- cap at 25
-            hum.WalkSpeed = safeSpeed
-        end
-    end
-end)
-
--- ============================================================
--- CHARACTER RESET & DRAGGABLE
--- ============================================================
-player.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    local hum = char:FindFirstChild("Humanoid")
+    local hum = getHumanoid()
     if hum then
-        hum.WalkSpeed = math.min(cheats.speed, 25)
         hum.AutoRotate = true
         hum.PlatformStand = false
+        if state.PlayerSpeed then
+            hum.WalkSpeed = CONFIG.WalkSpeed
+        end
+    end
+
+    duration = duration or CONFIG.TeleportTweenTime
+    duration = math.max(0.15, duration)
+    local tween = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(position)})
+    activeMovementTween = tween
+    tween:Play()
+    local playbackState = tween.Completed:Wait()
+    if activeMovementTween == tween then
+        activeMovementTween = nil
+    end
+    return (not killSwitchActivated) and playbackState == Enum.PlaybackState.Completed
+end
+
+local function pathMoveTo(position)
+    if killSwitchActivated then return false end
+    local character = Player.Character
+    local root = getRoot()
+    local hum = getHumanoid()
+    if not character or not root or not hum then return false end
+
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        AgentCanClimb = true,
+        WaypointSpacing = 5,
+    })
+
+    local ok = pcall(function()
+        path:ComputeAsync(root.Position, position)
+    end)
+
+    if killSwitchActivated then return false end
+    if not ok or path.Status ~= Enum.PathStatus.Success then
+        return tweenTo(position, math.clamp((root.Position - position).Magnitude / CONFIG.TravelSpeed, 0.25, 8))
+    end
+
+    local waypoints = path:GetWaypoints()
+    for _, waypoint in ipairs(waypoints) do
+        if killSwitchActivated or not state.ManualTravel then return false end
+        if waypoint.Action == Enum.PathWaypointAction.Jump then
+            hum.Jump = true
+        end
+        hum:MoveTo(waypoint.Position)
+        local reached = hum.MoveToFinished:Wait()
+        if killSwitchActivated or not state.ManualTravel then return false end
+        if not reached then break end
+    end
+    return (not killSwitchActivated) and (getRoot() and ((getRoot().Position - position).Magnitude <= 8) or false)
+end
+
+local function manualTravel(position)
+    if killSwitchActivated then return false end
+    state.ManualTravel = true
+    state.CurrentTarget = position
+    local root = getRoot()
+    if not root then state.ManualTravel = false return false end
+
+    local dist = (root.Position - position).Magnitude
+    local hum = getHumanoid()
+    if hum then
+        hum.AutoRotate = true
+        hum.PlatformStand = false
+        hum.WalkSpeed = math.clamp(CONFIG.TravelSpeed, 1, 999)
+    end
+
+    local success = pathMoveTo(position)
+    if killSwitchActivated then
+        state.ManualTravel = false
+        state.CurrentTarget = nil
+        return false
+    end
+
+    if not success then
+        local d = getRoot() and (getRoot().Position - position).Magnitude or math.huge
+        if d > CONFIG.ArrivalDistance and not killSwitchActivated then
+            success = tweenTo(position, math.clamp(dist / math.max(CONFIG.TravelSpeed, 1), 0.3, 10))
+        end
+    end
+
+    state.ManualTravel = false
+    state.CurrentTarget = nil
+    if hum and state.PlayerSpeed and not killSwitchActivated then
+        hum.WalkSpeed = CONFIG.WalkSpeed
+    end
+    return success and not killSwitchActivated
+end
+
+-- ============================================================
+local function getPromptForObject(obj)
+    if not obj then return nil end
+    if obj:IsA("ProximityPrompt") then return obj end
+    local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then return prompt end
+    if obj.Parent then
+        prompt = obj.Parent:FindFirstChildWhichIsA("ProximityPrompt", true)
+    end
+    return prompt
+end
+
+local function triggerPrompt(prompt)
+    if not prompt or not prompt.Parent or prompt.Enabled == false then return false end
+    if typeof(fireproximityprompt) == "function" then
+        local ok = pcall(function() fireproximityprompt(prompt, prompt.HoldDuration or 0, true) end)
+        if ok then return true end
+    end
+    return pcall(function()
+        prompt:InputHoldBegin()
+        if prompt.HoldDuration and prompt.HoldDuration > 0 then task.wait(prompt.HoldDuration + 0.05) end
+        prompt:InputHoldEnd()
+    end)
+end
+
+local function pickupDrop(drop)
+    if killSwitchActivated or not drop or not drop.Parent then return false end
+
+    local root = getRoot()
+    local pos = getPosition(drop)
+    if not root or not pos then return false end
+
+    local prompt = getPromptForObject(drop)
+
+    -- Use the same pickup method that the tree-farm loot collector uses.
+    -- Once we are close enough, trigger the actual ProximityPrompt instead of
+    -- assuming a RemoteEvent call succeeded.
+    if (root.Position - pos).Magnitude <= 10 then
+        if prompt and prompt.Parent and prompt.Enabled ~= false then
+            if triggerPrompt(prompt) then return true end
+
+            local ok = pcall(function()
+                prompt:InputHoldBegin()
+                local hold = tonumber(prompt.HoldDuration) or 0
+                if hold > 0 then task.wait(hold + 0.05) end
+                prompt:InputHoldEnd()
+            end)
+            if ok then return true end
+        end
+        return false
+    end
+
+    return false
+end
+
+local function collectAllLootPriority(radius, maxSeconds)
+    local collected = 0
+    local deadline = os.clock() + (maxSeconds or 1.25)
+
+    -- Same dynamic strategy used by the tree farm: re-scan after every pickup.
+    while not killSwitchActivated and os.clock() < deadline do
+        local root = getRoot()
+        if not root then break end
+
+        local drops = collectDrops(radius or CONFIG.LootRadius)
+        if #drops == 0 then break end
+
+        local drop = drops[1]
+        local dropPos = drop and getPosition(drop)
+        if not dropPos then
+            task.wait(0.05)
+        else
+            if (root.Position - dropPos).Magnitude > 8 and not state.ManualTravel then
+                if not manualTravel(dropPos) then
+                    task.wait(0.05)
+                end
+            end
+
+            if killSwitchActivated then break end
+
+            local rootAfter = getRoot()
+            if rootAfter and drop.Parent and (rootAfter.Position - dropPos).Magnitude <= 10 then
+                if pickupDrop(drop) then
+                    collected += 1
+                end
+            end
+
+            task.wait(0.12)
+        end
+    end
+
+    return collected
+end
+
+local function moveNear(position, stopDistance)
+    local root, hum = getRoot(), getHumanoid()
+    if not root or not hum or not position then return false end
+    if (root.Position - position).Magnitude <= (stopDistance or 6) then return true end
+    hum.WalkSpeed = math.clamp(CONFIG.FarmMoveSpeed, 1, 999)
+    hum.AutoRotate = true
+    hum.PlatformStand = false
+    hum:MoveTo(position)
+    return true
+end
+
+local function findBestFarmTarget()
+    local kind = state.FarmKind ~= "All" and state.FarmKind or nil
+    local species = state.FarmSpecies ~= "All" and state.FarmSpecies or nil
+    local mobs = collectMobs(CONFIG.FarmRadius, kind, species)
+    return mobs[1], mobs
+end
+
+local function findToolByHint(hints)
+    local char = Player.Character
+    local candidates = {}
+    if char then for _,v in ipairs(char:GetChildren()) do if v:IsA("Tool") then table.insert(candidates,v) end end end
+    local backpack = Player:FindFirstChildOfClass("Backpack")
+    if backpack then for _,v in ipairs(backpack:GetChildren()) do if v:IsA("Tool") then table.insert(candidates,v) end end end
+    for _, tool in ipairs(candidates) do
+        local n = string.lower(tool.Name)
+        for _, hint in ipairs(hints) do if string.find(n, string.lower(hint), 1, true) then return tool end end
+    end
+    return nil
+end
+
+local function nearestTree(radius)
+    local root=getRoot(); if not root then return nil end
+    local best=nil; local bestD=radius or 160
+    for _,tree in ipairs(CollectionService:GetTagged("ChoppableTree")) do
+        local pos=getPosition(tree); if pos then local d=(pos-root.Position).Magnitude; if d<bestD then best, bestD=tree,d end end
+    end
+    return best,bestD
+end
+
+-- GUI ROOT
+-- ============================================================
+local function getGuiParent()
+    local ok, hui = pcall(function()
+        return gethui and gethui()
+    end)
+    if ok and hui then return hui end
+
+    local core = game:GetService("CoreGui")
+    if core then return core end
+
+    return Player:WaitForChild("PlayerGui")
+end
+
+local parent = getGuiParent()
+local old = parent:FindFirstChild("POLY_LOOT_FRESH")
+if old then old:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "POLY_LOOT_FRESH"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = parent
+
+guiObjects.ScreenGui = ScreenGui
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(860, 560)
+Main.Position = UDim2.new(0.5, -430, 0.5, -280)
+Main.BackgroundColor3 = Color3.fromRGB(17, 19, 25)
+Main.BorderSizePixel = 0
+Main.Parent = ScreenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = Main
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(60, 65, 80)
+stroke.Thickness = 1
+stroke.Parent = Main
+
+local Top = Instance.new("Frame")
+Top.Size = UDim2.new(1, 0, 0, 62)
+Top.BackgroundColor3 = Color3.fromRGB(23, 26, 34)
+Top.BorderSizePixel = 0
+Top.Parent = Main
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Position = UDim2.fromOffset(20, 8)
+title.Size = UDim2.new(1, -180, 0, 28)
+title.Font = Enum.Font.GothamBold
+title.Text = "POLY LOOT"
+title.TextSize = 22
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.TextColor3 = Color3.fromRGB(245, 247, 250)
+title.Parent = Top
+
+local subtitle = Instance.new("TextLabel")
+subtitle.BackgroundTransparency = 1
+subtitle.Position = UDim2.fromOffset(20, 34)
+subtitle.Size = UDim2.new(1, -180, 0, 18)
+subtitle.Font = Enum.Font.Gotham
+subtitle.Text = "Fresh framework • mapped game systems"
+subtitle.TextSize = 12
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.TextColor3 = Color3.fromRGB(145, 150, 165)
+subtitle.Parent = Top
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.fromOffset(40, 40)
+minimizeButton.Position = UDim2.new(1, -96, 0, 11)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(35, 38, 48)
+minimizeButton.Text = "—"
+minimizeButton.TextSize = 22
+minimizeButton.Font = Enum.Font.GothamBold
+minimizeButton.TextColor3 = Color3.fromRGB(220, 225, 235)
+minimizeButton.AutoButtonColor = true
+minimizeButton.Parent = Top
+Instance.new("UICorner", minimizeButton).CornerRadius = UDim.new(0, 9)
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.fromOffset(40, 40)
+closeButton.Position = UDim2.new(1, -50, 0, 11)
+closeButton.BackgroundColor3 = Color3.fromRGB(35, 38, 48)
+closeButton.Text = "×"
+closeButton.TextSize = 28
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextColor3 = Color3.fromRGB(220, 225, 235)
+closeButton.AutoButtonColor = true
+closeButton.Parent = Top
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 9)
+
+local Mini = Instance.new("TextButton")
+Mini.Name = "MiniRestore"
+Mini.Size = UDim2.fromOffset(150, 42)
+Mini.Position = UDim2.new(0, 18, 0.5, -21)
+Mini.BackgroundColor3 = Color3.fromRGB(23, 26, 34)
+Mini.BorderSizePixel = 0
+Mini.Text = "POLY LOOT  •  Open"
+Mini.TextSize = 14
+Mini.Font = Enum.Font.GothamBold
+Mini.TextColor3 = Color3.fromRGB(245, 247, 250)
+Mini.Visible = false
+Mini.AutoButtonColor = true
+Mini.Parent = ScreenGui
+Instance.new("UICorner", Mini).CornerRadius = UDim.new(0, 10)
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Color = Color3.fromRGB(60, 65, 80)
+miniStroke.Thickness = 1
+miniStroke.Parent = Mini
+
+minimizeButton.Activated:Connect(function()
+    Main.Visible = false
+    Mini.Visible = true
+end)
+
+Mini.Activated:Connect(function()
+    Main.Visible = true
+    Mini.Visible = false
+end)
+
+closeButton.Activated:Connect(function()
+    if fullShutdown then
+        fullShutdown()
+    else
+        ScreenGui.Enabled = false
     end
 end)
 
-local function makeDraggable(handle, target)
-    local dragStart, startPos, dragging = nil, nil, false
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = target.Position
-        end
-    end)
-    handle.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+local Side = Instance.new("Frame")
+Side.Size = UDim2.fromOffset(180, 498)
+Side.Position = UDim2.fromOffset(12, 68)
+Side.BackgroundColor3 = Color3.fromRGB(20, 23, 30)
+Side.BorderSizePixel = 0
+Side.Parent = Main
+Instance.new("UICorner", Side).CornerRadius = UDim.new(0, 10)
+
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.Padding = UDim.new(0, 6)
+sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sideLayout.Parent = Side
+
+local sidePadding = Instance.new("UIPadding")
+sidePadding.PaddingTop = UDim.new(0, 10)
+sidePadding.PaddingLeft = UDim.new(0, 8)
+sidePadding.PaddingRight = UDim.new(0, 8)
+sidePadding.Parent = Side
+
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -206, 1, -80)
+Content.Position = UDim2.fromOffset(194, 68)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
+
+local pages = {}
+local tabButtons = {}
+
+local function newPage(name)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = name
+    page.Size = UDim2.fromScale(1, 1)
+    page.CanvasSize = UDim2.new()
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.ScrollBarThickness = 4
+    page.BorderSizePixel = 0
+    page.BackgroundTransparency = 1
+    page.Visible = false
+    page.Parent = Content
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 8)
+    padding.PaddingRight = UDim.new(0, 8)
+    padding.PaddingTop = UDim.new(0, 4)
+    padding.PaddingBottom = UDim.new(0, 10)
+    padding.Parent = page
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 9)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = page
+
+    pages[name] = page
+    return page
 end
-makeDraggable(titleBar, mainFrame)
-makeDraggable(miniBar, miniBar)
+
+local function section(parentPage, text)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -4, 0, 32)
+    frame.BackgroundColor3 = Color3.fromRGB(27, 30, 39)
+    frame.BorderSizePixel = 0
+    frame.Parent = parentPage
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.fromOffset(12, 0)
+    label.Size = UDim2.new(1, -24, 1, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Text = text
+    label.TextSize = 13
+    label.TextColor3 = Color3.fromRGB(178, 184, 198)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+end
+
+local function button(parentPage, text, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -4, 0, 40)
+    b.BackgroundColor3 = Color3.fromRGB(31, 35, 45)
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamMedium
+    b.Text = text
+    b.TextSize = 13
+    b.TextXAlignment = Enum.TextXAlignment.Left
+    b.TextColor3 = Color3.fromRGB(230, 233, 240)
+    b.AutoButtonColor = true
+    b.Parent = parentPage
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 14)
+    pad.Parent = b
+
+    b.Activated:Connect(function()
+        local ok, err = pcall(callback)
+        if not ok then warn("[POLY LOOT]", text, err) end
+    end)
+    return b
+end
+
+local function toggle(parentPage, labelText, key, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -4, 0, 44)
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamMedium
+    b.TextSize = 13
+    b.TextXAlignment = Enum.TextXAlignment.Left
+    b.AutoButtonColor = false
+    b.Parent = parentPage
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 14)
+    pad.Parent = b
+
+    local indicator = Instance.new("TextLabel")
+    indicator.BackgroundTransparency = 1
+    indicator.Size = UDim2.fromOffset(55, 18)
+    indicator.Position = UDim2.new(1, -68, 0.5, -9)
+    indicator.Font = Enum.Font.GothamBold
+    indicator.TextSize = 11
+    indicator.Parent = b
+
+    local function redraw()
+        local on = state[key] == true
+        b.BackgroundColor3 = on and Color3.fromRGB(35, 67, 48) or Color3.fromRGB(31, 35, 45)
+        b.Text = labelText
+        b.TextColor3 = Color3.fromRGB(230, 233, 240)
+        indicator.Text = on and "ON" or "OFF"
+        indicator.TextColor3 = on and Color3.fromRGB(120, 225, 150) or Color3.fromRGB(135, 140, 153)
+    end
+
+    b.Activated:Connect(function()
+        state[key] = not state[key]
+        redraw()
+        local ok, err = pcall(function() callback(state[key]) end)
+        if not ok then warn("[POLY LOOT]", labelText, err) end
+    end)
+
+    redraw()
+    guiObjects[key] = redraw
+    return b
+end
+
+local function slider(parentPage, labelText, key, minValue, maxValue, defaultValue, decimals, callback)
+    local row=Instance.new("Frame"); row.Size=UDim2.new(1,-4,0,62); row.BackgroundColor3=Color3.fromRGB(23,26,34); row.BorderSizePixel=0; row.Parent=parentPage; Instance.new("UICorner",row).CornerRadius=UDim.new(0,8)
+    local lbl=Instance.new("TextLabel"); lbl.BackgroundTransparency=1; lbl.Position=UDim2.fromOffset(12,5); lbl.Size=UDim2.new(1,-100,0,20); lbl.Font=Enum.Font.GothamMedium; lbl.TextSize=12; lbl.TextXAlignment=Enum.TextXAlignment.Left; lbl.TextColor3=Color3.fromRGB(230,233,240); lbl.Text=labelText; lbl.Parent=row
+    local val=Instance.new("TextLabel"); val.BackgroundTransparency=1; val.Position=UDim2.new(1,-82,0,5); val.Size=UDim2.fromOffset(70,20); val.Font=Enum.Font.GothamBold; val.TextSize=12; val.TextXAlignment=Enum.TextXAlignment.Right; val.TextColor3=Color3.fromRGB(145,220,255); val.Parent=row
+    local bar=Instance.new("Frame"); bar.Position=UDim2.fromOffset(12,36); bar.Size=UDim2.new(1,-24,0,8); bar.BackgroundColor3=Color3.fromRGB(42,46,58); bar.BorderSizePixel=0; bar.Parent=row; Instance.new("UICorner",bar).CornerRadius=UDim.new(1,0)
+    local fill=Instance.new("Frame"); fill.BackgroundColor3=Color3.fromRGB(88,170,235); fill.BorderSizePixel=0; fill.Parent=bar; Instance.new("UICorner",fill).CornerRadius=UDim.new(1,0)
+    local knob=Instance.new("TextButton"); knob.Text=""; knob.AutoButtonColor=false; knob.Size=UDim2.fromOffset(16,16); knob.AnchorPoint=Vector2.new(.5,.5); knob.BackgroundColor3=Color3.fromRGB(235,240,247); knob.BorderSizePixel=0; knob.Parent=bar; Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
+    local value=tonumber(defaultValue) or minValue
+    local drag=false
+    local function draw(v)
+        if killSwitchActivated then return end
+        value=math.clamp(v,minValue,maxValue)
+        if decimals then local m=10^decimals; value=math.floor(value*m+.5)/m end
+        local a=(value-minValue)/math.max(maxValue-minValue,.001)
+        fill.Size=UDim2.new(a,0,1,0); knob.Position=UDim2.new(a,0,.5,0)
+        val.Text=string.format("%."..tostring(decimals or 0).."f",value)
+        if callback then callback(value) end
+    end
+    local function at(x)
+        if killSwitchActivated or not bar.Parent then return end
+        draw(minValue+(maxValue-minValue)*math.clamp((x-bar.AbsolutePosition.X)/math.max(bar.AbsoluteSize.X,1),0,1))
+    end
+    local c1 = knob.MouseButton1Down:Connect(function() drag=true end)
+    local c2 = bar.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=true; at(i.Position.X) end end)
+    local c3 = UserInputService.InputChanged:Connect(function(i) if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then at(i.Position.X) end end)
+    local c4 = UserInputService.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false end end)
+    table.insert(connections,c1); table.insert(connections,c2); table.insert(connections,c3); table.insert(connections,c4)
+    draw(value); guiObjects["slider_"..key]=draw; return row
+end
+
+local function cycle(parentPage,labelText,key,values)
+    local idx=1; for i,v in ipairs(values) do if state[key]==v then idx=i break end end
+    local b; b=button(parentPage,labelText..": "..tostring(values[idx]),function() idx=idx%#values+1; state[key]=values[idx]; b.Text=labelText..": "..tostring(state[key]) end); return b
+end
+
+local function info(parentPage, text)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -4, 0, 46)
+    frame.BackgroundColor3 = Color3.fromRGB(23, 26, 34)
+    frame.BorderSizePixel = 0
+    frame.Parent = parentPage
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.fromOffset(12, 6)
+    label.Size = UDim2.new(1, -24, 1, -12)
+    label.Font = Enum.Font.Gotham
+    label.Text = text
+    label.TextSize = 12
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.TextColor3 = Color3.fromRGB(150, 156, 171)
+    label.Parent = frame
+end
 
 -- ============================================================
--- START FARM
+-- CREATE TABS
 -- ============================================================
-pcall(startFarm)
-print("✅ POLY LOOT – GUI LOADED")
+local tabNames = {"Farm", "Auto Farm Mobs", "Auto Resource Farm", "Inventory", "Teleport", "Testing", "Settings"}
+for _, name in ipairs(tabNames) do
+    newPage(name)
+end
+
+local function selectTab(name)
+    state.CurrentTab = name
+    for tabName, page in pairs(pages) do
+        page.Visible = tabName == name
+    end
+    for tabName, b in pairs(tabButtons) do
+        b.BackgroundColor3 = tabName == name and Color3.fromRGB(43, 48, 62) or Color3.fromRGB(20, 23, 30)
+        b.TextColor3 = tabName == name and Color3.fromRGB(245, 247, 250) or Color3.fromRGB(165, 171, 186)
+    end
+end
+
+for i, name in ipairs(tabNames) do
+    local b = Instance.new("TextButton")
+    b.LayoutOrder = i
+    b.Size = UDim2.new(1, 0, 0, 40)
+    b.BackgroundColor3 = Color3.fromRGB(20, 23, 30)
+    b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamMedium
+    b.Text = name
+    b.TextSize = 13
+    b.TextXAlignment = Enum.TextXAlignment.Left
+    b.TextColor3 = Color3.fromRGB(165, 171, 186)
+    b.Parent = Side
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local pad = Instance.new("UIPadding")
+    pad.PaddingLeft = UDim.new(0, 12)
+    pad.Parent = b
+    b.Activated:Connect(function() selectTab(name) end)
+    tabButtons[name] = b
+end
+
+-- Explicitly show the first tab; no automation is started here.
+selectTab("Farm")
+
+-- ============================================================
+-- FARM PAGE
+-- ============================================================
+local farm = pages.Farm
+section(farm, "Loot & Farming")
+info(farm, "Uses the live Workspace mob folders, Mob tag, Animal attribute, WorldBits/LocalDrops, and the mapped game movement/combat systems.")
+
+toggle(farm, "Auto Loot", "AutoLoot", function(enabled)
+    disconnect("AutoLoot")
+    if not enabled then return end
+    stopFlags.AutoLoot = false
+    connections.AutoLoot = task.spawn(function()
+        while state.AutoLoot and not stopFlags.AutoLoot and not killSwitchActivated do
+            collectAllLootPriority(CONFIG.LootRadius, 0.9)
+            task.wait(math.max(CONFIG.ScanInterval, 0.01))
+        end
+    end)
+end)
+
+slider(farm, "Attack Delay Min", "AttackDelayMin", 0.10, 1.20, CONFIG.AttackDelayMin, 2, function(v) CONFIG.AttackDelayMin = math.min(v, CONFIG.AttackDelayMax - 0.05) end)
+slider(farm, "Attack Delay Max", "AttackDelayMax", 0.20, 2.00, CONFIG.AttackDelayMax, 2, function(v) CONFIG.AttackDelayMax = math.max(v, CONFIG.AttackDelayMin + 0.05) end)
+slider(farm, "Loot Radius", "LootRadius", 10, 150, CONFIG.LootRadius, 0, function(v) CONFIG.LootRadius = v end)
+slider(farm, "Farm Radius", "FarmRadius", 20, 250, CONFIG.FarmRadius, 0, function(v) CONFIG.FarmRadius = v end)
+slider(farm, "Farm Move Speed", "FarmMoveSpeed", 1, 999, CONFIG.FarmMoveSpeed, 0, function(v)
+    if not state.FarmMoveSpeedLocked then
+        CONFIG.FarmMoveSpeed = math.clamp(v, 1, 999)
+    end
+end)
+toggle(farm, "Lock Current Farm Move Speed", "FarmMoveSpeedLocked", function(enabled)
+    -- Locked keeps the current speed value and prevents slider edits.
+end)
+slider(farm, "Gold Amount", "GoldAmount", 1, 5000, CONFIG.GoldCollectAmount, 0, function(v) CONFIG.GoldCollectAmount = v end)
+slider(farm, "Gold Interval", "GoldInterval", 5, 120, CONFIG.GoldCollectInterval, 0, function(v) CONFIG.GoldCollectInterval = v end)
+
+toggle(farm, "Auto Attack", "AutoAttack", function(enabled)
+    disconnect("AutoAttack")
+    if not enabled then return end
+    connections.AutoAttack = task.spawn(function()
+        while state.AutoAttack and not stopFlags.AutoAttack do
+            local target = findBestFarmTarget()
+            local root = getRoot()
+            if target and root then
+                state.CurrentTarget = target
+                local pos = getPosition(target)
+                if pos then moveNear(pos, 9) end
+                local r = getRemote("WeaponAttack")
+                if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer(0) end) end
+            else state.CurrentTarget = nil end
+            local d = CONFIG.AttackDelayMin + math.random() * math.max(CONFIG.AttackDelayMax-CONFIG.AttackDelayMin, 0)
+            task.wait(math.max(d, 0.05))
+        end
+    end)
+end)
+
+toggle(farm, "Gold Mine Collect", "GoldMineCollect", function(enabled)
+    disconnect("GoldMineCollect")
+    if not enabled then return end
+    connections.GoldMineCollect = task.spawn(function()
+        while state.GoldMineCollect and not stopFlags.GoldMineCollect do
+            local r = getRemote("CollectRequest")
+            if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer(CONFIG.GoldCollectAmount) end) end
+            task.wait(math.max(CONFIG.GoldCollectInterval, 1))
+        end
+    end)
+end)
+
+
+
+-- ============================================================
+-- AUTO FARM MOBS PAGE
+-- ============================================================
+local mobFarm = pages["Auto Farm Mobs"]
+section(mobFarm, "Mob Farming")
+info(mobFarm, "Select the mob category and target, then enable Auto Farm Selected. The existing mob farming behavior is preserved.")
+cycle(mobFarm, "Mob Type", "FarmKind", {"All", "Passive", "Aggressive"})
+cycle(mobFarm, "Target", "FarmSpecies", {"All", "Chicken", "Sheep", "Cow", "Pig", "Bear", "Bat", "Silverfish", "Snail", "Wolf", "Skeleton", "Gargoyle", "Spider", "King Chicken"})
+toggle(mobFarm, "Auto Farm Selected", "SelectedFarm", function(enabled)
+    disconnect("SelectedFarm")
+    if not enabled then return end
+    connections.SelectedFarm = task.spawn(function()
+        while state.SelectedFarm and not stopFlags.SelectedFarm do
+            local target = findBestFarmTarget()
+            local root = getRoot()
+            if target and root then
+                state.CurrentTarget = target
+                local pos = getPosition(target)
+                if pos then moveNear(pos, 9) end
+                local r = getRemote("WeaponAttack")
+                if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer(0) end) end
+            end
+            task.wait(CONFIG.AttackDelayMin)
+        end
+    end)
+end)
+section(mobFarm, "Mob Movement")
+slider(mobFarm, "Farm Radius", "MobFarmRadius", 20, 250, CONFIG.FarmRadius, 0, function(v) CONFIG.FarmRadius = v end)
+slider(mobFarm, "Farm Move Speed", "FarmMoveSpeed", 1, 999, CONFIG.FarmMoveSpeed, 0, function(v)
+    if not state.FarmMoveSpeedLocked then
+        CONFIG.FarmMoveSpeed = math.clamp(v, 1, 999)
+    end
+end)
+toggle(mobFarm, "Lock Current Farm Move Speed", "FarmMoveSpeedLocked", function(enabled)
+    -- Locked keeps the current speed value and prevents slider edits.
+end)
+
+-- INVENTORY PAGE
+-- ============================================================
+local inv = pages.Inventory
+section(inv, "Inventory")
+info(inv, "Known Inventory_Engine remotes: SellRequest, SetFavorite, EquipRequest, UnequipRequest, UseRequest, RerollTierRequest, HotbarBindRequest, HotbarMoveRequest, HotbarUnbindRequest, MarkItemViewed.")
+button(inv, "Check SellRequest", function()
+    local r = getRemote("SellRequest")
+    print("[POLY LOOT] SellRequest:", r and r:GetFullName() or "NOT FOUND")
+end)
+button(inv, "Check DismantleRequest", function()
+    local r = getRemote("DismantleRequest")
+    print("[POLY LOOT] DismantleRequest:", r and r:GetFullName() or "NOT FOUND")
+end)
+button(inv, "Check UpgradeRequest", function()
+    local r = getRemote("UpgradeRequest")
+    print("[POLY LOOT] UpgradeRequest:", r and r:GetFullName() or "NOT FOUND")
+end)
+button(inv, "Check CraftRequest", function()
+    local r = getRemote("CraftRequest")
+    print("[POLY LOOT] CraftRequest:", r and r:GetFullName() or "NOT FOUND")
+end)
+button(inv, "Check Favorite Remote", function()
+    local r = getRemote("SetFavorite")
+    print("[POLY LOOT] SetFavorite:", r and r:GetFullName() or "NOT FOUND")
+end)
+
+section(inv, "Inventory Safety")
+info(inv, "Dismantle logic can use CraftingConfig: Weapon/Armor only, with rarity shard yield and Red/Blue Elemental blocked. Exact request payloads are not guessed here.")
+
+-- ============================================================
+-- TELEPORT PAGE
+-- ============================================================
+local tp = pages.Teleport
+section(tp, "Saved Locations")
+for _, name in ipairs({"GoldMine", "Spawn", "Shop", "Dismantle", "Upgrade", "Tiers"}) do
+    local pos = LOCATIONS[name]
+    button(tp, "Travel to " .. name, function()
+        if connections.ManualTravelTask and typeof(connections.ManualTravelTask) == "thread" then
+            pcall(function() task.cancel(connections.ManualTravelTask) end)
+        end
+        connections.ManualTravelTask = task.spawn(function()
+            manualTravel(pos)
+            connections.ManualTravelTask = nil
+        end)
+    end)
+end
+section(tp, "Movement")
+info(tp, "Manual travel uses normal Humanoid pathfinding first and a short fallback tween only if pathfinding cannot produce a route.")
+
+-- ============================================================
+-- AUTO RESOURCE FARM PAGE
+-- ============================================================
+local world = pages["Auto Resource Farm"]
+section(world, "Auto Resource Farming")
+info(world, "Resource farming runs through the mapped tree and ore systems. Background scanners remain automatic.")
+toggle(world, "Auto Tree Farm", "AutoTreeFarm", function(enabled)
+    disconnect("AutoTreeFarm")
+    if not enabled then return end
+    connections.AutoTreeFarm = task.spawn(function()
+        while state.AutoTreeFarm and not stopFlags.AutoTreeFarm do
+            local tree,dist = nearestTree(CONFIG.FarmRadius)
+            if tree and dist then
+                local pos=getPosition(tree)
+                if pos then
+                    moveNear(pos, 10)
+                    if dist <= 12 then
+                        local axe=findToolByHint({"axe","greataxe","twinblade"})
+                        if axe and axe.Parent==Player.Character then pcall(function() axe:Activate() end) end
+                    end
+                end
+            end
+            task.wait(math.max(CONFIG.AttackDelayMin,0.15))
+        end
+    end)
+end)
+slider(world,"Tree Farm Radius","TreeFarmRadius",20,250,CONFIG.FarmRadius,0,function(v) CONFIG.FarmRadius=v end)
+
+-- ============================================================
+section(world, "Ore")
+toggle(world, "Auto Ore Farm", "AutoOre", function(enabled)
+    disconnect("AutoOre")
+    if not enabled then return end
+    stopFlags.AutoOre = false
+    connections.AutoOre = task.spawn(function()
+        while state.AutoOre and not stopFlags.AutoOre do
+            local ores = collectOre(CONFIG.FarmRadius)
+            local first = ores[1]
+            if first and not state.ManualTravel then
+                local root=getRoot()
+                if root and (first.position-root.Position).Magnitude > 8 then
+                    moveNear(first.position, 8)
+                elseif root then
+                    local pick=findToolByHint({"pickaxe","pick"})
+                    if pick and pick.Parent==Player.Character then pcall(function() pick:Activate() end) end
+                end
+            end
+            task.wait(0.25)
+        end
+    end)
+end)
+slider(world,"Ore Radius","OreRadius",20,300,250,0,function(v) CONFIG.FarmRadius=v end)
+
+
+-- SETTINGS PAGE
+-- ============================================================
+local settings = pages.Settings
+section(settings, "Character")
+info(settings, "Character controls are restored here. Character Speed starts at 34. These controls do not modify the mob/resource travel method.")
+slider(settings, "Character Speed", "CharacterSpeed", 1, 34, CONFIG.WalkSpeed, 0, function(v)
+    CONFIG.WalkSpeed = math.clamp(v, 1, 34)
+    local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = CONFIG.WalkSpeed
+    end
+end)
+
+section(settings, "Travel")
+slider(settings, "Travel Speed", "TravelSpeed", 1, 999, CONFIG.TravelSpeed, 0, function(v)
+    if not state.TravelSpeedLocked then
+        CONFIG.TravelSpeed = math.clamp(v, 1, 999)
+    end
+end)
+toggle(settings, "Lock Current Travel Speed", "TravelSpeedLocked", function(enabled)
+    -- Lock keeps the current travel speed value and prevents slider edits.
+end)
+
+section(settings, "Farm Movement")
+slider(settings, "Farm Move Speed", "SettingsFarmMoveSpeed", 1, 999, CONFIG.FarmMoveSpeed, 0, function(v)
+    if not state.FarmMoveSpeedLocked then
+        CONFIG.FarmMoveSpeed = math.clamp(v, 1, 999)
+    end
+end)
+toggle(settings, "Lock Current Farm Move Speed", "FarmMoveSpeedLocked", function(enabled)
+    -- Lock keeps the current farm move speed value and prevents slider edits.
+end)
+
+section(settings, "Utilities")
+toggle(settings, "Anti AFK", "AntiAFK", function(enabled)
+    -- Existing Anti AFK behavior remains controlled by the existing state flag.
+end)
+
+fullShutdown = function()
+    if killSwitchActivated then return end
+    killSwitchActivated = true
+
+    local restoreEnvironment = state.EnvironmentCollisionTest == true
+
+    -- Stop every state-driven feature immediately.
+    for key, value in pairs(state) do
+        if type(value) == "boolean" then
+            state[key] = false
+        end
+    end
+    state.CurrentTarget = nil
+
+    -- Leave stop flags asserted while this dead instance is shutting down.
+    for name in pairs(connections) do
+        stopFlags[name] = true
+    end
+    stopFlags.AutoLoot = true
+    stopFlags.AutoAttack = true
+    stopFlags.GoldMineCollect = true
+    stopFlags.SelectedFarm = true
+    stopFlags.AutoTreeFarm = true
+    stopFlags.AutoOre = true
+    stopFlags.ManualTravel = true
+
+    -- Stop archery auto-fire first so it cannot leave the bow held/drawing.
+    state.ArcheryAutoShoot = false
+    if stopArcheryAutoShoot then
+        pcall(stopArcheryAutoShoot)
+    end
+
+    -- Stop archery render control first so it cannot touch the camera again.
+    archeryAimEnabled = false
+    if stopArcheryAim then
+        pcall(stopArcheryAim)
+    else
+        pcall(function() RunService:UnbindFromRenderStep(POLY_ARCHERY_BIND) end)
+    end
+
+    -- Cancel any in-progress movement tween.
+    if activeMovementTween then
+        pcall(function() activeMovementTween:Cancel() end)
+        activeMovementTween = nil
+    end
+
+    -- Cancel all registered farm/resource/manual-travel threads and every global
+    -- input/render connection owned by this script.
+    for name, c in pairs(connections) do
+        connections[name] = nil
+        pcall(function()
+            if typeof(c) == "RBXScriptConnection" then
+                c:Disconnect()
+            elseif typeof(c) == "thread" then
+                task.cancel(c)
+            end
+        end)
+    end
+
+    -- Clear scan/cache tables so nothing stale is left behind.
+    if type(state.NearbyMobScan) == "table" then table.clear(state.NearbyMobScan) end
+    if type(state.SelectedTargetScan) == "table" then table.clear(state.SelectedTargetScan) end
+
+    -- Stop character motion that may have been requested just before shutdown.
+    local hum = getHumanoid()
+    local root = getRoot()
+    if hum then
+        pcall(function()
+            hum:Move(Vector3.zero, false)
+            if root then hum:MoveTo(root.Position) end
+            hum.AutoRotate = true
+            hum.PlatformStand = false
+        end)
+    end
+    if root then
+        pcall(function()
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+
+    if restoreEnvironment and setEnvironmentDeleteTest then
+        pcall(function() setEnvironmentDeleteTest(false) end)
+    end
+
+    -- Prevent the next version from calling this already-dead instance again.
+    if POLY_SHARED.POLY_LOOT_SHUTDOWN == fullShutdown then
+        POLY_SHARED.POLY_LOOT_SHUTDOWN = nil
+    end
+
+    table.clear(guiObjects)
+    pcall(function() ScreenGui:Destroy() end)
+end
+
+POLY_SHARED.POLY_LOOT_SHUTDOWN = fullShutdown
+
+do
+    local kill = Instance.new("TextButton")
+    kill.Name = "KillSwitch"
+    kill.Size = UDim2.new(1, 0, 0, 34)
+    kill.BackgroundColor3 = Color3.fromRGB(185, 35, 35)
+    kill.BorderSizePixel = 0
+    kill.Text = "KILL SWITCH - STOP & CLOSE EVERYTHING"
+    kill.TextColor3 = Color3.fromRGB(255, 255, 255)
+    kill.Font = Enum.Font.GothamBold
+    kill.TextSize = 12
+    kill.AutoButtonColor = false
+    kill.Parent = settings
+    Instance.new("UICorner", kill).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(120, 20, 20)
+    stroke.Thickness = 1
+    stroke.Parent = kill
+
+    kill.MouseEnter:Connect(function()
+        kill.BackgroundColor3 = Color3.fromRGB(220, 45, 45)
+    end)
+    kill.MouseLeave:Connect(function()
+        kill.BackgroundColor3 = Color3.fromRGB(185, 35, 35)
+    end)
+    kill.MouseButton1Click:Connect(function()
+        fullShutdown()
+    end)
+end
+
+-- TESTING PAGE
+-- ============================================================
+local testing = pages.Testing
+section(testing, "Environment Delete Test")
+info(testing, "Removes decorative map clutter: bushes, flowers, grass/decor, stumps, trunks, mushrooms, logs, crystals, light poles, rocks and rock paths, fences and lanterns, while leaving pillars intact. Also removes the exact Ultimate Nature Pack meshes Rocks_Icosphere.018 and U Shaped Tree_Vert.011. All other trees, ChoppableTree resources, and the actual walking terrain are protected.")
+
+-- Decorative environment names. These intentionally exclude every tree name.
+local DECORATION_NAME_HINTS = {
+    bush = true, bushes = true,
+    flower = true, flowers = true,
+    grass = true, grasspatch = true, grasspatches = true,
+    plant = true, plants = true, plant = true,
+    stump = true, stumps = true,
+    trunk = true, trunks = true,
+    mushroom = true, mushrooms = true,
+    log = true, logs = true,
+    fern = true, ferns = true,
+    shrub = true, shrubs = true,
+    weed = true, weeds = true,
+    foliage = true,
+    crystal = true, crystals = true,
+    lightpole = true, lightpoles = true,
+    light_pole = true, light_poles = true,
+    streetlight = true, streetlights = true,
+}
+
+local ROCK_NAME_HINTS = {
+    rock = true, rocks = true,
+    rockmodel = true,
+    rockpath = true, rockpaths = true,
+    rock_path = true, rock_paths = true,
+    movementpath = true, movementpaths = true,
+    movement_path = true, movement_paths = true,
+}
+
+local FENCE_NAME_HINTS = {
+    fence = true, fences = true,
+    fencepost = true, fenceposts = true,
+    fence_post = true, fence_posts = true,
+    woodenfence = true, woodfence = true,
+    stonefence = true,
+    arch = true, arches = true,
+}
+
+local savedEnvironmentObjects = {}
+
+local EXACT_NATUREPACK_DELETE_NAMES = {
+    ["rocks_icosphere.018"] = true,
+    ["u shaped tree_vert.011"] = true,
+}
+
+local function isExactNaturePackDeleteTarget(obj)
+    if not obj then return false end
+    local n = string.lower(obj.Name)
+    if not EXACT_NATUREPACK_DELETE_NAMES[n] then
+        return false
+    end
+
+    local current = obj.Parent
+    local sawUltimateNaturePack = false
+    while current and current ~= Workspace do
+        if string.lower(current.Name) == "ultimate nature pack" then
+            sawUltimateNaturePack = true
+            break
+        end
+        current = current.Parent
+    end
+
+    return sawUltimateNaturePack
+end
+
+local function protectedEnvironmentObject(obj)
+    if not obj or obj == Workspace or obj == Workspace.Terrain then
+        return true
+    end
+
+    if isExactNaturePackDeleteTarget(obj) then
+        return false
+    end
+
+    local current = obj
+    while current and current ~= Workspace do
+        local n = string.lower(current.Name)
+
+        -- Preserve the actual Terrain service and any separate map object
+        -- explicitly named Terrain/TERRAIN.
+        if n == "terrain" or n == "terrainservice" then
+            return true
+        end
+
+        -- Never remove trees or resource objects.
+        if CollectionService:HasTag(current, "ChoppableTree") then
+            return true
+        end
+        if string.find(n, "tree", 1, true) or string.find(n, "sapling", 1, true) then
+            return true
+        end
+        if n == "ore_live" or n == "animal_live" or n == "animal_localdrops" then
+            return true
+        end
+        if string.find(n, "ore", 1, true) then
+            return true
+        end
+
+        current = current.Parent
+    end
+
+    return false
+end
+
+local function isDecorationRoot(obj)
+    if isExactNaturePackDeleteTarget(obj) then return true end
+    if protectedEnvironmentObject(obj) then return false end
+    local n = string.lower(obj.Name)
+
+    if DECORATION_NAME_HINTS[n] then
+        return true
+    end
+
+    if obj:IsA("Model") or obj:IsA("Folder") then
+        return string.find(n, "bush", 1, true) ~= nil
+            or string.find(n, "flower", 1, true) ~= nil
+            or string.find(n, "grass", 1, true) ~= nil
+            or string.find(n, "stump", 1, true) ~= nil
+            or string.find(n, "trunk", 1, true) ~= nil
+            or string.find(n, "mushroom", 1, true) ~= nil
+            or string.find(n, "fern", 1, true) ~= nil
+            or string.find(n, "shrub", 1, true) ~= nil
+            or string.find(n, "weed", 1, true) ~= nil
+            or string.find(n, "foliage", 1, true) ~= nil
+            or string.find(n, "log", 1, true) ~= nil
+            or string.find(n, "arch", 1, true) ~= nil
+    end
+
+    return false
+end
+
+local function isRockRoot(obj)
+    if isExactNaturePackDeleteTarget(obj) then return true end
+    if protectedEnvironmentObject(obj) then return false end
+    local n = string.lower(obj.Name)
+    if ROCK_NAME_HINTS[n] then
+        return true
+    end
+
+    -- Only use explicit rock/path naming on Models/Folders/BaseParts.
+    -- Do not use the broad rock-color classifier here because it can match
+    -- legitimate walking surfaces.
+    if obj:IsA("Model") or obj:IsA("Folder") or obj:IsA("BasePart") then
+        return string.find(n, "rockpath", 1, true) ~= nil
+            or string.find(n, "rock_path", 1, true) ~= nil
+            or string.find(n, "movementpath", 1, true) ~= nil
+            or string.find(n, "movement_path", 1, true) ~= nil
+    end
+
+    return false
+end
+
+local function isFenceRoot(obj)
+    if protectedEnvironmentObject(obj) then return false end
+    local n = string.lower(obj.Name)
+    return FENCE_NAME_HINTS[n]
+        or string.find(n, "fence", 1, true) ~= nil
+        or CollectionService:HasTag(obj, "Fence")
+end
+
+local function isLanternRoot(obj)
+    if protectedEnvironmentObject(obj) then return false end
+    return string.find(string.lower(obj.Name), "lantern", 1, true) ~= nil
+end
+
+local function findDeleteRoot(obj)
+    if protectedEnvironmentObject(obj) then return nil end
+
+    local current = obj
+    while current.Parent and current.Parent ~= Workspace do
+        local parent = current.Parent
+        if isRockRoot(parent) or isFenceRoot(parent) or isLanternRoot(parent) or isDecorationRoot(parent) then
+            current = parent
+        else
+            break
+        end
+    end
+
+    return current
+end
+
+local function saveAndDestroyObject(obj)
+    if not obj or not obj.Parent or protectedEnvironmentObject(obj) then
+        return false
+    end
+
+    local n = string.lower(obj.Name)
+    if n == "terrain" then
+        return false
+    end
+
+    if savedEnvironmentObjects[obj] then
+        return false
+    end
+
+    local ok, clone = pcall(function()
+        return obj:Clone()
+    end)
+    if not ok or not clone then
+        return false
+    end
+
+    savedEnvironmentObjects[obj] = {
+        clone = clone,
+        parent = obj.Parent,
+    }
+
+    pcall(function()
+        obj:Destroy()
+    end)
+    return true
+end
+
+setEnvironmentDeleteTest = function(enabled)
+    if enabled then
+        -- Never clear Workspace.Terrain. That is the actual terrain surface.
+        -- Roblox Terrain is voxel-based and clearing it removes the terrain
+        -- itself, which is why the earlier version caused the player to fall.
+        local roots = {}
+        local rootSeen = {}
+
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if (obj:IsA("Model") or obj:IsA("Folder") or obj:IsA("BasePart"))
+                and not rootSeen[obj]
+                and (isRockRoot(obj) or isDecorationRoot(obj) or isFenceRoot(obj) or isLanternRoot(obj)) then
+
+                local root = findDeleteRoot(obj) or obj
+                if root and not rootSeen[root] and not protectedEnvironmentObject(root) then
+                    rootSeen[root] = true
+                    table.insert(roots, root)
+                end
+            end
+        end
+
+        for _, root in ipairs(roots) do
+            saveAndDestroyObject(root)
+        end
+    else
+        for _, saved in pairs(savedEnvironmentObjects) do
+            if saved and saved.clone and saved.parent and saved.parent.Parent then
+                pcall(function()
+                    saved.clone.Parent = saved.parent
+                end)
+            end
+        end
+        table.clear(savedEnvironmentObjects)
+    end
+end
+
+toggle(testing, "Delete Environment Decor", "EnvironmentCollisionTest", setEnvironmentDeleteTest)
+
+button(testing, "Restore Environment", function()
+    state.EnvironmentCollisionTest = false
+    setEnvironmentDeleteTest(false)
+    local redraw = guiObjects.EnvironmentCollisionTest
+    if redraw then redraw() end
+end)
+
+section(testing, "Archery Testing")
+info(testing, "V25 keeps the confirmed Shift-Lock center and V23 adaptive Round 3 prediction, then adds a smart score-gated auto shot. Auto Shoot controls the bow draw/release itself, waits for full charge, and only releases when the current camera ray is projected inside a predicted 10/9/8 scoring radius.")
+
+local ARCHERY_FRONT_DOT_MIN = 0.42
+local ARCHERY_MAX_TARGET_DISTANCE = 300
+
+-- CONFIRMED STATIC CENTER. Do not change these while fixing movement tracking.
+local ARCHERY_CENTER_OFFSET_Y = 0.0
+local ARCHERY_SHIFTLOCK_OFFSET_Y = -1.60
+local ARCHERY_FINAL_PRIORITY = Enum.RenderPriority.Last.Value + 100
+
+-- Motion is used ONLY to choose the active moving target when multiple round targets
+-- remain in Workspace. It does NOT lead the shot or change the aim point.
+local ARCHERY_ACTIVE_MOTION_BONUS = 650
+local ARCHERY_MAX_SELECTION_SPEED = 120
+local archeryCandidateMotion = setmetatable({}, {__mode = "k"})
+
+-- V21 moving-target prediction. These values do NOT affect the confirmed static center.
+-- The game already solves projectile gravity from the camera ray, so this only leads
+-- the bullseye in the direction it is actually moving.
+local ARCHERY_PREDICTION_ARROW_SPEED = 210
+local ARCHERY_PREDICTION_LATENCY = 0.030
+local ARCHERY_PREDICTION_STRENGTH = 1.00
+local ARCHERY_MAX_PREDICTION_TIME = 0.70
+local ARCHERY_MAX_LEAD_DISTANCE = 10.5
+local ARCHERY_MAX_TRACKED_SPEED = 130
+local ARCHERY_VELOCITY_BLEND = 0.42
+local ARCHERY_FAST_VELOCITY_BLEND = 0.80
+local ARCHERY_REVERSE_VELOCITY_BLEND = 0.90
+local ARCHERY_FAST_PREDICTION_STRENGTH = 1.34
+local ARCHERY_SPEED_ADAPT_START = 10
+local ARCHERY_SPEED_ADAPT_FULL = 70
+
+-- V23 adaptive screen smoothing / target-lock stability.
+local ARCHERY_AIM_SMOOTH_RESPONSE = 22
+local ARCHERY_FAST_AIM_SMOOTH_RESPONSE = 58
+local ARCHERY_TARGET_SWITCH_MARGIN = 6500
+local ARCHERY_LOCK_KEEP_SECONDS = 0.30
+local ARCHERY_MAX_LOCK_LANE_RATIO = 0.30
+local ARCHERY_LOCKED_MAX_LANE_RATIO = 0.42
+local archeryLockChosenAt = 0
+
+-- V25 score-gated auto fire with real-input fallback. No release can be literally guaranteed because the
+-- target can reverse after release and networking adds latency, so the gate uses
+-- a conservative inner portion of each scoring ring plus consecutive good frames.
+local ARCHERY_AUTO_FULL_CHARGE_SECONDS = 1.08
+local ARCHERY_AUTO_POST_SHOT_COOLDOWN = 0.28
+local ARCHERY_AUTO_RING_SAFETY = 0.78
+local ARCHERY_AUTO_DIRECTION_SETTLE = 0.055
+local ARCHERY_AUTO_GOOD_FRAMES = 2
+local ARCHERY_AUTO_10_ONLY_SECONDS = 0.30
+local ARCHERY_AUTO_9_ONLY_SECONDS = 0.72
+
+local function circularDiscScore(part)
+    if not (part and part:IsA("BasePart") and part.Parent) then
+        return nil
+    end
+    -- Never let an invisible collision/hitbox become the bullseye.
+    if part.Transparency >= 0.95 then
+        return nil
+    end
+    local sx, sy, sz = part.Size.X, part.Size.Y, part.Size.Z
+    local dims = {sx, sy, sz}
+    table.sort(dims)
+    local thickness, a, b = dims[1], dims[2], dims[3]
+    local diameter = (a + b) * 0.5
+    if diameter < 0.45 then return nil end
+    if math.abs(a - b) > math.max(0.08, diameter * 0.08) then return nil end
+    if thickness > diameter * 0.45 then return nil end
+    return diameter
+end
+
+local function findArcheryTargetContainer(targetModel)
+    if not (targetModel and targetModel:IsA("Model") and targetModel.Parent) then
+        return nil
+    end
+    for _, descendant in ipairs(targetModel:GetDescendants()) do
+        if descendant:IsA("Model") and descendant.Name == "Target" then
+            return descendant
+        end
+    end
+    return targetModel
+end
+
+local function getArcheryRingRadii(targetModel, bull)
+    local root = findArcheryTargetContainer(targetModel)
+    local radii = {}
+    if root then
+        for _, descendant in ipairs(root:GetDescendants()) do
+            if descendant:IsA("BasePart") then
+                local diameter = circularDiscScore(descendant)
+                if diameter then
+                    table.insert(radii, diameter * 0.5)
+                end
+            end
+        end
+    end
+    table.sort(radii)
+
+    -- Remove near-duplicate radii from overlapping decorative discs.
+    local unique = {}
+    for _, radius in ipairs(radii) do
+        if #unique == 0 or math.abs(radius - unique[#unique]) > 0.04 then
+            table.insert(unique, radius)
+        end
+    end
+
+    -- The live target uses evenly expanding concentric rings. If the runtime model
+    -- exposes only the bull disc, infer the next two score radii from that spacing.
+    if #unique < 3 and bull then
+        local diameter = circularDiscScore(bull)
+        local base = diameter and diameter * 0.5 or math.max(bull.Size.Y, bull.Size.Z) * 0.5
+        unique[1] = unique[1] or base
+        unique[2] = unique[2] or base * 2
+        unique[3] = unique[3] or base * 3
+    end
+    return unique
+end
+
+local function bullPlaneNormal(bull)
+    local size = bull.Size
+    if size.X <= size.Y and size.X <= size.Z then
+        return bull.CFrame.RightVector
+    elseif size.Y <= size.X and size.Y <= size.Z then
+        return bull.CFrame.UpVector
+    end
+    return bull.CFrame.LookVector
+end
+
+local function projectedScoreForCamera(camera, target, bull, predictedCenter)
+    if not (camera and target and bull and predictedCenter) then
+        return 0, math.huge
+    end
+
+    local origin = camera.CFrame.Position
+    local direction = camera.CFrame.LookVector
+    local normal = bullPlaneNormal(bull)
+    local denom = direction:Dot(normal)
+    if math.abs(denom) < 0.02 then
+        return 0, math.huge
+    end
+
+    local t = (predictedCenter - origin):Dot(normal) / denom
+    if t <= 0 then
+        return 0, math.huge
+    end
+
+    local projected = origin + direction * t
+    local errorDistance = (projected - predictedCenter).Magnitude
+    local radii = getArcheryRingRadii(target, bull)
+    local r10 = radii[1]
+    local r9 = radii[2]
+    local r8 = radii[3]
+
+    if r10 and errorDistance <= r10 * ARCHERY_AUTO_RING_SAFETY then
+        return 10, errorDistance
+    elseif r9 and errorDistance <= r9 * ARCHERY_AUTO_RING_SAFETY then
+        return 9, errorDistance
+    elseif r8 and errorDistance <= r8 * ARCHERY_AUTO_RING_SAFETY then
+        return 8, errorDistance
+    end
+    return 0, errorDistance
+end
+
+local function resolveArcheryBowClient()
+    if type(archeryBowClient) == "table"
+        and type(archeryBowClient.SetTouchHeld) == "function"
+        and type(archeryBowClient.IsDrawing) == "function" then
+        return archeryBowClient
+    end
+
+    local playerScripts = Player:FindFirstChild("PlayerScripts")
+    if not playerScripts then return nil end
+    for _, descendant in ipairs(playerScripts:GetDescendants()) do
+        if descendant:IsA("ModuleScript") and descendant.Name == "BowClient" then
+            local ok, module = pcall(require, descendant)
+            if ok and type(module) == "table"
+                and type(module.SetTouchHeld) == "function"
+                and type(module.IsDrawing) == "function" then
+                archeryBowClient = module
+                return module
+            end
+        end
+    end
+    return nil
+end
+
+local function archeryAutoMousePosition(camera)
+    camera = camera or Workspace.CurrentCamera
+    if camera then
+        local size = camera.ViewportSize
+        return math.floor(size.X * 0.5), math.floor(size.Y * 0.5)
+    end
+    return 640, 360
+end
+
+local function sendArcheryMouseButton(isDown, camera)
+    local x, y = archeryAutoMousePosition(camera)
+
+    -- Preferred fallback: inject the same Mouse1 input the game's normal PC bow
+    -- listener consumes. This avoids depending on our injected script being able
+    -- to require/call the game's BowClient module directly.
+    if VirtualInputManager then
+        local ok = pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, isDown, game, 0)
+        end)
+        if ok then
+            archeryAutoVirtualMouseHeld = isDown == true
+            return true
+        end
+    end
+
+    -- Secondary fallback for executors where VirtualInputManager is unavailable.
+    local ok = pcall(function()
+        local cam = camera or Workspace.CurrentCamera
+        if isDown then
+            VirtualUser:Button1Down(Vector2.new(x, y), cam and cam.CFrame or CFrame.new())
+        else
+            VirtualUser:Button1Up(Vector2.new(x, y), cam and cam.CFrame or CFrame.new())
+        end
+    end)
+    if ok then
+        archeryAutoVirtualMouseHeld = isDown == true
+        return true
+    end
+    return false
+end
+
+local function startArcheryAutoDraw(camera)
+    local bowClient = resolveArcheryBowClient()
+
+    -- Try the game's own public bow client API first when it is reachable.
+    if bowClient then
+        local attached = true
+        if type(bowClient.IsAttached) == "function" then
+            local ok, value = pcall(bowClient.IsAttached)
+            if ok then attached = value == true end
+        end
+        if attached then
+            local ok = pcall(function() bowClient.SetTouchHeld(true) end)
+            if ok then
+                local drawing = false
+                pcall(function() drawing = bowClient.IsDrawing() == true end)
+                if drawing then
+                    archeryAutoInputMode = "BowClient"
+                    archeryAutoVirtualMouseHeld = false
+                    return true
+                end
+                -- Some clients update IsDrawing on the following heartbeat. Give
+                -- the API a tiny verification window before falling back to Mouse1.
+                archeryAutoInputMode = "BowClientPending"
+                return true
+            end
+        end
+    end
+
+    if sendArcheryMouseButton(true, camera) then
+        archeryAutoInputMode = "Mouse"
+        return true
+    end
+    return false
+end
+
+local function releaseArcheryAutoDraw(camera)
+    if not archeryAutoOwnsDraw and not archeryAutoVirtualMouseHeld then return end
+
+    local released = false
+    local bowClient = resolveArcheryBowClient()
+    if archeryAutoInputMode == "BowClient" or archeryAutoInputMode == "BowClientPending" then
+        if bowClient then
+            released = pcall(function() bowClient.SetTouchHeld(false) end)
+        end
+    end
+
+    if archeryAutoInputMode == "Mouse" or archeryAutoVirtualMouseHeld or not released then
+        sendArcheryMouseButton(false, camera)
+    end
+
+    archeryAutoOwnsDraw = false
+    archeryAutoInputMode = nil
+    archeryAutoVirtualMouseHeld = false
+    archeryAutoDrawStartedAt = 0
+    archeryAutoDrawVerifyAt = 0
+    archeryAutoGoodFrames = 0
+end
+
+local function requiredAutoScore(now)
+    local minimum = math.clamp(math.floor(tonumber(state.ArcheryAutoMinScore) or 8), 8, 10)
+    local fullAt = archeryAutoDrawStartedAt + ARCHERY_AUTO_FULL_CHARGE_SECONDS
+    local fullHold = math.max(0, now - fullAt)
+
+    -- Always hunt a 10 first. If the user allows 9/8, relax only after a short
+    -- fully-charged wait so a fast Round 3 target still gets a chance to cross center.
+    if fullHold < ARCHERY_AUTO_10_ONLY_SECONDS then
+        return 10
+    end
+    if fullHold < ARCHERY_AUTO_9_ONLY_SECONDS then
+        return math.max(minimum, 9)
+    end
+    return minimum
+end
+
+local function archeryAutoShootTick(now, camera, target, bull, predictedCenter)
+    if not state.ArcheryAutoShoot or killSwitchActivated then
+        return
+    end
+
+    -- A real manual Mouse1 hold should not be fought, but an injected Mouse1 hold
+    -- owned by Auto Shoot must be allowed to continue through full charge.
+    if not archeryAutoVirtualMouseHeld
+        and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+        archeryAutoGoodFrames = 0
+        return
+    end
+
+    local bowClient = resolveArcheryBowClient()
+    local drawing = false
+    if bowClient and type(bowClient.IsDrawing) == "function" then
+        pcall(function() drawing = bowClient.IsDrawing() == true end)
+    end
+
+    if not archeryAutoOwnsDraw then
+        if now < archeryAutoNextShotAt then
+            return
+        end
+        -- If the game already reports a draw that we did not start, leave it alone.
+        if drawing and not archeryAutoVirtualMouseHeld then
+            return
+        end
+
+        if startArcheryAutoDraw(camera) then
+            archeryAutoOwnsDraw = true
+            archeryAutoDrawStartedAt = now
+            archeryAutoDrawVerifyAt = now + 0.12
+            archeryAutoGoodFrames = 0
+        end
+        return
+    end
+
+    -- BowClientPending means SetTouchHeld(true) returned successfully but the module
+    -- had not yet flipped IsDrawing. Verify once, then switch to real Mouse1 input if
+    -- the draw still did not begin instead of silently giving up like V24 did.
+    if archeryAutoInputMode == "BowClientPending" and now >= archeryAutoDrawVerifyAt then
+        if drawing then
+            archeryAutoInputMode = "BowClient"
+        else
+            if sendArcheryMouseButton(true, camera) then
+                archeryAutoInputMode = "Mouse"
+                archeryAutoDrawStartedAt = now
+            else
+                archeryAutoOwnsDraw = false
+                archeryAutoInputMode = nil
+                archeryAutoDrawStartedAt = 0
+                archeryAutoNextShotAt = now + 0.20
+                return
+            end
+        end
+    end
+
+    -- When Mouse1 is the control path, the timer is authoritative even if the
+    -- injected context cannot query BowClient.IsDrawing(). If BowClient is readable,
+    -- use it only as confirmation; do not cancel the hold just because it says false.
+    if archeryAutoInputMode == "BowClient" and bowClient and not drawing then
+        -- Allow a short startup grace. After that, fall back to Mouse1 rather than reset.
+        if now >= archeryAutoDrawVerifyAt then
+            if sendArcheryMouseButton(true, camera) then
+                archeryAutoInputMode = "Mouse"
+                archeryAutoDrawStartedAt = now
+            end
+        end
+    end
+
+    if now - archeryAutoDrawStartedAt < ARCHERY_AUTO_FULL_CHARGE_SECONDS then
+        archeryAutoGoodFrames = 0
+        return
+    end
+
+    local score, errorDistance = projectedScoreForCamera(camera, target, bull, predictedCenter)
+    archeryLatestScore = score
+    archeryLatestScoreError = errorDistance
+    archeryLatestScoreTime = now
+
+    local needed = requiredAutoScore(now)
+    local directionStable = (now - archeryLastDirectionChangeAt) >= ARCHERY_AUTO_DIRECTION_SETTLE
+    if score >= needed and directionStable then
+        archeryAutoGoodFrames = archeryAutoGoodFrames + 1
+    else
+        archeryAutoGoodFrames = 0
+    end
+
+    if archeryAutoGoodFrames >= ARCHERY_AUTO_GOOD_FRAMES then
+        -- Release the SAME input path that started the draw so the game's normal
+        -- release handler fires the fully charged projectile.
+        releaseArcheryAutoDraw(camera)
+        archeryAutoNextShotAt = now + ARCHERY_AUTO_POST_SHOT_COOLDOWN
+    end
+end
+
+local function findArcheryBull(targetModel)
+    if not (targetModel and targetModel:IsA("Model") and targetModel.Parent) then
+        return nil
+    end
+
+    -- The real ArrowTarget layout contains a nested Model named "Target" holding
+    -- the concentric rings. Search MODELS first; never trust a random BasePart
+    -- named Target because runtime hitboxes can remain stationary/invisible.
+    local targetContainer = nil
+    for _, descendant in ipairs(targetModel:GetDescendants()) do
+        if descendant:IsA("Model") and descendant.Name == "Target" then
+            targetContainer = descendant
+            break
+        end
+    end
+
+    local searchRoot = targetContainer or targetModel
+    local best, bestDiameter = nil, math.huge
+    for _, descendant in ipairs(searchRoot:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local diameter = circularDiscScore(descendant)
+            if diameter and diameter < bestDiameter then
+                best = descendant
+                bestDiameter = diameter
+            end
+        end
+    end
+    return best
+end
+
+local function isBowEquipped()
+    local character = Player.Character
+    if not character then return nil end
+    local tool = character:FindFirstChildOfClass("Tool")
+    if not tool then return nil end
+    local lowered = string.lower(tool.Name)
+    if string.find(lowered, "bow", 1, true) then return tool end
+    local weaponId = tool:GetAttribute("WeaponId")
+    if type(weaponId) == "string" and string.find(string.lower(weaponId), "bow", 1, true) then return tool end
+    return nil
+end
+
+local function isForeignArcheryTarget(model)
+    -- ArcheryActor instances can belong to another duel participant/NPC. The game's
+    -- own bow code treats actors with a different _DuelOwner as foreign, so never
+    -- allow one of those to steal our camera lock. Check a few ancestors too because
+    -- the ownership attribute may live on a wrapper model.
+    local node = model
+    for _ = 1, 5 do
+        if not node or node == Workspace then break end
+        local owner = node:GetAttribute("_DuelOwner")
+        if owner ~= nil then
+            local numeric = tonumber(owner)
+            if numeric then
+                return numeric ~= Player.UserId
+            end
+            return owner ~= Player.UserId
+        end
+        node = node.Parent
+    end
+    return false
+end
+
+local function rootFrontData(part, root, laneRatio)
+    if not (part and part.Parent and root) then return nil end
+    local offset = part.Position - root.Position
+    local distance = offset.Magnitude
+    if distance < 1 or distance > ARCHERY_MAX_TARGET_DISTANCE then return nil end
+    local direction = offset.Unit
+    local dot = root.CFrame.LookVector:Dot(direction)
+    if dot < ARCHERY_FRONT_DOT_MIN then return nil end
+    local localPos = root.CFrame:PointToObjectSpace(part.Position)
+    local depth = -localPos.Z
+    if depth <= 1 then return nil end
+    -- Keep the selected target in our shooting lane. Round 3 can move widely, so this
+    -- is intentionally generous; it mainly rejects another target sitting off to the
+    -- side/in front of the opponent NPC.
+    local allowedLane = laneRatio or ARCHERY_MAX_LOCK_LANE_RATIO
+    if math.abs(localPos.X) / depth > allowedLane then return nil end
+    return localPos, depth, distance, dot
+end
+
+local function sampleCandidateMotion(part, now)
+    local position = part.Position
+    local rec = archeryCandidateMotion[part]
+    if not rec then
+        rec = {position = position, time = now, speed = 0}
+        archeryCandidateMotion[part] = rec
+        return 0
+    end
+
+    local dt = now - rec.time
+    if dt > 0.001 and dt <= 0.30 then
+        local speed = (position - rec.position).Magnitude / dt
+        rec.speed = math.clamp(speed, 0, ARCHERY_MAX_SELECTION_SPEED)
+        rec.position = position
+        rec.time = now
+    elseif dt > 0.30 then
+        rec.position = position
+        rec.time = now
+        rec.speed = 0
+    end
+    -- If the late backup pass runs in the same frame, preserve the first sample.
+    return rec.speed or 0
+end
+
+local function archerySpeedRatio(speed)
+    return math.clamp(
+        (speed - ARCHERY_SPEED_ADAPT_START) / math.max(ARCHERY_SPEED_ADAPT_FULL - ARCHERY_SPEED_ADAPT_START, 0.001),
+        0,
+        1
+    )
+end
+
+local function estimateLiveBullVelocity(bull, now)
+    if not (bull and bull.Parent) then
+        return Vector3.zero
+    end
+
+    local position = bull.Position
+    if archeryLastBullPart ~= bull or not archeryLastBullPosition or archeryLastBullTime <= 0 then
+        archeryLastBullPart = bull
+        archeryLastBullPosition = position
+        archeryLastBullTime = now
+        archeryTrackedVelocity = Vector3.zero
+        return Vector3.zero
+    end
+
+    local dt = now - archeryLastBullTime
+    -- applyAim can run twice in one rendered frame. Ignore the duplicate sample instead
+    -- of turning a tiny dt into a huge fake velocity.
+    if dt < 0.004 then
+        return archeryTrackedVelocity
+    end
+
+    if dt > 0.30 then
+        archeryLastBullPosition = position
+        archeryLastBullTime = now
+        archeryTrackedVelocity = Vector3.zero
+        return Vector3.zero
+    end
+
+    local observed = (position - archeryLastBullPosition) / dt
+    local speed = observed.Magnitude
+    if speed > ARCHERY_MAX_TRACKED_SPEED then
+        observed = observed.Unit * ARCHERY_MAX_TRACKED_SPEED
+    end
+
+    -- Slow rounds stay filtered and smooth. Round 3 gets a much faster velocity
+    -- response so the predictor is not aiming using movement from several frames ago.
+    local speedRatio = archerySpeedRatio(speed)
+    local previousTracked = archeryTrackedVelocity
+    local directionReversed = previousTracked.Magnitude > 0.05 and observed.Magnitude > 0.05
+        and previousTracked:Dot(observed) < 0
+    local velocityJump = (observed - previousTracked).Magnitude
+    if directionReversed or velocityJump > math.max(18, observed.Magnitude * 0.55) then
+        archeryLastDirectionChangeAt = now
+    end
+
+    if directionReversed then
+        archeryTrackedVelocity = archeryTrackedVelocity:Lerp(observed, ARCHERY_REVERSE_VELOCITY_BLEND)
+    else
+        local blend = ARCHERY_VELOCITY_BLEND
+            + (ARCHERY_FAST_VELOCITY_BLEND - ARCHERY_VELOCITY_BLEND) * speedRatio
+        archeryTrackedVelocity = archeryTrackedVelocity:Lerp(observed, blend)
+    end
+
+    archeryLastBullPosition = position
+    archeryLastBullTime = now
+    return archeryTrackedVelocity
+end
+
+local function predictLiveBullPoint(cameraPosition, rawCenter, velocity)
+    local distance = (rawCenter - cameraPosition).Magnitude
+    local speedRatio = archerySpeedRatio(velocity.Magnitude)
+    local flightTime = math.clamp(
+        distance / ARCHERY_PREDICTION_ARROW_SPEED + ARCHERY_PREDICTION_LATENCY,
+        0,
+        ARCHERY_MAX_PREDICTION_TIME
+    )
+
+    -- Round 1/2 stay at the already-working 1.00 prediction strength. As target speed
+    -- rises toward Round 3 levels, scale lead up automatically rather than globally
+    -- over-leading the slower rounds.
+    local predictionStrength = ARCHERY_PREDICTION_STRENGTH
+        + (ARCHERY_FAST_PREDICTION_STRENGTH - ARCHERY_PREDICTION_STRENGTH) * speedRatio
+    local lead = velocity * flightTime * predictionStrength
+    local maxLead = 7.5 + (ARCHERY_MAX_LEAD_DISTANCE - 7.5) * speedRatio
+    if lead.Magnitude > maxLead then
+        lead = lead.Unit * maxLead
+    end
+    return rawCenter + lead, speedRatio
+end
+
+local function candidateScore(model, bull, root, camera, now, sourceBonus)
+    -- A newly seen target must stay in the strict shooting lane. Once we have already
+    -- locked the correct round target, allow it to travel farther at Round 3's edges
+    -- without dropping lock and snapping to the NPC/neighbor target.
+    local laneRatio = (model == archeryLockedTarget) and ARCHERY_LOCKED_MAX_LANE_RATIO or ARCHERY_MAX_LOCK_LANE_RATIO
+    local localPos, depth, distance, dot = rootFrontData(bull, root, laneRatio)
+    if not localPos then return -math.huge end
+
+    local screen, onScreen = camera:WorldToViewportPoint(bull.Position)
+    if not onScreen or screen.Z <= 0 then return -math.huge end
+
+    local horizontalRatio = math.abs(localPos.X) / depth
+    local verticalRatio = math.abs(localPos.Y) / depth
+    local center = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
+    local pixels = (Vector2.new(screen.X, screen.Y) - center).Magnitude
+    local motionSpeed = sampleCandidateMotion(bull, now)
+
+    -- Horizontal lane alignment remains strongest so we do not jump to the other
+    -- player's target. Motion bonus lets Round 2/3 beat an old stationary round target.
+    return -(horizontalRatio * 50000)
+        - (verticalRatio * 900)
+        + (dot * 2600)
+        - (pixels * 0.025)
+        - (distance * 0.02)
+        + (motionSpeed * ARCHERY_ACTIVE_MOTION_BONUS)
+        + (sourceBonus or 0)
+end
+
+local function findLiveArcheryTarget(root, camera)
+    local now = os.clock()
+    local bestModel, bestBull, bestScore = nil, nil, -math.huge
+    local lockedBull, lockedScore = nil, -math.huge
+    local seen = {}
+
+    local function consider(model, sourceBonus)
+        if not (model and model:IsA("Model") and model.Parent) or seen[model] then return end
+        seen[model] = true
+        if isForeignArcheryTarget(model) then return end
+
+        local bull = findArcheryBull(model)
+        if not bull then return end
+        local score = candidateScore(model, bull, root, camera, now, sourceBonus)
+        if score == -math.huge then return end
+
+        if model == archeryLockedTarget then
+            lockedBull, lockedScore = bull, score
+        end
+        if score > bestScore then
+            bestModel, bestBull, bestScore = model, bull, score
+        end
+    end
+
+    -- The bow client explicitly watches ArcheryActor-tagged models during archery.
+    for _, actor in ipairs(CollectionService:GetTagged("ArcheryActor")) do
+        if actor:IsA("Model") then
+            consider(actor, 5000)
+        end
+    end
+
+    local live = Workspace:FindFirstChild("ArcheryContest_Live")
+    if live then
+        for _, inst in ipairs(live:GetDescendants()) do
+            if inst:IsA("Model") then
+                local n = inst.Name
+                if n == "ArrowTarget" or string.sub(n, 1, 14) == "ArcheryTarget_" or CollectionService:HasTag(inst, "ArcheryActor") then
+                    consider(inst, 3500)
+                end
+            end
+        end
+    end
+
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child:IsA("Model") and child.Name == "ArrowTarget" then
+            consider(child, 1000)
+        end
+    end
+
+    if not bestModel then
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("Model") and inst.Name == "ArrowTarget" then
+                consider(inst, 0)
+            end
+        end
+    end
+
+    -- Hysteresis: once we have the correct live target, do not bounce to a nearby
+    -- candidate just because its score wins by a tiny amount for one frame. We still
+    -- allow a clearly better/new moving target to take over at round transitions.
+    if archeryLockedTarget and lockedBull and lockedScore > -math.huge then
+        local age = now - archeryLockChosenAt
+        if age <= ARCHERY_LOCK_KEEP_SECONDS
+            or bestModel == archeryLockedTarget
+            or lockedScore >= bestScore - ARCHERY_TARGET_SWITCH_MARGIN then
+            return archeryLockedTarget, lockedBull
+        end
+    end
+
+    if bestModel and bestModel ~= archeryLockedTarget then
+        archeryLockChosenAt = now
+    end
+    return bestModel, bestBull
+end
+
+local function clearArcheryLock()
+    archeryLockedTarget = nil
+    archeryLockedBull = nil
+    archeryLastBullPart = nil
+    archeryLastBullPosition = nil
+    archeryLastBullTime = 0
+    archeryTrackedVelocity = Vector3.zero
+    archerySmoothedAimPoint = nil
+    archerySmoothedTarget = nil
+    archeryLastAimTime = 0
+    archeryLockChosenAt = 0
+    archeryLatestScore = 0
+    archeryLatestScoreError = math.huge
+    archeryLatestScoreTime = 0
+end
+
+local function restoreArcheryShiftLockY()
+    local character = Player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        local offset = humanoid.CameraOffset
+        humanoid.CameraOffset = Vector3.new(offset.X, 0, offset.Z)
+    end
+end
+
+stopArcheryAutoShoot = function()
+    state.ArcheryAutoShoot = false
+    releaseArcheryAutoDraw()
+    archeryAutoNextShotAt = 0
+    archeryAutoGoodFrames = 0
+    archeryAutoInputMode = nil
+    archeryAutoVirtualMouseHeld = false
+    archeryAutoDrawVerifyAt = 0
+end
+
+stopArcheryAim = function()
+    pcall(function() RunService:UnbindFromRenderStep(POLY_ARCHERY_BIND) end)
+    if archeryLateConn then
+        pcall(function() archeryLateConn:Disconnect() end)
+        archeryLateConn = nil
+    end
+    restoreArcheryShiftLockY()
+    clearArcheryLock()
+    table.clear(archeryCandidateMotion)
+end
+
+local function setArcheryAim(enabled)
+    archeryAimEnabled = enabled == true
+    stopArcheryAim()
+    if not archeryAimEnabled or killSwitchActivated then return end
+
+    local function applyAim()
+        if killSwitchActivated or not archeryAimEnabled then return end
+        local character = Player.Character
+        if not character or character:GetAttribute("_ArcheryMatch") ~= true or not isBowEquipped() then
+            clearArcheryLock()
+            return
+        end
+
+        local root = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        local camera = Workspace.CurrentCamera
+        if not root or not humanoid or not camera then return end
+
+        -- KEEP the confirmed centered Shift-Lock correction.
+        local shiftOffset = humanoid.CameraOffset
+        humanoid.CameraOffset = Vector3.new(shiftOffset.X, ARCHERY_SHIFTLOCK_OFFSET_Y, shiftOffset.Z)
+
+        -- V23: resolve live candidates every frame, but keep the winner sticky with hysteresis so the camera does not bounce between nearby targets.
+        -- This is the important change for Round 2 (vertical) and Round 3 (all-axis).
+        local target, bull = findLiveArcheryTarget(root, camera)
+        if not target or not bull then
+            clearArcheryLock()
+            return
+        end
+        archeryLockedTarget = target
+        archeryLockedBull = bull
+
+        -- V23: start from the exact live bullseye point, then add ONLY movement lead.
+        -- A stationary bull has zero velocity, so its aim remains exactly where V20 centered it.
+        local rawCenter = bull.Position + Vector3.new(0, ARCHERY_CENTER_OFFSET_Y, 0)
+        local now = os.clock()
+        local velocity = estimateLiveBullVelocity(bull, now)
+        local aimPoint, speedRatio = predictLiveBullPoint(camera.CFrame.Position, rawCenter, velocity)
+        if (aimPoint - camera.CFrame.Position).Magnitude < 0.001 then return end
+
+        -- Smooth only while following the SAME live target. If the contest genuinely
+        -- swaps to a new target/round, reset immediately instead of dragging the old
+        -- aim point across the screen.
+        if archerySmoothedTarget ~= target or not archerySmoothedAimPoint or archeryLastAimTime <= 0 then
+            archerySmoothedTarget = target
+            archerySmoothedAimPoint = aimPoint
+            archeryLastAimTime = now
+        else
+            local dt = math.clamp(now - archeryLastAimTime, 0, 0.10)
+            archeryLastAimTime = now
+            -- Preserve V22 smoothness at low speed, but remove most of the visible
+            -- tracking lag during Round 3 by increasing response with target speed.
+            local response = ARCHERY_AIM_SMOOTH_RESPONSE
+                + (ARCHERY_FAST_AIM_SMOOTH_RESPONSE - ARCHERY_AIM_SMOOTH_RESPONSE) * (speedRatio or 0)
+            local alpha = 1 - math.exp(-response * dt)
+            archerySmoothedAimPoint = archerySmoothedAimPoint:Lerp(aimPoint, alpha)
+        end
+
+        local finalPoint = archerySmoothedAimPoint or aimPoint
+        if (finalPoint - camera.CFrame.Position).Magnitude < 0.001 then return end
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, finalPoint)
+
+        -- V24: evaluate the actual post-smoothing camera ray against the predicted
+        -- future bullseye plane, then let the score gate own draw/release timing.
+        local score, scoreError = projectedScoreForCamera(camera, target, bull, aimPoint)
+        archeryLatestScore = score
+        archeryLatestScoreError = scoreError
+        archeryLatestScoreTime = now
+        archeryAutoShootTick(now, camera, target, bull, aimPoint)
+    end
+
+    -- ONE camera writer only. V21 also attached RenderStepped, which caused two aim
+    -- updates in the same rendered frame and made the screen visibly twitch.
+    RunService:BindToRenderStep(POLY_ARCHERY_BIND, ARCHERY_FINAL_PRIORITY, applyAim)
+end
+
+toggle(testing, "Archery Center Aim Assist", "ArcheryCenterAim", setArcheryAim)
+cycle(testing, "Auto Shoot Minimum Score", "ArcheryAutoMinScore", {10, 9, 8})
+info(testing, "Smart Auto Shoot controls the bow for you. V25 can fall back to real Mouse1 down/up if BowClient cannot be called. Do not hold Mouse1 while it is ON. It waits for full charge, seeks a 10 first, then can relax to your selected minimum score only after a short high-score wait.")
+toggle(testing, "Smart Auto Shoot (10/9/8 Gate)", "ArcheryAutoShoot", function(enabled)
+    if enabled then
+        -- Auto Shoot depends on the working V23 camera tracker. Turn it on together.
+        if not state.ArcheryCenterAim then
+            state.ArcheryCenterAim = true
+            local redraw = guiObjects.ArcheryCenterAim
+            if redraw then redraw() end
+            setArcheryAim(true)
+        end
+        archeryAutoNextShotAt = 0
+        archeryAutoDrawStartedAt = 0
+        archeryAutoGoodFrames = 0
+        archeryAutoInputMode = nil
+        archeryAutoVirtualMouseHeld = false
+        archeryAutoDrawVerifyAt = 0
+    else
+        if stopArcheryAutoShoot then
+            stopArcheryAutoShoot()
+        end
+    end
+end)
