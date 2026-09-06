@@ -1,4 +1,4 @@
--- POLY LOOT - V33 ROUND 3 BALANCED 8/9/10 PREDICTION
+-- POLY LOOT - V59 ROUND 3 FIRST-LOOP PURE-10 SCAN
 -- Built from the mapped game systems only. No code copied from previous scripts.
 -- Intended for testing in the user's own Roblox experience.
 -- Archery aim locks to the first front-facing contest target to prevent adjacent-target twitching.
@@ -985,7 +985,7 @@ end
 -- ============================================================
 -- CREATE TABS
 -- ============================================================
-local tabNames = {"Farm", "Auto Farm Mobs", "Auto Resource Farm", "Inventory", "Teleport", "Testing", "Settings"}
+local tabNames = {"Farm", "Auto Farm Mobs", "Auto Resource Farm", "Inventory", "Teleport", "Quest", "Testing", "Settings"}
 for _, name in ipairs(tabNames) do
     newPage(name)
 end
@@ -1659,11 +1659,12 @@ button(testing, "Restore Environment", function()
     if redraw then redraw() end
 end)
 
--- V29 REGISTER LIMIT SAFE: keep the entire archery implementation in its own
+-- V35 REGISTER LIMIT SAFE: keep the entire archery implementation in its own
 -- function scope so its locals do not consume the main chunk's Luau register budget.
-local function setupArcheryV29()
-section(testing, "Archery Testing")
-info(testing, "V33: Rounds 1 and 2 stay STRICT 10 ONLY. Round 3 allows 8/9/10 with a BALANCED faster-target prediction: 0.50s horizon, 88% velocity lead, 8-stud cap, and a Round-3-specific score safety/latency model so the fast target can actually produce valid release windows. Verified auto-draw, solved trajectory gating, cutscene suppression, and center calibration remain unchanged.")
+local function setupArcheryV60()
+local quest = pages.Quest
+section(quest, "Archery Testing")
+info(quest, "V60: Rounds 1 and 2 stay STRICT 10 ONLY. Round 3 scans the first figure-8 loop for the deepest dual-confirmed 10 phase, then reuses only that phase. Auto Shoot keeps the working V57 release lifecycle. Center calibration remains unchanged.")
 
 local ARCHERY_FRONT_DOT_MIN = 0.42
 local ARCHERY_MAX_TARGET_DISTANCE = 300
@@ -1672,7 +1673,6 @@ local ARCHERY_MAX_TARGET_DISTANCE = 300
 local ARCHERY_CENTER_OFFSET_Y = 0.0
 local ARCHERY_SHIFTLOCK_OFFSET_Y = -1.60
 local ARCHERY_FINAL_PRIORITY = Enum.RenderPriority.Last.Value + 250
-local ARCHERY_BLOCK_CUTSCENES = true
 local ARCHERY_LOCAL_OWNER_BONUS = 150000
 
 -- Motion is used ONLY to choose the active moving target when multiple round targets
@@ -1699,7 +1699,7 @@ local ARCHERY_SPEED_ADAPT_FULL = 70
 
 -- V23 adaptive screen smoothing / target-lock stability.
 local ARCHERY_AIM_SMOOTH_RESPONSE = 22
-local ARCHERY_FAST_AIM_SMOOTH_RESPONSE = 58
+local ARCHERY_FAST_AIM_SMOOTH_RESPONSE = 76
 local ARCHERY_TARGET_SWITCH_MARGIN = 25000
 local ARCHERY_LOCK_KEEP_SECONDS = 0.30
 local ARCHERY_MAX_LOCK_LANE_RATIO = 0.30
@@ -1713,7 +1713,7 @@ local archeryLockChosenAt = 0
 -- to land safely inside the selected 10/9/8 ring for several consecutive frames.
 local ARCHERY_AUTO_FULL_CHARGE_SECONDS = 1.08
 local ARCHERY_AUTO_POST_SHOT_COOLDOWN = 0.28
-local ARCHERY_AUTO_RING_SAFETY = 0.50
+local ARCHERY_AUTO_RING_SAFETY = 0.84
 local ARCHERY_AUTO_DIRECTION_SETTLE = 0.12
 local ARCHERY_AUTO_GOOD_FRAMES = 4
 local ARCHERY_AUTO_FAST_GOOD_FRAMES = 6
@@ -1723,11 +1723,12 @@ local ARCHERY_AUTO_FAST_SPEED = 14
 -- 8/9/10 when there is clear lateral/all-direction motion in the bull's own target plane.
 local ARCHERY_ROUND3_MIN_SPEED = 12
 local ARCHERY_ROUND3_MIN_LATERAL_SPEED = 5.5
-local ARCHERY_ROUND3_PREDICTION_SCALE = 0.88
-local ARCHERY_ROUND3_MAX_PREDICTION_TIME = 0.50
-local ARCHERY_ROUND3_MAX_LEAD_DISTANCE = 8.0
-local ARCHERY_ROUND3_TARGET_LATENCY = 0.018
-local ARCHERY_ROUND3_DIRECTION_SETTLE = 0.025
+local ARCHERY_ROUND3_PREDICTION_SCALE = 0.98
+local ARCHERY_ROUND3_AIM_PREDICTION_SCALE = 0.90
+local ARCHERY_ROUND3_MAX_PREDICTION_TIME = 0.49
+local ARCHERY_ROUND3_MAX_LEAD_DISTANCE = 7.25
+local ARCHERY_ROUND3_TARGET_LATENCY = 0.024
+local ARCHERY_ROUND3_DIRECTION_SETTLE = 0.012
 local ARCHERY_AUTO_10_ONLY_SECONDS = 0.30
 local ARCHERY_AUTO_9_ONLY_SECONDS = 0.72
 local ARCHERY_AUTO_TARGET_LATENCY = 0.030
@@ -1737,11 +1738,103 @@ local ARCHERY_ROUND3_TIMING_UNCERTAINTY = 0.006
 local ARCHERY_AUTO_MAX_SIM_TIME = 1.35
 local ARCHERY_AUTO_SIM_STEP = 1 / 120
 local ARCHERY_AUTO_BINARY_STEPS = 8
+-- V37 Round 3 release confidence. Keep the V35 base lead that wins the round,
+-- but reject edge-of-ring estimates more aggressively and model curved motion.
+local ARCHERY_ROUND3_10_RELEASE_SAFETY = 0.78
+-- V41: there are NO Round 3 release windows for 8/7/6/5/4/3/2/1/0.
+-- A 9 is accepted only in a narrow near-bullseye band just outside the 10 ring.
+local ARCHERY_ROUND3_9_NEAR_BULL_FRACTION = 0.26
+-- V60: closest-approach remains available to the generic solver. Round 3 may use it only for an extremely deep, straight-section 10 with extra confirmation; it can never approve 9-or-lower.
+-- Its stricter Round 3 thresholds are kept inline below to avoid adding outer locals.
+local ARCHERY_ROUND3_9_GRACE = 0.010
+local ARCHERY_ROUND3_9_GOOD_FRAMES = 2
+local ARCHERY_ROUND3_ACCEL_BLEND = 0.38
+local ARCHERY_ROUND3_MAX_ACCEL = 260
+local ARCHERY_ROUND3_ACCEL_AIM_SCALE = 0.06
+local ARCHERY_ROUND3_ACCEL_GATE_SCALE = 0.18
+local ARCHERY_ROUND3_MAX_ACCEL_AIM = 0.45
+local ARCHERY_ROUND3_MAX_ACCEL_GATE = 1.2
+local ARCHERY_ROUND3_MAX_CURVE_UNCERTAINTY = 0.30
+local ARCHERY_ROUND3_9_MAX_ACCEL = 190
+local ARCHERY_ROUND3_MODEL_AGREEMENT_MAX = 0.72
+
+-- V41 repeating-path learner. Round 3 follows a deterministic loop, so after one
+-- partial/full cycle we can match the current position + direction to the same phase
+-- in recent history and read the ACTUAL future path from the previous pass.
+local ARCHERY_ROUND3_PATTERN_HISTORY = 5.5
+local ARCHERY_ROUND3_PATTERN_MIN_PERIOD = 0.45
+local ARCHERY_ROUND3_PATTERN_MAX_PERIOD = 4.25
+local ARCHERY_ROUND3_PATTERN_POS_TOLERANCE = 0.48
+local ARCHERY_ROUND3_PATTERN_VELOCITY_DOT = 0.62
+local ARCHERY_ROUND3_PATTERN_MIN_CONFIDENCE = 0.52
+local ARCHERY_ROUND3_PATTERN_9_MIN_CONFIDENCE = 0.56
+local ARCHERY_ROUND3_PATTERN_MAX_LOOKAHEAD = 0.78
+local ARCHERY_ROUND3_PATTERN_TIMING_UNCERTAINTY = 0.008
+local ARCHERY_ROUND3_PATTERN_9_GRACE = 0.006
+-- V43: once the first Round 3 9/10 shot is released, reuse ONLY that proven
+-- repeating-path phase for the rest of the round. This prevents other false-positive
+-- "9" windows from producing real 7s.
+local ARCHERY_ROUND3_ANCHOR_POS_TOLERANCE = 1.55
+local ARCHERY_ROUND3_ANCHOR_MAX_POS_TOLERANCE = 3.60
+local ARCHERY_ROUND3_ANCHOR_PERP_TOLERANCE = 0.80
+local ARCHERY_ROUND3_ANCHOR_DIRECTION_DOT = 0.82
+local ARCHERY_ROUND3_ANCHOR_SPEED_FRACTION = 0.45
+local ARCHERY_ROUND3_ANCHOR_MIN_CONFIDENCE = 0.60
+local ARCHERY_ROUND3_ANCHOR_GOOD_FRAMES = 2
+-- V44: Round 3 can replace/rebuild the moving target between arrows. Preserve the
+-- learned repeating path when the replacement appears on the same path/direction.
+local ARCHERY_ROUND3_REPLACEMENT_POS_TOLERANCE = 2.40
+local ARCHERY_ROUND3_REPLACEMENT_DIRECTION_DOT = 0.35
+local ARCHERY_ROUND3_REPLACEMENT_MAX_SAMPLE_AGE = 5.25
+local archeryRound3History = {}
+local archeryRound3PatternBull = nil
+local archeryRound3PatternConfidence = 0
+local archeryRound3ModelDisagreement = math.huge
+local archeryRound3TurnFactor = 1
+local archeryLastMatchSeenAt = 0
+local archeryRound3PatternPeriod = 0
+local archeryRound3Bulls = setmetatable({}, {__mode = "k"})
+local archeryRound3WindowScore = 0
+local archeryRound3WindowSince = 0
+local archeryRound3NineFrames = 0
+local archeryRound3ShotAnchorBull = nil
+local archeryRound3ShotAnchorPosition = nil
+local archeryRound3ShotAnchorDirection = nil
+local archeryRound3ShotAnchorSpeed = 0
+local archeryRound3ShotAnchorTime = 0
+local archeryRound3ShotAnchorPeriod = 0
+local archeryRound3WarmStartBull = nil
+local archeryRound3WarmStartUntil = 0
+local archeryLastCutscenePurge = 0
+local archeryTrackedAcceleration = Vector3.zero
+local archeryLastObservedVelocity = nil
 
 local archeryArrowFlight = nil
 local archeryWeaponConfig = nil
 local archeryBallisticTool = nil
 local archeryBallisticCfg = nil
+
+-- V60 Round 3 strategy: scan one full repeat loop before the first release, remember
+-- the deepest trustworthy 10 phase, then reuse that same phase for all 3 arrows.
+-- Closest-approach solves may DISCOVER a phase only when extremely deep/straight;
+-- release-time checks remain stricter so Auto Shoot cannot starve forever.
+-- One table keeps this state out of the outer local-register budget.
+local archeryRound3TenScan = {
+    startedAt = 0,
+    startPosition = nil,
+    startDirection = nil,
+    startSpeed = 0,
+    loopComplete = false,
+    loopPeriod = 0,
+    phaseLocked = false,
+    bestError = math.huge,
+    bestPosition = nil,
+    bestDirection = nil,
+    bestSpeed = 0,
+    bestSeenAt = 0,
+    bestUsedClosest = false,
+    confirmFrames = 0,
+}
 local archeryAutoConfirmedDraw = false
 local archeryBowClientLastResolve = 0
 
@@ -1822,7 +1915,15 @@ local function bullPlaneNormal(bull)
 end
 
 local function isRound3VelocityForBull(bull, targetVelocity)
-    if not (bull and typeof(targetVelocity) == "Vector3") then
+    if not bull then
+        return false
+    end
+    -- Once this live bull proves it is the all-direction Round 3 target, keep that
+    -- classification through its fast reversals/brief zero-velocity turnarounds.
+    if archeryRound3Bulls[bull] then
+        return true
+    end
+    if typeof(targetVelocity) ~= "Vector3" then
         return false
     end
 
@@ -1842,7 +1943,400 @@ local function isRound3VelocityForBull(bull, targetVelocity)
         lateralSpeed = math.abs(localVelocity.X)
     end
 
-    return lateralSpeed >= ARCHERY_ROUND3_MIN_LATERAL_SPEED
+    if lateralSpeed >= ARCHERY_ROUND3_MIN_LATERAL_SPEED then
+        archeryRound3Bulls[bull] = true
+        return true
+    end
+    return false
+end
+
+local function resetRound3PatternHistory(bull)
+    table.clear(archeryRound3History)
+    archeryRound3PatternBull = bull
+    archeryRound3PatternConfidence = 0
+    archeryRound3PatternPeriod = 0
+    -- A new target/round must earn a fresh first-shot phase anchor.
+    archeryRound3ShotAnchorBull = nil
+    archeryRound3ShotAnchorPosition = nil
+    archeryRound3ShotAnchorDirection = nil
+    archeryRound3ShotAnchorSpeed = 0
+    archeryRound3ShotAnchorTime = 0
+    archeryRound3ShotAnchorPeriod = 0
+end
+
+local function canCarryRound3PatternToReplacement(now, position, velocity)
+    local history = archeryRound3History
+    if #history < 18 or typeof(position) ~= "Vector3" then
+        return false
+    end
+
+    local speed = typeof(velocity) == "Vector3" and velocity.Magnitude or 0
+    for i = #history, 1, -1 do
+        local sample = history[i]
+        local age = now - sample.t
+        if age > ARCHERY_ROUND3_REPLACEMENT_MAX_SAMPLE_AGE then
+            break
+        end
+        if (sample.p - position).Magnitude <= ARCHERY_ROUND3_REPLACEMENT_POS_TOLERANCE then
+            local sampleSpeed = sample.v.Magnitude
+            if speed <= 1 or sampleSpeed <= 1
+                or velocity.Unit:Dot(sample.v.Unit) >= ARCHERY_ROUND3_REPLACEMENT_DIRECTION_DOT then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function round3ReplacementSeedVelocity(now, position, fallbackVelocity)
+    local history = archeryRound3History
+    local bestVelocity = nil
+    local bestMetric = math.huge
+    local fallbackSpeed = typeof(fallbackVelocity) == "Vector3" and fallbackVelocity.Magnitude or 0
+    local positionTolerance = archeryRound3ShotAnchorPosition
+        and math.max(ARCHERY_ROUND3_REPLACEMENT_POS_TOLERANCE, 4.25)
+        or ARCHERY_ROUND3_REPLACEMENT_POS_TOLERANCE
+
+    for i = #history, 1, -1 do
+        local sample = history[i]
+        local age = now - sample.t
+        if age > ARCHERY_ROUND3_REPLACEMENT_MAX_SAMPLE_AGE then
+            break
+        end
+        local posError = (sample.p - position).Magnitude
+        if posError <= positionTolerance then
+            local sampleSpeed = sample.v.Magnitude
+            local directionPenalty = 0
+            if fallbackSpeed > 1 and sampleSpeed > 1 then
+                local dot = math.clamp(fallbackVelocity.Unit:Dot(sample.v.Unit), -1, 1)
+                directionPenalty = (1 - dot) * 0.65
+            end
+            local metric = posError + directionPenalty + age * 0.015
+            if metric < bestMetric then
+                bestMetric = metric
+                bestVelocity = sample.v
+            end
+        end
+    end
+
+    if bestVelocity and bestVelocity.Magnitude > 1 then
+        return bestVelocity
+    end
+    if typeof(fallbackVelocity) == "Vector3" then
+        return fallbackVelocity
+    end
+    return Vector3.zero
+end
+
+local function recordRound3PatternSample(bull, now, position, velocity)
+    if archeryRound3PatternBull ~= bull then
+        if canCarryRound3PatternToReplacement(now, position, velocity) then
+            -- Same Round 3 repeating path, new per-shot target Instance. Keep history,
+            -- pattern confidence and the first proven 9-phase anchor.
+            archeryRound3PatternBull = bull
+            archeryRound3Bulls[bull] = true
+            archeryRound3ShotAnchorBull = bull
+        else
+            resetRound3PatternHistory(bull)
+        end
+    end
+
+    local history = archeryRound3History
+    local last = history[#history]
+    if last and now - last.t < 0.010 then
+        return
+    end
+
+    history[#history + 1] = {
+        t = now,
+        p = position,
+        v = typeof(velocity) == "Vector3" and velocity or Vector3.zero,
+    }
+
+    local cutoff = now - ARCHERY_ROUND3_PATTERN_HISTORY
+    while #history > 2 and history[1].t < cutoff do
+        table.remove(history, 1)
+    end
+end
+
+local function findRound3PatternMatch(rawCenter, velocity, now)
+    local history = archeryRound3History
+    if #history < 18 then
+        archeryRound3PatternConfidence = 0
+        return nil, 0
+    end
+
+    local currentSpeed = velocity.Magnitude
+    local positionTolerance = math.max(
+        ARCHERY_ROUND3_PATTERN_POS_TOLERANCE,
+        math.min(1.35, 0.25 + currentSpeed * 0.018)
+    )
+    local bestIndex = nil
+    local bestMetric = math.huge
+    local bestConfidence = 0
+    local bestAge = 0
+
+    for i = #history - 2, 1, -1 do
+        local sample = history[i]
+        local age = now - sample.t
+        if age > ARCHERY_ROUND3_PATTERN_MAX_PERIOD then
+            break
+        end
+        if age >= ARCHERY_ROUND3_PATTERN_MIN_PERIOD then
+            local posError = (sample.p - rawCenter).Magnitude
+            if posError <= positionTolerance then
+                local sampleSpeed = sample.v.Magnitude
+                local velocityDot = 1
+                if currentSpeed > 1 and sampleSpeed > 1 then
+                    velocityDot = math.clamp(velocity.Unit:Dot(sample.v.Unit), -1, 1)
+                end
+                if velocityDot >= ARCHERY_ROUND3_PATTERN_VELOCITY_DOT then
+                    local speedError = math.abs(sampleSpeed - currentSpeed)
+                    local metric = posError
+                        + (1 - velocityDot) * 0.55
+                        + math.min(speedError / 90, 1) * 0.22
+                    if metric < bestMetric then
+                        bestMetric = metric
+                        bestIndex = i
+                        bestAge = age
+                        bestConfidence = math.clamp(
+                            1
+                            - (posError / positionTolerance) * 0.62
+                            - (1 - velocityDot) * 0.30
+                            - math.min(speedError / 120, 1) * 0.08,
+                            0,
+                            1
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    if bestIndex and bestConfidence >= ARCHERY_ROUND3_PATTERN_MIN_CONFIDENCE then
+        archeryRound3PatternConfidence = bestConfidence
+        if archeryRound3PatternPeriod <= 0 then
+            archeryRound3PatternPeriod = bestAge
+        else
+            archeryRound3PatternPeriod = archeryRound3PatternPeriod * 0.80 + bestAge * 0.20
+        end
+        return bestIndex, bestConfidence
+    end
+
+    archeryRound3PatternConfidence = 0
+    return nil, 0
+end
+
+local function round3PatternPhaseCorrection(matchIndex, rawCenter)
+    local sample = archeryRound3History[matchIndex]
+    if not sample then return 0, Vector3.zero end
+    local delta = rawCenter - sample.p
+    local speedSq = sample.v:Dot(sample.v)
+    if speedSq <= 4 then
+        return 0, delta
+    end
+    -- Convert along-path position error into a tiny phase-time correction. The
+    -- remaining perpendicular error is kept only as a small cycle-to-cycle offset.
+    local phase = math.clamp(delta:Dot(sample.v) / speedSq, -0.020, 0.020)
+    local residual = delta - sample.v * phase
+    if residual.Magnitude > 0.35 then
+        residual = residual.Unit * 0.35
+    end
+    return phase, residual
+end
+
+local function round3PatternPositionFromMatch(matchIndex, futureT, offset)
+    if not matchIndex or futureT < 0 then
+        return nil
+    end
+    -- If the arrow's look-ahead spans more than one learned cycle, wrap it back to
+    -- the same phase of the repeating path instead of abandoning the pattern model.
+    if archeryRound3PatternPeriod > 0.05 and futureT >= archeryRound3PatternPeriod then
+        futureT = futureT % archeryRound3PatternPeriod
+    end
+    if futureT > ARCHERY_ROUND3_PATTERN_MAX_LOOKAHEAD then
+        return nil
+    end
+    local history = archeryRound3History
+    local base = history[matchIndex]
+    if not base then return nil end
+    local wanted = base.t + futureT
+
+    local previous = base
+    for i = matchIndex + 1, #history do
+        local sample = history[i]
+        if sample.t >= wanted then
+            local span = sample.t - previous.t
+            local alpha = span > 0.0001 and math.clamp((wanted - previous.t) / span, 0, 1) or 0
+            local p = previous.p:Lerp(sample.p, alpha)
+            return p + (offset or Vector3.zero)
+        end
+        previous = sample
+    end
+    return nil
+end
+
+local function currentRound3PatternPrediction(rawCenter, velocity, futureT, now)
+    local matchIndex, confidence = findRound3PatternMatch(rawCenter, velocity, now)
+    if not matchIndex then return nil, confidence end
+    local matched = archeryRound3History[matchIndex]
+    if not matched then return nil, 0 end
+    local phaseCorrection, residualOffset = round3PatternPhaseCorrection(matchIndex, rawCenter)
+    return round3PatternPositionFromMatch(
+        matchIndex,
+        math.max(0, futureT + phaseCorrection),
+        residualOffset
+    ), confidence
+end
+
+local function resetRound3TenScan()
+    local scan = archeryRound3TenScan
+    scan.startedAt = 0
+    scan.startPosition = nil
+    scan.startDirection = nil
+    scan.startSpeed = 0
+    scan.loopComplete = false
+    scan.loopPeriod = 0
+    scan.phaseLocked = false
+    scan.bestError = math.huge
+    scan.bestPosition = nil
+    scan.bestDirection = nil
+    scan.bestSpeed = 0
+    scan.bestSeenAt = 0
+    scan.bestUsedClosest = false
+    scan.confirmFrames = 0
+end
+
+local function beginOrUpdateRound3TenScan(rawCenter, targetVelocity, now)
+    local scan = archeryRound3TenScan
+    local speed = typeof(targetVelocity) == "Vector3" and targetVelocity.Magnitude or 0
+
+    if scan.startedAt <= 0 then
+        scan.startedAt = now
+        scan.startPosition = rawCenter
+        scan.startDirection = speed > 1 and targetVelocity.Unit or nil
+        scan.startSpeed = speed
+        scan.loopComplete = false
+        scan.loopPeriod = 0
+        scan.phaseLocked = false
+        scan.bestError = math.huge
+        scan.bestPosition = nil
+        scan.bestDirection = nil
+        scan.bestSpeed = 0
+        scan.bestSeenAt = 0
+        scan.bestUsedClosest = false
+        scan.confirmFrames = 0
+        return scan
+    end
+
+    if not scan.loopComplete and scan.startPosition then
+        local elapsed = now - scan.startedAt
+        if elapsed >= 0.68 then
+            -- The target moves fast enough to skip a tiny start corridor between render
+            -- samples. Use a speed-aware corridor plus travel direction to recognize
+            -- the completed figure-8 without waiting forever.
+            local posTolerance = math.max(1.10, math.min(2.25, 0.55 + speed * 0.024))
+            local positionMatch = (rawCenter - scan.startPosition).Magnitude <= posTolerance
+            local directionMatch = true
+            if scan.startDirection and speed > 1 then
+                directionMatch = targetVelocity.Unit:Dot(scan.startDirection) >= 0.78
+            end
+
+            if positionMatch and directionMatch then
+                scan.loopComplete = true
+                scan.loopPeriod = elapsed
+                scan.phaseLocked = scan.bestPosition ~= nil
+            elseif archeryRound3PatternPeriod >= 0.55
+                and archeryRound3PatternConfidence >= 0.52
+                and elapsed >= archeryRound3PatternPeriod * 0.92 then
+                scan.loopComplete = true
+                scan.loopPeriod = archeryRound3PatternPeriod
+                scan.phaseLocked = scan.bestPosition ~= nil
+            elseif elapsed >= 2.80 then
+                -- Last-resort scan completion. We still do NOT fire until a deep 10
+                -- candidate is actually observed; this only prevents a missed phase
+                -- crossing from disabling Auto Shoot forever.
+                scan.loopComplete = true
+                scan.loopPeriod = math.max(0.68, archeryRound3PatternPeriod)
+                scan.phaseLocked = scan.bestPosition ~= nil
+            end
+        end
+    end
+
+    return scan
+end
+
+local function considerRound3PureTenPhase(target, bull, rawCenter, targetVelocity, score, errorDistance, trustworthy, usedClosestApproach, now)
+    local scan = beginOrUpdateRound3TenScan(rawCenter, targetVelocity, now)
+    if scan.phaseLocked then
+        return scan
+    end
+    if not trustworthy or score ~= 10 or not errorDistance then
+        return scan
+    end
+
+    local radii = getArcheryRingRadii(target, bull)
+    local r10 = radii[1]
+    if not r10 then
+        return scan
+    end
+
+    -- V60: V59 starved Auto Shoot because it rejected every closest-approach solve.
+    -- Let an extremely deep/straight fallback 10 DISCOVER the repeat phase, but give
+    -- it a penalty so a true plane-crossing 10 always wins when both are available.
+    local discoveryLimit = r10 * 0.88
+    if usedClosestApproach then
+        discoveryLimit = r10 * 0.34
+        if archeryRound3TurnFactor > 0.20 then
+            return scan
+        end
+    end
+    if errorDistance > discoveryLimit then
+        return scan
+    end
+
+    local metric = errorDistance + (usedClosestApproach and r10 * 0.18 or 0)
+    if metric < scan.bestError then
+        local speed = targetVelocity.Magnitude
+        scan.bestError = metric
+        scan.bestPosition = rawCenter
+        scan.bestDirection = speed > 1 and targetVelocity.Unit or nil
+        scan.bestSpeed = speed
+        scan.bestSeenAt = now
+        scan.bestUsedClosest = usedClosestApproach == true
+        -- Normally this remains open through the first scan loop so we can choose the
+        -- deepest 10. If the loop already completed, lock the first strong 10 observed
+        -- on the next pass instead of holding the bow forever.
+        if scan.loopComplete then
+            scan.phaseLocked = true
+        end
+    end
+    return scan
+end
+
+local function isRound3PureTenPhase(rawCenter, targetVelocity)
+    local scan = archeryRound3TenScan
+    if not scan.loopComplete or not scan.bestPosition then
+        return false
+    end
+    local speed = targetVelocity.Magnitude
+    -- Speed-aware re-entry corridor: the Round 3 bull can move several studs between
+    -- rendered samples, so an overly tiny phase box can be skipped completely.
+    local posTolerance = math.max(1.10, math.min(2.35, 0.45 + speed * 0.020))
+    if (rawCenter - scan.bestPosition).Magnitude > posTolerance then
+        return false
+    end
+    if scan.bestDirection and speed > 1
+        and targetVelocity.Unit:Dot(scan.bestDirection) < 0.78 then
+        return false
+    end
+    if scan.bestSpeed > 1 and speed > 1 then
+        local speedFraction = math.abs(speed - scan.bestSpeed) / math.max(scan.bestSpeed, 1)
+        if speedFraction > 0.50 then
+            return false
+        end
+    end
+    return true
 end
 
 local function projectedScoreForCamera(camera, target, bull, predictedCenter)
@@ -1896,6 +2390,93 @@ local function scoreForImpactError(target, bull, errorDistance, safetyScale)
         return 8
     end
     return 0
+end
+
+local function round3PriorityReleaseScore(target, bull, errorDistance)
+    local radii = getArcheryRingRadii(target, bull)
+    local r10, r9 = radii[1], radii[2]
+    if r10 and errorDistance <= r10 * ARCHERY_ROUND3_10_RELEASE_SAFETY then
+        return 10
+    end
+
+    -- V56: final Round 3 release scoring is based on the solved trajectory itself.
+    -- Do not require pattern-confidence here; that was starving valid shots even when
+    -- the exact projectile solution was already deep inside a 9 window. Keep the 9
+    -- window inside the real 9 ring, while 8-and-lower windows still have no release path.
+    if r10 and r9 then
+        local nearBullNineLimit = r10 + math.max(0, r9 - r10) * ARCHERY_ROUND3_9_NEAR_BULL_FRACTION
+        if errorDistance <= nearBullNineLimit then
+            return 9
+        end
+    end
+    return 0
+end
+
+local function setRound3ShotAnchor(bull, rawCenter, targetVelocity, now)
+    if not (bull and typeof(rawCenter) == "Vector3" and typeof(targetVelocity) == "Vector3") then
+        return
+    end
+    local speed = targetVelocity.Magnitude
+    archeryRound3ShotAnchorBull = bull
+    archeryRound3ShotAnchorPosition = rawCenter
+    archeryRound3ShotAnchorDirection = speed > 1 and targetVelocity.Unit or nil
+    archeryRound3ShotAnchorSpeed = speed
+    archeryRound3ShotAnchorTime = now
+    archeryRound3ShotAnchorPeriod = archeryRound3PatternPeriod
+end
+
+local function isRound3ShotAnchorWindow(bull, rawCenter, targetVelocity, now)
+    if not archeryRound3ShotAnchorPosition then
+        return true
+    end
+    -- V44: do not require the same bull Instance. The game may rebuild/replace the
+    -- Round 3 target between arrows while keeping the identical repeating path.
+    if typeof(rawCenter) ~= "Vector3" or typeof(targetVelocity) ~= "Vector3" then
+        return false
+    end
+    if archeryRound3PatternConfidence < ARCHERY_ROUND3_ANCHOR_MIN_CONFIDENCE then
+        return false
+    end
+
+    local speed = targetVelocity.Magnitude
+    local delta = rawCenter - archeryRound3ShotAnchorPosition
+    -- Round 3 moves fast enough to travel more than the old 1.55-stud anchor radius
+    -- between rendered frames. Expand only the along-path re-entry radius with speed
+    -- so the proven 9 phase cannot be skipped between samples.
+    local anchorPosTolerance = math.max(
+        ARCHERY_ROUND3_ANCHOR_POS_TOLERANCE,
+        math.min(ARCHERY_ROUND3_ANCHOR_MAX_POS_TOLERANCE, 0.80 + speed * 0.022)
+    )
+    if delta.Magnitude > anchorPosTolerance then
+        return false
+    end
+
+    local anchorDir = archeryRound3ShotAnchorDirection
+    if anchorDir and speed > 1 then
+        local directionDot = targetVelocity.Unit:Dot(anchorDir)
+        if directionDot < ARCHERY_ROUND3_ANCHOR_DIRECTION_DOT then
+            return false
+        end
+        local along = delta:Dot(anchorDir)
+        local perpendicular = delta - anchorDir * along
+        if perpendicular.Magnitude > ARCHERY_ROUND3_ANCHOR_PERP_TOLERANCE then
+            return false
+        end
+    end
+
+    local anchorSpeed = archeryRound3ShotAnchorSpeed
+    if anchorSpeed > 2 then
+        local speedFraction = math.abs(speed - anchorSpeed) / anchorSpeed
+        if speedFraction > ARCHERY_ROUND3_ANCHOR_SPEED_FRACTION then
+            return false
+        end
+    end
+
+    -- V43: position + direction + speed already identify this repeating-path phase.
+    -- Do NOT require an exact elapsed-time modulo match here; tiny learned-period drift
+    -- can otherwise make every later pass miss the anchor forever.
+
+    return true
 end
 
 local function resolveArcheryBallisticModules()
@@ -1955,7 +2536,7 @@ local function resolvedArcheryBowConfig(tool)
     return nil
 end
 
-local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity)
+local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity, targetAcceleration)
     if not (target and bull and rawCenter and bull.Parent) then
         return 0, math.huge, nil, false
     end
@@ -2010,17 +2591,48 @@ local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocit
 
     local launchVelocity = aimDir * speed
     local measuredVelocity = typeof(targetVelocity) == "Vector3" and targetVelocity or Vector3.zero
+    local measuredAcceleration = typeof(targetAcceleration) == "Vector3" and targetAcceleration or Vector3.zero
     local round3 = isRound3VelocityForBull(bull, measuredVelocity)
-    -- V33: V32 shortened Round 3 too far. The target is fast enough that this
-    -- under-led the crossing point and could leave the score gate with no valid window.
-    -- Use a balanced 88% lead for Round 3 while preserving exact arrow physics.
+    -- V35 base velocity lead stays intact. V37 adds only a capped acceleration term
+    -- for Round 3 so curved/all-direction motion is not treated as a straight line.
     local velocity = round3 and (measuredVelocity * ARCHERY_ROUND3_PREDICTION_SCALE) or measuredVelocity
+    local acceleration = round3 and measuredAcceleration or Vector3.zero
     local normal = bullPlaneNormal(bull)
     local speedOfTarget = velocity.Magnitude
     local targetLatency = round3 and ARCHERY_ROUND3_TARGET_LATENCY or ARCHERY_AUTO_TARGET_LATENCY
+    local patternMatchIndex = nil
+    local patternMatchOffset = Vector3.zero
+    local patternPhaseCorrection = 0
+    local patternConfidence = 0
+    if round3 then
+        patternMatchIndex, patternConfidence = findRound3PatternMatch(rawCenter, measuredVelocity, os.clock())
+        if patternMatchIndex then
+            patternPhaseCorrection, patternMatchOffset = round3PatternPhaseCorrection(patternMatchIndex, rawCenter)
+        end
+    end
 
     local function targetCenterAt(t)
-        return rawCenter + velocity * (t + targetLatency)
+        local futureT = t + targetLatency
+        if round3 and patternMatchIndex and patternConfidence >= ARCHERY_ROUND3_PATTERN_MIN_CONFIDENCE then
+            local patternCenter = round3PatternPositionFromMatch(
+                patternMatchIndex,
+                math.max(0, futureT + patternPhaseCorrection),
+                patternMatchOffset
+            )
+            if patternCenter then
+                return patternCenter
+            end
+        end
+
+        local center = rawCenter + velocity * futureT
+        if round3 and acceleration.Magnitude > 0.01 then
+            local accelLead = acceleration * (0.5 * futureT * futureT * ARCHERY_ROUND3_ACCEL_GATE_SCALE)
+            if accelLead.Magnitude > ARCHERY_ROUND3_MAX_ACCEL_GATE then
+                accelLead = accelLead.Unit * ARCHERY_ROUND3_MAX_ACCEL_GATE
+            end
+            center = center + accelLead
+        end
+        return center
     end
 
     local function arrowPositionAt(t)
@@ -2064,32 +2676,79 @@ local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocit
         t = t + ARCHERY_AUTO_SIM_STEP
     end
 
-    if not crossingA then
-        return 0, math.huge, nil, true
-    end
+    -- V57: a fast/curving moving target can cross the arrow trajectory between
+    -- coarse plane samples without producing a clean signed-plane flip. V56 treated
+    -- that as "no impact" and Auto Shoot held forever. Keep the exact plane-crossing
+    -- solve when available; otherwise refine the arrow/target closest approach in 3D.
+    local impactTime = nil
+    local usedClosestApproach = false
 
-    -- Refine the moving-plane crossing so tiny Round 3 rings are not judged from
-    -- a coarse trajectory sample.
-    local a, b = crossingA, crossingB
-    for _ = 1, ARCHERY_AUTO_BINARY_STEPS do
-        local mid = (a + b) * 0.5
-        local posA = arrowPositionAt(a)
-        local centerA = targetCenterAt(a)
-        local posMid = arrowPositionAt(mid)
-        local centerMid = targetCenterAt(mid)
-        if not (posA and posMid) then
+    if crossingA then
+        -- Refine the moving-plane crossing so tiny rings are not judged from a
+        -- coarse trajectory sample.
+        local a, b = crossingA, crossingB
+        for _ = 1, ARCHERY_AUTO_BINARY_STEPS do
+            local mid = (a + b) * 0.5
+            local posA = arrowPositionAt(a)
+            local centerA = targetCenterAt(a)
+            local posMid = arrowPositionAt(mid)
+            local centerMid = targetCenterAt(mid)
+            if not (posA and posMid) then
+                return 0, math.huge, nil, false
+            end
+            local signedA = (posA - centerA):Dot(normal)
+            local signedMid = (posMid - centerMid):Dot(normal)
+            if signedMid == 0 or (signedA > 0) ~= (signedMid > 0) then
+                b = mid
+            else
+                a = mid
+            end
+        end
+        impactTime = (a + b) * 0.5
+    else
+        usedClosestApproach = true
+        local bestT, bestDistance = nil, math.huge
+        local scanT = 0
+        while scanT <= ARCHERY_AUTO_MAX_SIM_TIME do
+            local arrowPos = arrowPositionAt(scanT)
+            if not arrowPos then
+                return 0, math.huge, nil, false
+            end
+            local center = targetCenterAt(scanT)
+            local distance = (arrowPos - center).Magnitude
+            if distance < bestDistance then
+                bestDistance = distance
+                bestT = scanT
+            end
+            scanT = scanT + ARCHERY_AUTO_SIM_STEP
+        end
+
+        if not bestT then
             return 0, math.huge, nil, false
         end
-        local signedA = (posA - centerA):Dot(normal)
-        local signedMid = (posMid - centerMid):Dot(normal)
-        if signedMid == 0 or (signedA > 0) ~= (signedMid > 0) then
-            b = mid
-        else
-            a = mid
+
+        -- Refine the minimum-distance time around the best coarse sample.
+        local lo = math.max(0, bestT - ARCHERY_AUTO_SIM_STEP)
+        local hi = math.min(ARCHERY_AUTO_MAX_SIM_TIME, bestT + ARCHERY_AUTO_SIM_STEP)
+        for _ = 1, 10 do
+            local span = (hi - lo) / 3
+            local t1 = lo + span
+            local t2 = hi - span
+            local p1, p2 = arrowPositionAt(t1), arrowPositionAt(t2)
+            if not (p1 and p2) then
+                return 0, math.huge, nil, false
+            end
+            local d1 = (p1 - targetCenterAt(t1)).Magnitude
+            local d2 = (p2 - targetCenterAt(t2)).Magnitude
+            if d1 <= d2 then
+                hi = t2
+            else
+                lo = t1
+            end
         end
+        impactTime = (lo + hi) * 0.5
     end
 
-    local impactTime = (a + b) * 0.5
     local impact = arrowPositionAt(impactTime)
     local futureCenter = targetCenterAt(impactTime)
     if not (impact and futureCenter) then
@@ -2098,7 +2757,10 @@ local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocit
 
     local errorVector = impact - futureCenter
     local radialVector = errorVector - normal * errorVector:Dot(normal)
-    local radialError = radialVector.Magnitude
+    -- Closest-approach fallback uses full 3D miss distance so it cannot claim a
+    -- false bullseye merely because the arrow is radially aligned but still well
+    -- in front of/behind the target plane.
+    local radialError = usedClosestApproach and errorVector.Magnitude or radialVector.Magnitude
 
     -- Round 3 can change direction between the final client frame and server-side
     -- shot processing. Charge that timing uncertainty directly against the score
@@ -2108,11 +2770,42 @@ local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocit
     -- high target speeds (the penalty alone could exceed the entire 8 ring).
     -- Keep the conservative model for Rounds 1/2, but use a smaller measured
     -- processing margin and the real ring area for the fast Round 3 target.
-    local timingUncertainty = round3 and ARCHERY_ROUND3_TIMING_UNCERTAINTY or ARCHERY_AUTO_TIMING_UNCERTAINTY
+    local learnedPattern = round3 and patternMatchIndex ~= nil
+        and patternConfidence >= ARCHERY_ROUND3_PATTERN_MIN_CONFIDENCE
+
+    -- V47: Round 3 moves in every direction. A single path match can be wrong near
+    -- crossings/reversals, so compare the learned-path forecast with the live
+    -- velocity/acceleration forecast. Only later release from phases where both
+    -- models agree closely; this is aimed specifically at predicted-9 -> real-7 misses.
+    archeryRound3ModelDisagreement = math.huge
+    if round3 and learnedPattern then
+        local futureT = impactTime + targetLatency
+        local kinematicCenter = rawCenter + velocity * futureT
+        if acceleration.Magnitude > 0.01 then
+            local accelLead = acceleration * (0.5 * futureT * futureT * ARCHERY_ROUND3_ACCEL_GATE_SCALE)
+            if accelLead.Magnitude > ARCHERY_ROUND3_MAX_ACCEL_GATE then
+                accelLead = accelLead.Unit * ARCHERY_ROUND3_MAX_ACCEL_GATE
+            end
+            kinematicCenter = kinematicCenter + accelLead
+        end
+        archeryRound3ModelDisagreement = (futureCenter - kinematicCenter).Magnitude
+    elseif not round3 then
+        archeryRound3ModelDisagreement = 0
+    end
+
+    local timingUncertainty = learnedPattern and ARCHERY_ROUND3_PATTERN_TIMING_UNCERTAINTY
+        or (round3 and ARCHERY_ROUND3_TIMING_UNCERTAINTY or ARCHERY_AUTO_TIMING_UNCERTAINTY)
     local ringSafety = round3 and ARCHERY_ROUND3_RING_SAFETY or ARCHERY_AUTO_RING_SAFETY
-    local robustError = radialError + speedOfTarget * timingUncertainty
+    local curveUncertainty = 0
+    if round3 and not learnedPattern and acceleration.Magnitude > 0.01 then
+        curveUncertainty = math.min(
+            ARCHERY_ROUND3_MAX_CURVE_UNCERTAINTY,
+            acceleration.Magnitude * impactTime * impactTime * 0.0035
+        )
+    end
+    local robustError = radialError + speedOfTarget * timingUncertainty + curveUncertainty
     local score = scoreForImpactError(target, bull, robustError, ringSafety)
-    return score, robustError, impactTime, true
+    return score, robustError, impactTime, true, usedClosestApproach
 end
 
 resolveArcheryBowClient = function()
@@ -2342,8 +3035,9 @@ local function startArcheryAutoDraw(camera)
 end
 
 local function releaseArcheryAutoDraw(camera)
-    if not archeryAutoOwnsDraw and not archeryAutoVirtualMouseHeld then return end
-
+    -- V55: once a shot is approved, ALWAYS send a real bow-up signal. Previous
+    -- versions could skip the release if ownership flags drifted out of sync even
+    -- though BowClient was still physically drawing.
     local bowClient = resolveArcheryBowClient()
     if bowClient then
         pcall(function() bowClient.SetTouchHeld(false) end)
@@ -2357,6 +3051,9 @@ local function releaseArcheryAutoDraw(camera)
     archeryAutoDrawStartedAt = 0
     archeryAutoDrawVerifyAt = 0
     archeryAutoGoodFrames = 0
+    archeryRound3WindowScore = 0
+    archeryRound3WindowSince = 0
+    archeryRound3NineFrames = 0
 end
 
 local function isRound3Motion(bull, targetVelocity)
@@ -2364,7 +3061,8 @@ local function isRound3Motion(bull, targetVelocity)
 end
 
 local function requiredAutoScore(bull, targetVelocity)
-    return isRound3Motion(bull, targetVelocity) and 8 or 10
+    -- V60: pure 10s only in every round.
+    return 10
 end
 
 local function archeryAutoShootTick(now, camera, target, bull, rawCenter, targetVelocity)
@@ -2387,13 +3085,24 @@ local function archeryAutoShootTick(now, camera, target, bull, rawCenter, target
 
     if not archeryAutoOwnsDraw then
         if now < archeryAutoNextShotAt then return end
-        if drawing and not archeryAutoVirtualMouseHeld then return end
+        if drawing and not archeryAutoVirtualMouseHeld then
+            -- A previous arrow can leave BowClient reporting IsDrawing for a short
+            -- time even after our local flags reset. Force an UP once so the next
+            -- arrow cannot inherit a stuck held state.
+            releaseArcheryAutoDraw(camera)
+            archeryAutoNextShotAt = now + 0.06
+            return
+        end
 
         if startArcheryAutoDraw(camera) then
+            -- V55: each of the 3 arrows starts with a completely fresh release window.
             archeryAutoOwnsDraw = true
             archeryAutoDrawStartedAt = now
             archeryAutoDrawVerifyAt = now + 0.10
             archeryAutoGoodFrames = 0
+            archeryRound3WindowScore = 0
+            archeryRound3WindowSince = 0
+            archeryRound3NineFrames = 0
         end
         return
     end
@@ -2426,8 +3135,8 @@ local function archeryAutoShootTick(now, camera, target, bull, rawCenter, target
         return
     end
 
-    local score, errorDistance, impactTime, trustworthy =
-        exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity)
+    local score, errorDistance, impactTime, trustworthy, usedClosestApproach =
+        exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity, archeryTrackedAcceleration)
 
     archeryLatestScore = score
     archeryLatestScoreError = errorDistance
@@ -2435,22 +3144,67 @@ local function archeryAutoShootTick(now, camera, target, bull, rawCenter, target
 
     local speed = typeof(targetVelocity) == "Vector3" and targetVelocity.Magnitude or 0
     local round3 = isRound3Motion(bull, targetVelocity)
-    local requiredFrames = round3
-        and ARCHERY_ROUND3_GOOD_FRAMES
-        or (speed >= ARCHERY_AUTO_FAST_SPEED and ARCHERY_AUTO_FAST_GOOD_FRAMES or ARCHERY_AUTO_GOOD_FRAMES)
+    if round3 and (not score or score < 9) then
+        archeryLatestScore = 0
+    end
     local directionSettle = round3 and ARCHERY_ROUND3_DIRECTION_SETTLE or ARCHERY_AUTO_DIRECTION_SETTLE
     local directionStable = (now - archeryLastDirectionChangeAt) >= directionSettle
 
-    -- Rounds 1/2: strict 10 only. Round 3: safely predicted 8, 9, or 10 is allowed.
-    -- A 7 or lower always resets the release gate.
-    local minimumScore = round3 and 8 or 10
-    if trustworthy and impactTime and score >= minimumScore and directionStable then
-        archeryAutoGoodFrames = archeryAutoGoodFrames + 1
-    else
-        archeryAutoGoodFrames = 0
+    if round3 then
+        -- V60 PURE-10 LOOP SCAN. The V57/V58 draw/release lifecycle above remains
+        -- untouched; this block ONLY decides when the already-charged bow may release.
+        local scan = considerRound3PureTenPhase(
+            target, bull, rawCenter, targetVelocity,
+            score, errorDistance, trustworthy, usedClosestApproach, now
+        )
+
+        if not scan.loopComplete or not scan.bestPosition then
+            scan.confirmFrames = 0
+            return
+        end
+
+        local atBestPhase = isRound3PureTenPhase(rawCenter, targetVelocity)
+        local radii = getArcheryRingRadii(target, bull)
+        local r10 = radii[1]
+        local deepTen = false
+        if trustworthy and impactTime and score == 10 and r10 and atBestPhase then
+            if usedClosestApproach then
+                -- Fallback is allowed only for an extremely deep 10 on a nearly
+                -- straight segment. It can never approve 9/8/7/etc.
+                deepTen = errorDistance <= r10 * 0.28
+                    and archeryRound3TurnFactor <= 0.16
+            else
+                deepTen = errorDistance <= r10 * 0.72
+            end
+        end
+
+        if not deepTen then
+            scan.confirmFrames = math.max(0, scan.confirmFrames - 1)
+            return
+        end
+
+        scan.confirmFrames = math.min(4, scan.confirmFrames + 1)
+        local neededFrames = usedClosestApproach and 2 or 1
+        if scan.confirmFrames >= neededFrames then
+            scan.confirmFrames = 0
+            releaseArcheryAutoDraw(camera)
+            archeryAutoNextShotAt = now + ARCHERY_AUTO_POST_SHOT_COOLDOWN
+        end
+        return
     end
 
-    if archeryAutoGoodFrames >= requiredFrames then
+    -- V56 Rounds 1/2: still STRICT 10 ONLY. The exact solver now uses a realistic
+    -- 84% inner-ring safety zone, so one trustworthy solved 10 is enough to release.
+    archeryRound3WindowScore = 0
+    archeryRound3WindowSince = 0
+    archeryRound3NineFrames = 0
+    if trustworthy and impactTime and score >= 10 then
+        archeryAutoGoodFrames = math.min(3, archeryAutoGoodFrames + 1)
+    else
+        archeryAutoGoodFrames = math.max(0, archeryAutoGoodFrames - 1)
+    end
+
+    if archeryAutoGoodFrames >= 1 then
         releaseArcheryAutoDraw(camera)
         archeryAutoNextShotAt = now + ARCHERY_AUTO_POST_SHOT_COOLDOWN
     end
@@ -2525,17 +3279,43 @@ local function localArcheryOwnerBonus(model)
     return owner == Player.UserId and ARCHERY_LOCAL_OWNER_BONUS or 0
 end
 
-local function suppressArcheryCutsceneCamera(camera, humanoid)
-    if not ARCHERY_BLOCK_CUTSCENES or not camera or not humanoid then return end
+local function deleteArcheryCutscene(camera, humanoid)
+    if not camera or not humanoid then return end
 
-    -- Archery cinematics can temporarily take camera ownership or change the subject.
-    -- Reclaim both every late render frame. applyAim then writes the target-facing
-    -- CFrame after this, so even a Custom-camera cinematic cannot visually pull us away.
-    if camera.CameraType ~= Enum.CameraType.Custom then
-        camera.CameraType = Enum.CameraType.Custom
+    -- Hard skip: never let an archery cinematic own the active camera.
+    camera.CameraType = Enum.CameraType.Custom
+    camera.CameraSubject = humanoid
+
+    -- Purge named cinematic UI/cameras locally. Throttled so this does not scan the
+    -- hierarchy every rendered frame. We intentionally do NOT destroy generic scripts
+    -- or archery models/targets.
+    local now = os.clock()
+    if now - archeryLastCutscenePurge < 0.35 then return end
+    archeryLastCutscenePurge = now
+
+    local playerGui = Player:FindFirstChildOfClass("PlayerGui")
+    if playerGui then
+        for _, inst in ipairs(playerGui:GetChildren()) do
+            local name = string.lower(inst.Name)
+            if (string.find(name, "cutscene", 1, true) or string.find(name, "cinematic", 1, true))
+                and inst:IsA("LayerCollector") then
+                pcall(function() inst:Destroy() end)
+            end
+        end
     end
-    if camera.CameraSubject ~= humanoid then
-        camera.CameraSubject = humanoid
+
+    local live = Workspace:FindFirstChild("ArcheryContest_Live")
+    if live then
+        for _, inst in ipairs(live:GetDescendants()) do
+            if inst:IsA("Camera") then
+                local name = string.lower(inst.Name)
+                if string.find(name, "cutscene", 1, true)
+                    or string.find(name, "cinematic", 1, true)
+                    or string.find(name, "intro", 1, true) then
+                    pcall(function() inst:Destroy() end)
+                end
+            end
+        end
     end
 end
 
@@ -2597,10 +3377,61 @@ local function estimateLiveBullVelocity(bull, now)
 
     local position = bull.Position
     if archeryLastBullPart ~= bull or not archeryLastBullPosition or archeryLastBullTime <= 0 then
+        local previousVelocity = archeryTrackedVelocity
+        local latestPatternSample = archeryRound3History[#archeryRound3History]
+        local provenRound3Continuation = archeryLastBullPart ~= nil
+            and archeryRound3Bulls[archeryLastBullPart] == true
+            and archeryRound3ShotAnchorPosition ~= nil
+            and latestPatternSample ~= nil
+            and (now - latestPatternSample.t) <= 1.75
+        local carryRound3 = archeryLastBullPart ~= nil
+            and archeryRound3PatternBull ~= nil
+            and (provenRound3Continuation
+                or canCarryRound3PatternToReplacement(now, position, previousVelocity))
+
         archeryLastBullPart = bull
         archeryLastBullPosition = position
         archeryLastBullTime = now
+        archeryTrackedAcceleration = Vector3.zero
+
+        if carryRound3 then
+            -- V46: the next Round 3 arrow/target is often a new Instance on the SAME
+            -- repeating path. Warm-start tracking from the learned motion cycle, but
+            -- reset ONLY per-arrow release state so every new arrow can acquire its own
+            -- safe 9/10 firing window instead of inheriting the previous arrow's anchor.
+            local seedVelocity = round3ReplacementSeedVelocity(now, position, previousVelocity)
+            archeryTrackedVelocity = seedVelocity
+            archeryLastObservedVelocity = seedVelocity
+            archeryRound3PatternBull = bull
+            archeryRound3Bulls[bull] = true
+
+            -- V46 PER-ARROW RESET: keep the learned motion cycle, but NEVER carry the
+            -- previous arrow's fired 9/10 phase into the next arrow. Arrow 3, 2 and 1
+            -- each need one fresh release decision; reusing arrow 3's anchor is what
+            -- made arrows 2/1 hold forever even while valid 9/10 windows passed by.
+            archeryRound3ShotAnchorBull = nil
+            archeryRound3ShotAnchorPosition = nil
+            archeryRound3ShotAnchorDirection = nil
+            archeryRound3ShotAnchorSpeed = 0
+            archeryRound3ShotAnchorTime = 0
+            archeryRound3ShotAnchorPeriod = 0
+            archeryRound3WindowScore = 0
+            archeryRound3WindowSince = 0
+            archeryRound3NineFrames = 0
+            archeryAutoGoodFrames = 0
+
+            archeryRound3WarmStartBull = bull
+            archeryRound3WarmStartUntil = now + 0.16
+            recordRound3PatternSample(bull, now, position, seedVelocity)
+            return seedVelocity
+        end
+
         archeryTrackedVelocity = Vector3.zero
+        archeryLastObservedVelocity = nil
+        resetRound3PatternHistory(bull)
+        archeryRound3WarmStartBull = nil
+        archeryRound3WarmStartUntil = 0
+        recordRound3PatternSample(bull, now, position, Vector3.zero)
         return Vector3.zero
     end
 
@@ -2612,9 +3443,36 @@ local function estimateLiveBullVelocity(bull, now)
     end
 
     if dt > 0.30 then
+        local knownRound3 = archeryRound3Bulls[bull] == true
+            or archeryRound3PatternBull == bull
+            or archeryRound3PatternConfidence >= ARCHERY_ROUND3_PATTERN_MIN_CONFIDENCE
         archeryLastBullPosition = position
         archeryLastBullTime = now
+        archeryTrackedAcceleration = Vector3.zero
+
+        -- V47: a normal pause between Round 3 arrows is NOT a stationary target.
+        -- Warm-start the same target from the learned repeating path instead of
+        -- resetting velocity to zero and forcing the camera to chase from behind.
+        if knownRound3 and #archeryRound3History >= 18
+            and dt <= ARCHERY_ROUND3_PATTERN_HISTORY + 0.75 then
+            local seedVelocity = round3ReplacementSeedVelocity(now, position, archeryTrackedVelocity)
+            archeryTrackedVelocity = seedVelocity
+            archeryLastObservedVelocity = seedVelocity
+            archeryRound3Bulls[bull] = true
+            archeryRound3WarmStartBull = bull
+            archeryRound3WarmStartUntil = now + 0.20
+            recordRound3PatternSample(bull, now, position, seedVelocity)
+            return seedVelocity
+        end
+
         archeryTrackedVelocity = Vector3.zero
+        archeryLastObservedVelocity = nil
+        if dt > ARCHERY_ROUND3_PATTERN_HISTORY + 0.75 then
+            resetRound3PatternHistory(bull)
+            archeryRound3WarmStartBull = nil
+            archeryRound3WarmStartUntil = 0
+        end
+        recordRound3PatternSample(bull, now, position, Vector3.zero)
         return Vector3.zero
     end
 
@@ -2623,6 +3481,16 @@ local function estimateLiveBullVelocity(bull, now)
     if speed > ARCHERY_MAX_TRACKED_SPEED then
         observed = observed.Unit * ARCHERY_MAX_TRACKED_SPEED
     end
+
+    local rawAcceleration = Vector3.zero
+    if archeryLastObservedVelocity then
+        rawAcceleration = (observed - archeryLastObservedVelocity) / math.max(dt, 0.004)
+        if rawAcceleration.Magnitude > ARCHERY_ROUND3_MAX_ACCEL then
+            rawAcceleration = rawAcceleration.Unit * ARCHERY_ROUND3_MAX_ACCEL
+        end
+    end
+    archeryLastObservedVelocity = observed
+    archeryTrackedAcceleration = archeryTrackedAcceleration:Lerp(rawAcceleration, ARCHERY_ROUND3_ACCEL_BLEND)
 
     -- Slow rounds stay filtered and smooth. Round 3 gets a much faster velocity
     -- response so the predictor is not aiming using movement from several frames ago.
@@ -2645,31 +3513,72 @@ local function estimateLiveBullVelocity(bull, now)
 
     archeryLastBullPosition = position
     archeryLastBullTime = now
+    recordRound3PatternSample(bull, now, position, archeryTrackedVelocity)
     return archeryTrackedVelocity
 end
 
-local function predictLiveBullPoint(cameraPosition, rawCenter, velocity, bull)
+local function predictLiveBullPoint(cameraPosition, rawCenter, velocity, bull, acceleration)
     local distance = (rawCenter - cameraPosition).Magnitude
     local speedRatio = archerySpeedRatio(velocity.Magnitude)
     local round3 = isRound3VelocityForBull(bull, velocity)
-    local maxPredictionTime = round3 and ARCHERY_ROUND3_MAX_PREDICTION_TIME or ARCHERY_MAX_PREDICTION_TIME
+
+    -- V52 TEST: Round 3 uses a TURN-AWARE micro live-velocity lead.
+    -- V50 (zero lead) trailed behind; V51 (0.14s) sat too far ahead and cut across the
+    -- figure-8 bends. Keep a small lead on straights, then collapse it toward the live
+    -- bullseye during hard curves/reversals so the camera does not aim through empty space.
+    -- No learned-path camera offset and no acceleration camera offset are added here.
+    -- The strict 9/10 ballistic RELEASE gate remains unchanged.
+    if round3 then
+        local speed = velocity.Magnitude
+        local turnFactor = 0
+
+        -- Measure CURVATURE using only acceleration perpendicular to current travel.
+        -- Forward/back acceleration should not erase useful lead on a straight section.
+        if speed > 0.25 and acceleration then
+            local direction = velocity.Unit
+            local perpendicularAccel = acceleration - direction * acceleration:Dot(direction)
+            turnFactor = math.clamp((perpendicularAccel.Magnitude - 28) / 105, 0, 1)
+        end
+
+        -- A just-detected reversal/large velocity jump is the riskiest part of the figure 8.
+        -- Temporarily force the lead very close to the actual bull until the new direction
+        -- has settled, then smoothly restore the straight-section micro lead.
+        local sinceDirectionChange = os.clock() - archeryLastDirectionChangeAt
+        if sinceDirectionChange < 0.11 then
+            local recentTurn = 1 - math.clamp(sinceDirectionChange / 0.11, 0, 1)
+            turnFactor = math.max(turnFactor, recentTurn)
+        end
+
+        local straightLeadTime = 0.105
+        local turnLeadTime = 0.020
+        local liveLeadTime = straightLeadTime + (turnLeadTime - straightLeadTime) * turnFactor
+        local liveLead = velocity * liveLeadTime
+
+        local straightLeadCap = 2.00
+        local turnLeadCap = 0.55
+        local liveLeadCap = straightLeadCap + (turnLeadCap - straightLeadCap) * turnFactor
+        if liveLead.Magnitude > liveLeadCap then
+            liveLead = liveLead.Unit * liveLeadCap
+        end
+
+        -- V53: remember how sharply the target is turning. The release gate uses this
+        -- only to reject the unreliable bend/crossover portions of the figure-8.
+        archeryRound3TurnFactor = turnFactor
+        return rawCenter + liveLead, speedRatio
+    end
+
+    local maxPredictionTime = ARCHERY_MAX_PREDICTION_TIME
     local flightTime = math.clamp(
         distance / ARCHERY_PREDICTION_ARROW_SPEED + ARCHERY_PREDICTION_LATENCY,
         0,
         maxPredictionTime
     )
 
-    -- Round 1/2 keep the existing lead. Round 3 uses a balanced lead: enough
-    -- horizon for its higher speed, but still below full linear extrapolation so
-    -- direction reversals do not produce huge overshoot.
+    -- Rounds 1/2 keep their existing prediction behavior. Round 3 returned above.
     local predictionStrength = ARCHERY_PREDICTION_STRENGTH
         + (ARCHERY_FAST_PREDICTION_STRENGTH - ARCHERY_PREDICTION_STRENGTH) * speedRatio
-    if round3 then
-        predictionStrength = predictionStrength * ARCHERY_ROUND3_PREDICTION_SCALE
-    end
     local lead = velocity * flightTime * predictionStrength
-    local maxLead = round3 and ARCHERY_ROUND3_MAX_LEAD_DISTANCE
-        or (7.5 + (ARCHERY_MAX_LEAD_DISTANCE - 7.5) * speedRatio)
+    local maxLead = 7.5 + (ARCHERY_MAX_LEAD_DISTANCE - 7.5) * speedRatio
     if lead.Magnitude > maxLead then
         lead = lead.Unit * maxLead
     end
@@ -2776,6 +3685,17 @@ local function findLiveArcheryTarget(root, camera)
     return bestModel, bestBull
 end
 
+local function softClearArcheryInterArrowLock()
+    -- Preserve Round 3 motion history/last sample through short target-hidden periods.
+    -- Only the dead live target/camera smoothing is cleared.
+    archeryLockedTarget = nil
+    archeryLockedBull = nil
+    archerySmoothedAimPoint = nil
+    archerySmoothedTarget = nil
+    archeryLastAimTime = 0
+    archeryLockChosenAt = 0
+end
+
 local function clearArcheryLock()
     archeryLockedTarget = nil
     archeryLockedBull = nil
@@ -2783,6 +3703,8 @@ local function clearArcheryLock()
     archeryLastBullPosition = nil
     archeryLastBullTime = 0
     archeryTrackedVelocity = Vector3.zero
+    archeryTrackedAcceleration = Vector3.zero
+    archeryLastObservedVelocity = nil
     archerySmoothedAimPoint = nil
     archerySmoothedTarget = nil
     archeryLastAimTime = 0
@@ -2790,6 +3712,15 @@ local function clearArcheryLock()
     archeryLatestScore = 0
     archeryLatestScoreError = math.huge
     archeryLatestScoreTime = 0
+    archeryRound3ModelDisagreement = math.huge
+    archeryLastMatchSeenAt = 0
+    archeryRound3WindowScore = 0
+    archeryRound3WindowSince = 0
+    archeryRound3NineFrames = 0
+    archeryRound3WarmStartBull = nil
+    archeryRound3WarmStartUntil = 0
+    resetRound3PatternHistory(nil)
+    resetRound3TenScan()
 end
 
 local function restoreArcheryShiftLockY()
@@ -2810,6 +3741,15 @@ stopArcheryAutoShoot = function()
     archeryAutoVirtualMouseHeld = false
     archeryAutoDrawVerifyAt = 0
     archeryAutoConfirmedDraw = false
+    archeryRound3WindowScore = 0
+    archeryRound3WindowSince = 0
+    archeryRound3NineFrames = 0
+    archeryRound3ShotAnchorBull = nil
+    archeryRound3ShotAnchorPosition = nil
+    archeryRound3ShotAnchorDirection = nil
+    archeryRound3ShotAnchorSpeed = 0
+    archeryRound3ShotAnchorTime = 0
+    archeryRound3ShotAnchorPeriod = 0
 end
 
 stopArcheryAim = function()
@@ -2831,19 +3771,28 @@ local function setArcheryAim(enabled)
     local function applyAim()
         if killSwitchActivated or not archeryAimEnabled then return end
         local character = Player.Character
+        local tickNow = os.clock()
         if not character or character:GetAttribute("_ArcheryMatch") ~= true or not isBowEquipped() then
-            clearArcheryLock()
+            -- V47: the game briefly hides/replaces archery state between Round 3 arrows.
+            -- Do not destroy the learned loop during that short transition.
+            if archeryLastMatchSeenAt > 0 and tickNow - archeryLastMatchSeenAt <= 2.25
+                and #archeryRound3History >= 18 then
+                softClearArcheryInterArrowLock()
+            else
+                clearArcheryLock()
+            end
             return
         end
+        archeryLastMatchSeenAt = tickNow
 
         local root = character:FindFirstChild("HumanoidRootPart")
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         local camera = Workspace.CurrentCamera
         if not root or not humanoid or not camera then return end
 
-        -- V26: cancel/reject any archery cinematic camera takeover before target
-        -- selection. The late render priority also wins against CFrame-only cutscenes.
-        suppressArcheryCutsceneCamera(camera, humanoid)
+        -- V35: hard-skip archery cinematics before target selection. The late render
+        -- priority then writes the live target-facing CFrame.
+        deleteArcheryCutscene(camera, humanoid)
 
         -- KEEP the confirmed centered Shift-Lock correction.
         local shiftOffset = humanoid.CameraOffset
@@ -2853,7 +3802,11 @@ local function setArcheryAim(enabled)
         -- This is the important change for Round 2 (vertical) and Round 3 (all-axis).
         local target, bull = findLiveArcheryTarget(root, camera)
         if not target or not bull then
-            clearArcheryLock()
+            if #archeryRound3History >= 18 and os.clock() - archeryLastMatchSeenAt <= 2.25 then
+                softClearArcheryInterArrowLock()
+            else
+                clearArcheryLock()
+            end
             return
         end
         archeryLockedTarget = target
@@ -2864,13 +3817,36 @@ local function setArcheryAim(enabled)
         local rawCenter = bull.Position + Vector3.new(0, ARCHERY_CENTER_OFFSET_Y, 0)
         local now = os.clock()
         local velocity = estimateLiveBullVelocity(bull, now)
-        local aimPoint, speedRatio = predictLiveBullPoint(camera.CFrame.Position, rawCenter, velocity, bull)
+        local aimPoint, speedRatio = predictLiveBullPoint(camera.CFrame.Position, rawCenter, velocity, bull, archeryTrackedAcceleration)
         if (aimPoint - camera.CFrame.Position).Magnitude < 0.001 then return end
+
+        -- V45: when Round 3 first proves itself (or a same-path replacement appears),
+        -- do not ease from the zero-lead/raw-center acquisition point. Snap the aim
+        -- filter directly onto the first valid Round 3 predicted point, then resume
+        -- normal high-response smoothing. This fixes the bad tracking start without
+        -- changing the proven prediction/release constants.
+        local round3Now = isRound3VelocityForBull(bull, velocity)
+        local warmStart = round3Now and (
+            archeryRound3WarmStartBull ~= bull
+            or now <= archeryRound3WarmStartUntil
+        )
+        if round3Now and archeryRound3WarmStartBull ~= bull then
+            archeryRound3WarmStartBull = bull
+            archeryRound3WarmStartUntil = now + 0.12
+            warmStart = true
+        end
+        if warmStart then
+            archerySmoothedTarget = target
+            archerySmoothedAimPoint = aimPoint
+            archeryLastAimTime = now
+        end
 
         -- Smooth only while following the SAME live target. If the contest genuinely
         -- swaps to a new target/round, reset immediately instead of dragging the old
         -- aim point across the screen.
-        if archerySmoothedTarget ~= target or not archerySmoothedAimPoint or archeryLastAimTime <= 0 then
+        if warmStart then
+            -- already snapped above
+        elseif archerySmoothedTarget ~= target or not archerySmoothedAimPoint or archeryLastAimTime <= 0 then
             archerySmoothedTarget = target
             archerySmoothedAimPoint = aimPoint
             archeryLastAimTime = now
@@ -2902,9 +3878,9 @@ local function setArcheryAim(enabled)
     RunService:BindToRenderStep(POLY_ARCHERY_BIND, ARCHERY_FINAL_PRIORITY, applyAim)
 end
 
-toggle(testing, "Archery Center Aim Assist", "ArcheryCenterAim", setArcheryAim)
-info(testing, "V33 scoring: Rounds 1 and 2 remain STRICT 10 ONLY. Round 3 accepts predicted 8/9/10 using a balanced 0.50s horizon, 88% Round 3 velocity lead, 8-stud cap, 92% real ring radius, reduced Round-3-only timing uncertainty, 0.025s direction settle, and 2 safe solved-trajectory frames. A predicted 7 or lower never releases.")
-toggle(testing, "Smart Auto Shoot (R1/R2=10, R3=8/9/10)", "ArcheryAutoShoot", function(enabled)
+toggle(quest, "Archery Center Aim Assist", "ArcheryCenterAim", setArcheryAim)
+info(quest, "V59 TEST: ROUND 3 PURE-10 LOOP SCAN. The first R3 target is held for one full figure-8 loop while POLY records the deepest TRUE plane-crossing 10 phase. Then all 3 R3 arrows may release only at that learned phase and only on a current deep solved 10. No R3 9/8/7-or-lower release path. R1/R2 remain 10-only.")
+toggle(quest, "Smart Auto Shoot (3 SHOTS • PURE 10 TEST)", "ArcheryAutoShoot", function(enabled)
     if enabled then
         state.ArcheryAutoMinScore = 10
         -- Auto Shoot depends on the working V23 camera tracker. Turn it on together.
@@ -2921,6 +3897,15 @@ toggle(testing, "Smart Auto Shoot (R1/R2=10, R3=8/9/10)", "ArcheryAutoShoot", fu
         archeryAutoVirtualMouseHeld = false
         archeryAutoDrawVerifyAt = 0
         archeryAutoConfirmedDraw = false
+        archeryRound3WindowScore = 0
+        archeryRound3WindowSince = 0
+        archeryRound3NineFrames = 0
+        archeryRound3ShotAnchorBull = nil
+        archeryRound3ShotAnchorPosition = nil
+        archeryRound3ShotAnchorDirection = nil
+        archeryRound3ShotAnchorSpeed = 0
+        archeryRound3ShotAnchorTime = 0
+        archeryRound3ShotAnchorPeriod = 0
     else
         if stopArcheryAutoShoot then
             stopArcheryAutoShoot()
@@ -2930,4 +3915,4 @@ end)
 
 end
 
-setupArcheryV29()
+setupArcheryV60()
