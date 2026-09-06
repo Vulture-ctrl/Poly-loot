@@ -1,4 +1,4 @@
--- POLY LOOT - V20 LIVE ROUND TRACKING
+-- POLY LOOT - V33 ROUND 3 BALANCED 8/9/10 PREDICTION
 -- Built from the mapped game systems only. No code copied from previous scripts.
 -- Intended for testing in the user's own Roblox experience.
 -- Archery aim locks to the first front-facing contest target to prevent adjacent-target twitching.
@@ -102,7 +102,7 @@ local state = {
     EnvironmentCollisionTest = false,
     ArcheryCenterAim = false,
     ArcheryAutoShoot = false,
-    ArcheryAutoMinScore = 8,
+    ArcheryAutoMinScore = 10,
 }
 
 local connections = {}
@@ -141,6 +141,8 @@ local archeryBowClient = nil
 local archeryAutoInputMode = nil
 local archeryAutoVirtualMouseHeld = false
 local archeryAutoDrawVerifyAt = 0
+local resolveArcheryBowClient = nil
+local isBowEquipped = nil
 
 -- ============================================================
 -- STARTUP SAFETY: EVERYTHING OFF
@@ -1657,8 +1659,11 @@ button(testing, "Restore Environment", function()
     if redraw then redraw() end
 end)
 
+-- V29 REGISTER LIMIT SAFE: keep the entire archery implementation in its own
+-- function scope so its locals do not consume the main chunk's Luau register budget.
+local function setupArcheryV29()
 section(testing, "Archery Testing")
-info(testing, "V25 keeps the confirmed Shift-Lock center and V23 adaptive Round 3 prediction, then adds a smart score-gated auto shot. Auto Shoot controls the bow draw/release itself, waits for full charge, and only releases when the current camera ray is projected inside a predicted 10/9/8 scoring radius.")
+info(testing, "V33: Rounds 1 and 2 stay STRICT 10 ONLY. Round 3 allows 8/9/10 with a BALANCED faster-target prediction: 0.50s horizon, 88% velocity lead, 8-stud cap, and a Round-3-specific score safety/latency model so the fast target can actually produce valid release windows. Verified auto-draw, solved trajectory gating, cutscene suppression, and center calibration remain unchanged.")
 
 local ARCHERY_FRONT_DOT_MIN = 0.42
 local ARCHERY_MAX_TARGET_DISTANCE = 300
@@ -1666,7 +1671,9 @@ local ARCHERY_MAX_TARGET_DISTANCE = 300
 -- CONFIRMED STATIC CENTER. Do not change these while fixing movement tracking.
 local ARCHERY_CENTER_OFFSET_Y = 0.0
 local ARCHERY_SHIFTLOCK_OFFSET_Y = -1.60
-local ARCHERY_FINAL_PRIORITY = Enum.RenderPriority.Last.Value + 100
+local ARCHERY_FINAL_PRIORITY = Enum.RenderPriority.Last.Value + 250
+local ARCHERY_BLOCK_CUTSCENES = true
+local ARCHERY_LOCAL_OWNER_BONUS = 150000
 
 -- Motion is used ONLY to choose the active moving target when multiple round targets
 -- remain in Workspace. It does NOT lead the shot or change the aim point.
@@ -1693,22 +1700,50 @@ local ARCHERY_SPEED_ADAPT_FULL = 70
 -- V23 adaptive screen smoothing / target-lock stability.
 local ARCHERY_AIM_SMOOTH_RESPONSE = 22
 local ARCHERY_FAST_AIM_SMOOTH_RESPONSE = 58
-local ARCHERY_TARGET_SWITCH_MARGIN = 6500
+local ARCHERY_TARGET_SWITCH_MARGIN = 25000
 local ARCHERY_LOCK_KEEP_SECONDS = 0.30
 local ARCHERY_MAX_LOCK_LANE_RATIO = 0.30
 local ARCHERY_LOCKED_MAX_LANE_RATIO = 0.42
 local archeryLockChosenAt = 0
 
--- V25 score-gated auto fire with real-input fallback. No release can be literally guaranteed because the
--- target can reverse after release and networking adds latency, so the gate uses
--- a conservative inner portion of each scoring ring plus consecutive good frames.
+-- V27 strict score-gated auto fire.
+-- Round 3 exposed that a camera-ray check is not enough: the game solves a different
+-- ballistic launch direction with ArrowFlight.SolveShot before the projectile is fired.
+-- V27 therefore refuses to release unless the REAL solved shot trajectory is predicted
+-- to land safely inside the selected 10/9/8 ring for several consecutive frames.
 local ARCHERY_AUTO_FULL_CHARGE_SECONDS = 1.08
 local ARCHERY_AUTO_POST_SHOT_COOLDOWN = 0.28
-local ARCHERY_AUTO_RING_SAFETY = 0.78
-local ARCHERY_AUTO_DIRECTION_SETTLE = 0.055
-local ARCHERY_AUTO_GOOD_FRAMES = 2
+local ARCHERY_AUTO_RING_SAFETY = 0.50
+local ARCHERY_AUTO_DIRECTION_SETTLE = 0.12
+local ARCHERY_AUTO_GOOD_FRAMES = 4
+local ARCHERY_AUTO_FAST_GOOD_FRAMES = 6
+local ARCHERY_ROUND3_GOOD_FRAMES = 2
+local ARCHERY_AUTO_FAST_SPEED = 14
+-- Round 2 moves mainly vertically; Round 3 moves around the target plane. Only allow
+-- 8/9/10 when there is clear lateral/all-direction motion in the bull's own target plane.
+local ARCHERY_ROUND3_MIN_SPEED = 12
+local ARCHERY_ROUND3_MIN_LATERAL_SPEED = 5.5
+local ARCHERY_ROUND3_PREDICTION_SCALE = 0.88
+local ARCHERY_ROUND3_MAX_PREDICTION_TIME = 0.50
+local ARCHERY_ROUND3_MAX_LEAD_DISTANCE = 8.0
+local ARCHERY_ROUND3_TARGET_LATENCY = 0.018
+local ARCHERY_ROUND3_DIRECTION_SETTLE = 0.025
 local ARCHERY_AUTO_10_ONLY_SECONDS = 0.30
 local ARCHERY_AUTO_9_ONLY_SECONDS = 0.72
+local ARCHERY_AUTO_TARGET_LATENCY = 0.030
+local ARCHERY_AUTO_TIMING_UNCERTAINTY = 0.030
+local ARCHERY_ROUND3_RING_SAFETY = 0.92
+local ARCHERY_ROUND3_TIMING_UNCERTAINTY = 0.006
+local ARCHERY_AUTO_MAX_SIM_TIME = 1.35
+local ARCHERY_AUTO_SIM_STEP = 1 / 120
+local ARCHERY_AUTO_BINARY_STEPS = 8
+
+local archeryArrowFlight = nil
+local archeryWeaponConfig = nil
+local archeryBallisticTool = nil
+local archeryBallisticCfg = nil
+local archeryAutoConfirmedDraw = false
+local archeryBowClientLastResolve = 0
 
 local function circularDiscScore(part)
     if not (part and part:IsA("BasePart") and part.Parent) then
@@ -1786,6 +1821,30 @@ local function bullPlaneNormal(bull)
     return bull.CFrame.LookVector
 end
 
+local function isRound3VelocityForBull(bull, targetVelocity)
+    if not (bull and typeof(targetVelocity) == "Vector3") then
+        return false
+    end
+
+    local speed = targetVelocity.Magnitude
+    if speed < ARCHERY_ROUND3_MIN_SPEED then
+        return false
+    end
+
+    local localVelocity = bull.CFrame:VectorToObjectSpace(targetVelocity)
+    local size = bull.Size
+    local lateralSpeed
+    if size.X <= size.Y and size.X <= size.Z then
+        lateralSpeed = math.abs(localVelocity.Z)
+    elseif size.Y <= size.X and size.Y <= size.Z then
+        lateralSpeed = math.abs(localVelocity.X)
+    else
+        lateralSpeed = math.abs(localVelocity.X)
+    end
+
+    return lateralSpeed >= ARCHERY_ROUND3_MIN_LATERAL_SPEED
+end
+
 local function projectedScoreForCamera(camera, target, bull, predictedCenter)
     if not (camera and target and bull and predictedCenter) then
         return 0, math.huge
@@ -1821,21 +1880,331 @@ local function projectedScoreForCamera(camera, target, bull, predictedCenter)
     return 0, errorDistance
 end
 
-local function resolveArcheryBowClient()
-    if type(archeryBowClient) == "table"
-        and type(archeryBowClient.SetTouchHeld) == "function"
-        and type(archeryBowClient.IsDrawing) == "function" then
+
+local function scoreForImpactError(target, bull, errorDistance, safetyScale)
+    local radii = getArcheryRingRadii(target, bull)
+    local r10 = radii[1]
+    local r9 = radii[2]
+    local r8 = radii[3]
+    local safety = safetyScale or ARCHERY_AUTO_RING_SAFETY
+
+    if r10 and errorDistance <= r10 * safety then
+        return 10
+    elseif r9 and errorDistance <= r9 * safety then
+        return 9
+    elseif r8 and errorDistance <= r8 * safety then
+        return 8
+    end
+    return 0
+end
+
+local function resolveArcheryBallisticModules()
+    if archeryArrowFlight and archeryWeaponConfig then
+        return archeryArrowFlight, archeryWeaponConfig
+    end
+
+    local engine = ReplicatedStorage:FindFirstChild("Weapon_Engine")
+    local modules = engine and engine:FindFirstChild("Modules")
+    if not modules then return nil, nil end
+
+    if not archeryArrowFlight then
+        local moduleScript = modules:FindFirstChild("ArrowFlight")
+        if moduleScript and moduleScript:IsA("ModuleScript") then
+            local ok, module = pcall(require, moduleScript)
+            if ok and type(module) == "table" then
+                archeryArrowFlight = module
+            end
+        end
+    end
+
+    if not archeryWeaponConfig then
+        local moduleScript = modules:FindFirstChild("WeaponConfig")
+        if moduleScript and moduleScript:IsA("ModuleScript") then
+            local ok, module = pcall(require, moduleScript)
+            if ok and type(module) == "table" then
+                archeryWeaponConfig = module
+            end
+        end
+    end
+
+    return archeryArrowFlight, archeryWeaponConfig
+end
+
+local function resolvedArcheryBowConfig(tool)
+    if not tool then return nil end
+    if archeryBallisticTool == tool and archeryBallisticCfg then
+        return archeryBallisticCfg
+    end
+
+    local _, weaponConfig = resolveArcheryBallisticModules()
+    if not weaponConfig or type(weaponConfig.Resolve) ~= "function" then
+        return nil
+    end
+
+    local weaponId = tool:GetAttribute("WeaponId")
+    if type(weaponId) ~= "string" then return nil end
+
+    local ok, cfg = pcall(function()
+        return weaponConfig.Resolve(weaponId, {tool, tool:FindFirstChild("Anim")}, true)
+    end)
+    if ok and type(cfg) == "table" then
+        archeryBallisticTool = tool
+        archeryBallisticCfg = cfg
+        return cfg
+    end
+    return nil
+end
+
+local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity)
+    if not (target and bull and rawCenter and bull.Parent) then
+        return 0, math.huge, nil, false
+    end
+
+    local bowClient = resolveArcheryBowClient()
+    if not bowClient or type(bowClient.AimDir) ~= "function" then
+        return 0, math.huge, nil, false
+    end
+
+    local aimDir = nil
+    local okAim = pcall(function()
+        aimDir = bowClient.AimDir()
+    end)
+    if not okAim or typeof(aimDir) ~= "Vector3" or aimDir.Magnitude < 0.001 then
+        return 0, math.huge, nil, false
+    end
+    aimDir = aimDir.Unit
+
+    local tool = isBowEquipped()
+    local cfg = resolvedArcheryBowConfig(tool)
+    local arrowFlight = select(1, resolveArcheryBallisticModules())
+    if not cfg or not arrowFlight
+        or type(arrowFlight.SpeedFor) ~= "function"
+        or type(arrowFlight.ClearMuzzle) ~= "function"
+        or type(arrowFlight.PositionAt) ~= "function" then
+        return 0, math.huge, nil, false
+    end
+
+    local character = Player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return 0, math.huge, nil, false
+    end
+
+    local speed = nil
+    local okSpeed = pcall(function()
+        speed = arrowFlight.SpeedFor(cfg, 1)
+    end)
+    speed = tonumber(speed)
+    if not okSpeed or not speed or speed <= 1 then
+        return 0, math.huge, nil, false
+    end
+
+    local gravity = tonumber(cfg.ArrowGravity) or 60
+    local origin = root.Position
+    pcall(function()
+        local clear = arrowFlight.ClearMuzzle(root.Position, cfg, aimDir, {character})
+        if typeof(clear) == "Vector3" then
+            origin = clear
+        end
+    end)
+
+    local launchVelocity = aimDir * speed
+    local measuredVelocity = typeof(targetVelocity) == "Vector3" and targetVelocity or Vector3.zero
+    local round3 = isRound3VelocityForBull(bull, measuredVelocity)
+    -- V33: V32 shortened Round 3 too far. The target is fast enough that this
+    -- under-led the crossing point and could leave the score gate with no valid window.
+    -- Use a balanced 88% lead for Round 3 while preserving exact arrow physics.
+    local velocity = round3 and (measuredVelocity * ARCHERY_ROUND3_PREDICTION_SCALE) or measuredVelocity
+    local normal = bullPlaneNormal(bull)
+    local speedOfTarget = velocity.Magnitude
+    local targetLatency = round3 and ARCHERY_ROUND3_TARGET_LATENCY or ARCHERY_AUTO_TARGET_LATENCY
+
+    local function targetCenterAt(t)
+        return rawCenter + velocity * (t + targetLatency)
+    end
+
+    local function arrowPositionAt(t)
+        local value = nil
+        local ok = pcall(function()
+            value = arrowFlight.PositionAt(origin, launchVelocity, gravity, t)
+        end)
+        if ok and typeof(value) == "Vector3" then
+            return value
+        end
+        return nil
+    end
+
+    local previousT = 0
+    local previousArrow = arrowPositionAt(0)
+    if not previousArrow then
+        return 0, math.huge, nil, false
+    end
+    local previousCenter = targetCenterAt(0)
+    local previousSigned = (previousArrow - previousCenter):Dot(normal)
+
+    local crossingA, crossingB = nil, nil
+    local t = ARCHERY_AUTO_SIM_STEP
+    while t <= ARCHERY_AUTO_MAX_SIM_TIME do
+        local arrowPos = arrowPositionAt(t)
+        if not arrowPos then
+            return 0, math.huge, nil, false
+        end
+        local center = targetCenterAt(t)
+        local signed = (arrowPos - center):Dot(normal)
+
+        if signed == 0 or previousSigned == 0 or (signed > 0) ~= (previousSigned > 0) then
+            crossingA, crossingB = previousT, t
+            break
+        end
+
+        previousT = t
+        previousArrow = arrowPos
+        previousCenter = center
+        previousSigned = signed
+        t = t + ARCHERY_AUTO_SIM_STEP
+    end
+
+    if not crossingA then
+        return 0, math.huge, nil, true
+    end
+
+    -- Refine the moving-plane crossing so tiny Round 3 rings are not judged from
+    -- a coarse trajectory sample.
+    local a, b = crossingA, crossingB
+    for _ = 1, ARCHERY_AUTO_BINARY_STEPS do
+        local mid = (a + b) * 0.5
+        local posA = arrowPositionAt(a)
+        local centerA = targetCenterAt(a)
+        local posMid = arrowPositionAt(mid)
+        local centerMid = targetCenterAt(mid)
+        if not (posA and posMid) then
+            return 0, math.huge, nil, false
+        end
+        local signedA = (posA - centerA):Dot(normal)
+        local signedMid = (posMid - centerMid):Dot(normal)
+        if signedMid == 0 or (signedA > 0) ~= (signedMid > 0) then
+            b = mid
+        else
+            a = mid
+        end
+    end
+
+    local impactTime = (a + b) * 0.5
+    local impact = arrowPositionAt(impactTime)
+    local futureCenter = targetCenterAt(impactTime)
+    if not (impact and futureCenter) then
+        return 0, math.huge, nil, false
+    end
+
+    local errorVector = impact - futureCenter
+    local radialVector = errorVector - normal * errorVector:Dot(normal)
+    local radialError = radialVector.Magnitude
+
+    -- Round 3 can change direction between the final client frame and server-side
+    -- shot processing. Charge that timing uncertainty directly against the score
+    -- radius. This makes the gate intentionally conservative: fewer shots, but no
+    -- deliberate 6/7 releases.
+    -- V33: the old 0.030s uncertainty made Round 3 mathematically impossible at
+    -- high target speeds (the penalty alone could exceed the entire 8 ring).
+    -- Keep the conservative model for Rounds 1/2, but use a smaller measured
+    -- processing margin and the real ring area for the fast Round 3 target.
+    local timingUncertainty = round3 and ARCHERY_ROUND3_TIMING_UNCERTAINTY or ARCHERY_AUTO_TIMING_UNCERTAINTY
+    local ringSafety = round3 and ARCHERY_ROUND3_RING_SAFETY or ARCHERY_AUTO_RING_SAFETY
+    local robustError = radialError + speedOfTarget * timingUncertainty
+    local score = scoreForImpactError(target, bull, robustError, ringSafety)
+    return score, robustError, impactTime, true
+end
+
+resolveArcheryBowClient = function()
+    local function valid(module)
+        return type(module) == "table"
+            and type(module.SetTouchHeld) == "function"
+            and type(module.IsDrawing) == "function"
+            and type(module.AimDir) == "function"
+    end
+
+    if valid(archeryBowClient) then
         return archeryBowClient
     end
 
+    -- Do not repeatedly scan getgc/getloadedmodules every rendered frame.
+    local now = os.clock()
+    if now - archeryBowClientLastResolve < 0.35 then
+        return nil
+    end
+    archeryBowClientLastResolve = now
+
+    local function globalFunction(name)
+        local value = nil
+        if type(getgenv) == "function" then
+            pcall(function()
+                local env = getgenv()
+                if type(env) == "table" then value = env[name] end
+            end)
+        end
+        if value == nil and type(getfenv) == "function" then
+            pcall(function()
+                local env = getfenv()
+                if type(env) == "table" then value = env[name] end
+            end)
+        end
+        if value == nil and type(_G) == "table" then
+            value = rawget(_G, name)
+        end
+        return value
+    end
+
+    -- Best path in injected environments: find the exact BowClient module that the
+    -- game's WeaponClient has already loaded, instead of requiring a duplicate path.
+    local getLoaded = globalFunction("getloadedmodules")
+    if type(getLoaded) == "function" then
+        local ok, modules = pcall(getLoaded)
+        if ok and type(modules) == "table" then
+            for _, moduleScript in ipairs(modules) do
+                if typeof(moduleScript) == "Instance"
+                    and moduleScript:IsA("ModuleScript")
+                    and moduleScript.Name == "BowClient" then
+                    local okRequire, module = pcall(require, moduleScript)
+                    if okRequire and valid(module) then
+                        archeryBowClient = module
+                        return module
+                    end
+                end
+            end
+        end
+    end
+
+    -- Runtime-table fallback. This finds the already-created BowClient export table
+    -- even when requiring PlayerScripts modules from the injected thread is blocked.
+    local getGc = globalFunction("getgc")
+    if type(getGc) == "function" then
+        local ok, objects = pcall(getGc, true)
+        if ok and type(objects) == "table" then
+            for _, object in ipairs(objects) do
+                if valid(object) then
+                    archeryBowClient = object
+                    return object
+                end
+            end
+        end
+    end
+
+    -- Normal Roblox path fallback.
     local playerScripts = Player:FindFirstChild("PlayerScripts")
     if not playerScripts then return nil end
+    local bowFolder = playerScripts:FindFirstChild("Bow_Client")
+    local known = bowFolder and bowFolder:FindFirstChild("BowClient")
+    if known and known:IsA("ModuleScript") then
+        local ok, module = pcall(require, known)
+        if ok and valid(module) then
+            archeryBowClient = module
+            return module
+        end
+    end
     for _, descendant in ipairs(playerScripts:GetDescendants()) do
         if descendant:IsA("ModuleScript") and descendant.Name == "BowClient" then
             local ok, module = pcall(require, descendant)
-            if ok and type(module) == "table"
-                and type(module.SetTouchHeld) == "function"
-                and type(module.IsDrawing) == "function" then
+            if ok and valid(module) then
                 archeryBowClient = module
                 return module
             end
@@ -1853,24 +2222,79 @@ local function archeryAutoMousePosition(camera)
     return 640, 360
 end
 
+local function executorGlobal(name)
+    local value = nil
+    if type(getgenv) == "function" then
+        pcall(function()
+            local env = getgenv()
+            if type(env) == "table" then value = env[name] end
+        end)
+    end
+    if value == nil and type(getfenv) == "function" then
+        pcall(function()
+            local env = getfenv()
+            if type(env) == "table" then value = env[name] end
+        end)
+    end
+    if value == nil and type(_G) == "table" then
+        value = rawget(_G, name)
+    end
+    return value
+end
+
+local function fireArcheryInputConnections(isDown)
+    local getter = executorGlobal("getconnections")
+    if type(getter) ~= "function" then return false end
+    local signal = isDown and UserInputService.InputBegan or UserInputService.InputEnded
+    local ok, list = pcall(getter, signal)
+    if not ok or type(list) ~= "table" then return false end
+
+    local fakeInput = {
+        UserInputType = Enum.UserInputType.MouseButton1,
+        KeyCode = Enum.KeyCode.Unknown,
+    }
+    local fired = false
+    for _, connection in ipairs(list) do
+        local fn = nil
+        pcall(function() fn = connection.Function end)
+        if type(fn) == "function" then
+            local good = pcall(fn, fakeInput, false)
+            fired = fired or good
+        else
+            local fire = nil
+            pcall(function() fire = connection.Fire end)
+            if type(fire) == "function" then
+                local good = pcall(function()
+                    connection:Fire(fakeInput, false)
+                end)
+                fired = fired or good
+            end
+        end
+    end
+    return fired
+end
+
 local function sendArcheryMouseButton(isDown, camera)
     local x, y = archeryAutoMousePosition(camera)
+    local sent = false
 
-    -- Preferred fallback: inject the same Mouse1 input the game's normal PC bow
-    -- listener consumes. This avoids depending on our injected script being able
-    -- to require/call the game's BowClient module directly.
+    -- Executor-native input is the most reliable way to create a real held Mouse1.
+    local native = executorGlobal(isDown and "mouse1press" or "mouse1release")
+    if type(native) == "function" then
+        sent = pcall(native) or sent
+    end
+
+    -- Directly invoke the same UserInputService listeners the normal bow uses.
+    sent = fireArcheryInputConnections(isDown) or sent
+
     if VirtualInputManager then
         local ok = pcall(function()
             VirtualInputManager:SendMouseButtonEvent(x, y, 0, isDown, game, 0)
         end)
-        if ok then
-            archeryAutoVirtualMouseHeld = isDown == true
-            return true
-        end
+        sent = ok or sent
     end
 
-    -- Secondary fallback for executors where VirtualInputManager is unavailable.
-    local ok = pcall(function()
+    local okVirtual = pcall(function()
         local cam = camera or Workspace.CurrentCamera
         if isDown then
             VirtualUser:Button1Down(Vector2.new(x, y), cam and cam.CFrame or CFrame.new())
@@ -1878,17 +2302,20 @@ local function sendArcheryMouseButton(isDown, camera)
             VirtualUser:Button1Up(Vector2.new(x, y), cam and cam.CFrame or CFrame.new())
         end
     end)
-    if ok then
+    sent = okVirtual or sent
+
+    if sent then
         archeryAutoVirtualMouseHeld = isDown == true
-        return true
     end
-    return false
+    return sent
 end
 
-local function startArcheryAutoDraw(camera)
+local function forceArcheryDrawDown(camera)
+    local started = false
     local bowClient = resolveArcheryBowClient()
 
-    -- Try the game's own public bow client API first when it is reachable.
+    -- Call the real game bow API first. startDraw() internally ignores duplicate starts,
+    -- so using the input fallbacks too is safe and prevents silent no-draw failures.
     if bowClient then
         local attached = true
         if type(bowClient.IsAttached) == "function" then
@@ -1896,25 +2323,19 @@ local function startArcheryAutoDraw(camera)
             if ok then attached = value == true end
         end
         if attached then
-            local ok = pcall(function() bowClient.SetTouchHeld(true) end)
-            if ok then
-                local drawing = false
-                pcall(function() drawing = bowClient.IsDrawing() == true end)
-                if drawing then
-                    archeryAutoInputMode = "BowClient"
-                    archeryAutoVirtualMouseHeld = false
-                    return true
-                end
-                -- Some clients update IsDrawing on the following heartbeat. Give
-                -- the API a tiny verification window before falling back to Mouse1.
-                archeryAutoInputMode = "BowClientPending"
-                return true
-            end
+            started = pcall(function() bowClient.SetTouchHeld(true) end) or started
         end
     end
 
-    if sendArcheryMouseButton(true, camera) then
-        archeryAutoInputMode = "Mouse"
+    started = sendArcheryMouseButton(true, camera) or started
+    archeryAutoInputMode = "VerifiedMulti"
+    return started
+end
+
+local function startArcheryAutoDraw(camera)
+    local started = forceArcheryDrawDown(camera)
+    if started then
+        archeryAutoConfirmedDraw = false
         return true
     end
     return false
@@ -1923,19 +2344,14 @@ end
 local function releaseArcheryAutoDraw(camera)
     if not archeryAutoOwnsDraw and not archeryAutoVirtualMouseHeld then return end
 
-    local released = false
     local bowClient = resolveArcheryBowClient()
-    if archeryAutoInputMode == "BowClient" or archeryAutoInputMode == "BowClientPending" then
-        if bowClient then
-            released = pcall(function() bowClient.SetTouchHeld(false) end)
-        end
+    if bowClient then
+        pcall(function() bowClient.SetTouchHeld(false) end)
     end
-
-    if archeryAutoInputMode == "Mouse" or archeryAutoVirtualMouseHeld or not released then
-        sendArcheryMouseButton(false, camera)
-    end
+    sendArcheryMouseButton(false, camera)
 
     archeryAutoOwnsDraw = false
+    archeryAutoConfirmedDraw = false
     archeryAutoInputMode = nil
     archeryAutoVirtualMouseHeld = false
     archeryAutoDrawStartedAt = 0
@@ -1943,29 +2359,19 @@ local function releaseArcheryAutoDraw(camera)
     archeryAutoGoodFrames = 0
 end
 
-local function requiredAutoScore(now)
-    local minimum = math.clamp(math.floor(tonumber(state.ArcheryAutoMinScore) or 8), 8, 10)
-    local fullAt = archeryAutoDrawStartedAt + ARCHERY_AUTO_FULL_CHARGE_SECONDS
-    local fullHold = math.max(0, now - fullAt)
-
-    -- Always hunt a 10 first. If the user allows 9/8, relax only after a short
-    -- fully-charged wait so a fast Round 3 target still gets a chance to cross center.
-    if fullHold < ARCHERY_AUTO_10_ONLY_SECONDS then
-        return 10
-    end
-    if fullHold < ARCHERY_AUTO_9_ONLY_SECONDS then
-        return math.max(minimum, 9)
-    end
-    return minimum
+local function isRound3Motion(bull, targetVelocity)
+    return isRound3VelocityForBull(bull, targetVelocity)
 end
 
-local function archeryAutoShootTick(now, camera, target, bull, predictedCenter)
+local function requiredAutoScore(bull, targetVelocity)
+    return isRound3Motion(bull, targetVelocity) and 8 or 10
+end
+
+local function archeryAutoShootTick(now, camera, target, bull, rawCenter, targetVelocity)
     if not state.ArcheryAutoShoot or killSwitchActivated then
         return
     end
 
-    -- A real manual Mouse1 hold should not be fought, but an injected Mouse1 hold
-    -- owned by Auto Shoot must be allowed to continue through full charge.
     if not archeryAutoVirtualMouseHeld
         and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
         archeryAutoGoodFrames = 0
@@ -1974,59 +2380,45 @@ local function archeryAutoShootTick(now, camera, target, bull, predictedCenter)
 
     local bowClient = resolveArcheryBowClient()
     local drawing = false
-    if bowClient and type(bowClient.IsDrawing) == "function" then
+    local canVerifyDrawing = bowClient and type(bowClient.IsDrawing) == "function"
+    if canVerifyDrawing then
         pcall(function() drawing = bowClient.IsDrawing() == true end)
     end
 
     if not archeryAutoOwnsDraw then
-        if now < archeryAutoNextShotAt then
-            return
-        end
-        -- If the game already reports a draw that we did not start, leave it alone.
-        if drawing and not archeryAutoVirtualMouseHeld then
-            return
-        end
+        if now < archeryAutoNextShotAt then return end
+        if drawing and not archeryAutoVirtualMouseHeld then return end
 
         if startArcheryAutoDraw(camera) then
             archeryAutoOwnsDraw = true
             archeryAutoDrawStartedAt = now
-            archeryAutoDrawVerifyAt = now + 0.12
+            archeryAutoDrawVerifyAt = now + 0.10
             archeryAutoGoodFrames = 0
         end
         return
     end
 
-    -- BowClientPending means SetTouchHeld(true) returned successfully but the module
-    -- had not yet flipped IsDrawing. Verify once, then switch to real Mouse1 input if
-    -- the draw still did not begin instead of silently giving up like V24 did.
-    if archeryAutoInputMode == "BowClientPending" and now >= archeryAutoDrawVerifyAt then
+    -- If BowClient is available, DO NOT trust an input call merely because pcall
+    -- returned true. Keep reasserting Mouse1/API hold until IsDrawing() is actually true.
+    if canVerifyDrawing then
         if drawing then
-            archeryAutoInputMode = "BowClient"
+            if not archeryAutoConfirmedDraw then
+                archeryAutoConfirmedDraw = true
+                archeryAutoDrawStartedAt = now -- full-charge timer starts from confirmed draw
+            end
+        elseif now >= archeryAutoDrawVerifyAt then
+            forceArcheryDrawDown(camera)
+            archeryAutoDrawVerifyAt = now + 0.10
+            archeryAutoGoodFrames = 0
+            return
         else
-            if sendArcheryMouseButton(true, camera) then
-                archeryAutoInputMode = "Mouse"
-                archeryAutoDrawStartedAt = now
-            else
-                archeryAutoOwnsDraw = false
-                archeryAutoInputMode = nil
-                archeryAutoDrawStartedAt = 0
-                archeryAutoNextShotAt = now + 0.20
-                return
-            end
+            archeryAutoGoodFrames = 0
+            return
         end
-    end
-
-    -- When Mouse1 is the control path, the timer is authoritative even if the
-    -- injected context cannot query BowClient.IsDrawing(). If BowClient is readable,
-    -- use it only as confirmation; do not cancel the hold just because it says false.
-    if archeryAutoInputMode == "BowClient" and bowClient and not drawing then
-        -- Allow a short startup grace. After that, fall back to Mouse1 rather than reset.
-        if now >= archeryAutoDrawVerifyAt then
-            if sendArcheryMouseButton(true, camera) then
-                archeryAutoInputMode = "Mouse"
-                archeryAutoDrawStartedAt = now
-            end
-        end
+    elseif now >= archeryAutoDrawVerifyAt then
+        -- No readable IsDrawing() API: keep reasserting the held input periodically.
+        forceArcheryDrawDown(camera)
+        archeryAutoDrawVerifyAt = now + 0.25
     end
 
     if now - archeryAutoDrawStartedAt < ARCHERY_AUTO_FULL_CHARGE_SECONDS then
@@ -2034,22 +2426,31 @@ local function archeryAutoShootTick(now, camera, target, bull, predictedCenter)
         return
     end
 
-    local score, errorDistance = projectedScoreForCamera(camera, target, bull, predictedCenter)
+    local score, errorDistance, impactTime, trustworthy =
+        exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity)
+
     archeryLatestScore = score
     archeryLatestScoreError = errorDistance
     archeryLatestScoreTime = now
 
-    local needed = requiredAutoScore(now)
-    local directionStable = (now - archeryLastDirectionChangeAt) >= ARCHERY_AUTO_DIRECTION_SETTLE
-    if score >= needed and directionStable then
+    local speed = typeof(targetVelocity) == "Vector3" and targetVelocity.Magnitude or 0
+    local round3 = isRound3Motion(bull, targetVelocity)
+    local requiredFrames = round3
+        and ARCHERY_ROUND3_GOOD_FRAMES
+        or (speed >= ARCHERY_AUTO_FAST_SPEED and ARCHERY_AUTO_FAST_GOOD_FRAMES or ARCHERY_AUTO_GOOD_FRAMES)
+    local directionSettle = round3 and ARCHERY_ROUND3_DIRECTION_SETTLE or ARCHERY_AUTO_DIRECTION_SETTLE
+    local directionStable = (now - archeryLastDirectionChangeAt) >= directionSettle
+
+    -- Rounds 1/2: strict 10 only. Round 3: safely predicted 8, 9, or 10 is allowed.
+    -- A 7 or lower always resets the release gate.
+    local minimumScore = round3 and 8 or 10
+    if trustworthy and impactTime and score >= minimumScore and directionStable then
         archeryAutoGoodFrames = archeryAutoGoodFrames + 1
     else
         archeryAutoGoodFrames = 0
     end
 
-    if archeryAutoGoodFrames >= ARCHERY_AUTO_GOOD_FRAMES then
-        -- Release the SAME input path that started the draw so the game's normal
-        -- release handler fires the fully charged projectile.
+    if archeryAutoGoodFrames >= requiredFrames then
         releaseArcheryAutoDraw(camera)
         archeryAutoNextShotAt = now + ARCHERY_AUTO_POST_SHOT_COOLDOWN
     end
@@ -2085,7 +2486,7 @@ local function findArcheryBull(targetModel)
     return best
 end
 
-local function isBowEquipped()
+isBowEquipped = function()
     local character = Player.Character
     if not character then return nil end
     local tool = character:FindFirstChildOfClass("Tool")
@@ -2097,25 +2498,45 @@ local function isBowEquipped()
     return nil
 end
 
-local function isForeignArcheryTarget(model)
-    -- ArcheryActor instances can belong to another duel participant/NPC. The game's
-    -- own bow code treats actors with a different _DuelOwner as foreign, so never
-    -- allow one of those to steal our camera lock. Check a few ancestors too because
-    -- the ownership attribute may live on a wrapper model.
+local function archeryTargetOwner(model)
+    -- Return the first duel owner found on the model/wrappers. The game's own bow
+    -- code uses _DuelOwner on ArcheryActor models, so explicit ownership is stronger
+    -- evidence than camera position or screen-center distance.
     local node = model
-    for _ = 1, 5 do
+    for _ = 1, 6 do
         if not node or node == Workspace then break end
         local owner = node:GetAttribute("_DuelOwner")
         if owner ~= nil then
             local numeric = tonumber(owner)
-            if numeric then
-                return numeric ~= Player.UserId
-            end
-            return owner ~= Player.UserId
+            return numeric or owner
         end
         node = node.Parent
     end
-    return false
+    return nil
+end
+
+local function isForeignArcheryTarget(model)
+    local owner = archeryTargetOwner(model)
+    return owner ~= nil and owner ~= Player.UserId
+end
+
+local function localArcheryOwnerBonus(model)
+    local owner = archeryTargetOwner(model)
+    return owner == Player.UserId and ARCHERY_LOCAL_OWNER_BONUS or 0
+end
+
+local function suppressArcheryCutsceneCamera(camera, humanoid)
+    if not ARCHERY_BLOCK_CUTSCENES or not camera or not humanoid then return end
+
+    -- Archery cinematics can temporarily take camera ownership or change the subject.
+    -- Reclaim both every late render frame. applyAim then writes the target-facing
+    -- CFrame after this, so even a Custom-camera cinematic cannot visually pull us away.
+    if camera.CameraType ~= Enum.CameraType.Custom then
+        camera.CameraType = Enum.CameraType.Custom
+    end
+    if camera.CameraSubject ~= humanoid then
+        camera.CameraSubject = humanoid
+    end
 end
 
 local function rootFrontData(part, root, laneRatio)
@@ -2227,22 +2648,28 @@ local function estimateLiveBullVelocity(bull, now)
     return archeryTrackedVelocity
 end
 
-local function predictLiveBullPoint(cameraPosition, rawCenter, velocity)
+local function predictLiveBullPoint(cameraPosition, rawCenter, velocity, bull)
     local distance = (rawCenter - cameraPosition).Magnitude
     local speedRatio = archerySpeedRatio(velocity.Magnitude)
+    local round3 = isRound3VelocityForBull(bull, velocity)
+    local maxPredictionTime = round3 and ARCHERY_ROUND3_MAX_PREDICTION_TIME or ARCHERY_MAX_PREDICTION_TIME
     local flightTime = math.clamp(
         distance / ARCHERY_PREDICTION_ARROW_SPEED + ARCHERY_PREDICTION_LATENCY,
         0,
-        ARCHERY_MAX_PREDICTION_TIME
+        maxPredictionTime
     )
 
-    -- Round 1/2 stay at the already-working 1.00 prediction strength. As target speed
-    -- rises toward Round 3 levels, scale lead up automatically rather than globally
-    -- over-leading the slower rounds.
+    -- Round 1/2 keep the existing lead. Round 3 uses a balanced lead: enough
+    -- horizon for its higher speed, but still below full linear extrapolation so
+    -- direction reversals do not produce huge overshoot.
     local predictionStrength = ARCHERY_PREDICTION_STRENGTH
         + (ARCHERY_FAST_PREDICTION_STRENGTH - ARCHERY_PREDICTION_STRENGTH) * speedRatio
+    if round3 then
+        predictionStrength = predictionStrength * ARCHERY_ROUND3_PREDICTION_SCALE
+    end
     local lead = velocity * flightTime * predictionStrength
-    local maxLead = 7.5 + (ARCHERY_MAX_LEAD_DISTANCE - 7.5) * speedRatio
+    local maxLead = round3 and ARCHERY_ROUND3_MAX_LEAD_DISTANCE
+        or (7.5 + (ARCHERY_MAX_LEAD_DISTANCE - 7.5) * speedRatio)
     if lead.Magnitude > maxLead then
         lead = lead.Unit * maxLead
     end
@@ -2257,24 +2684,21 @@ local function candidateScore(model, bull, root, camera, now, sourceBonus)
     local localPos, depth, distance, dot = rootFrontData(bull, root, laneRatio)
     if not localPos then return -math.huge end
 
-    local screen, onScreen = camera:WorldToViewportPoint(bull.Position)
-    if not onScreen or screen.Z <= 0 then return -math.huge end
-
     local horizontalRatio = math.abs(localPos.X) / depth
     local verticalRatio = math.abs(localPos.Y) / depth
-    local center = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
-    local pixels = (Vector2.new(screen.X, screen.Y) - center).Magnitude
     local motionSpeed = sampleCandidateMotion(bull, now)
 
-    -- Horizontal lane alignment remains strongest so we do not jump to the other
-    -- player's target. Motion bonus lets Round 2/3 beat an old stationary round target.
+    -- V26 IMPORTANT: do NOT use WorldToViewportPoint/current-camera center here.
+    -- A round-transition cinematic can swing the camera away for a frame and make the
+    -- correct target appear off-screen, which used to drop the lock and select the
+    -- neighboring/NPC target. Root-space lane + ownership + motion are camera-proof.
     return -(horizontalRatio * 50000)
         - (verticalRatio * 900)
         + (dot * 2600)
-        - (pixels * 0.025)
         - (distance * 0.02)
         + (motionSpeed * ARCHERY_ACTIVE_MOTION_BONUS)
         + (sourceBonus or 0)
+        + localArcheryOwnerBonus(model)
 end
 
 local function findLiveArcheryTarget(root, camera)
@@ -2385,6 +2809,7 @@ stopArcheryAutoShoot = function()
     archeryAutoInputMode = nil
     archeryAutoVirtualMouseHeld = false
     archeryAutoDrawVerifyAt = 0
+    archeryAutoConfirmedDraw = false
 end
 
 stopArcheryAim = function()
@@ -2416,6 +2841,10 @@ local function setArcheryAim(enabled)
         local camera = Workspace.CurrentCamera
         if not root or not humanoid or not camera then return end
 
+        -- V26: cancel/reject any archery cinematic camera takeover before target
+        -- selection. The late render priority also wins against CFrame-only cutscenes.
+        suppressArcheryCutsceneCamera(camera, humanoid)
+
         -- KEEP the confirmed centered Shift-Lock correction.
         local shiftOffset = humanoid.CameraOffset
         humanoid.CameraOffset = Vector3.new(shiftOffset.X, ARCHERY_SHIFTLOCK_OFFSET_Y, shiftOffset.Z)
@@ -2435,7 +2864,7 @@ local function setArcheryAim(enabled)
         local rawCenter = bull.Position + Vector3.new(0, ARCHERY_CENTER_OFFSET_Y, 0)
         local now = os.clock()
         local velocity = estimateLiveBullVelocity(bull, now)
-        local aimPoint, speedRatio = predictLiveBullPoint(camera.CFrame.Position, rawCenter, velocity)
+        local aimPoint, speedRatio = predictLiveBullPoint(camera.CFrame.Position, rawCenter, velocity, bull)
         if (aimPoint - camera.CFrame.Position).Magnitude < 0.001 then return end
 
         -- Smooth only while following the SAME live target. If the contest genuinely
@@ -2460,13 +2889,12 @@ local function setArcheryAim(enabled)
         if (finalPoint - camera.CFrame.Position).Magnitude < 0.001 then return end
         camera.CFrame = CFrame.lookAt(camera.CFrame.Position, finalPoint)
 
-        -- V24: evaluate the actual post-smoothing camera ray against the predicted
-        -- future bullseye plane, then let the score gate own draw/release timing.
-        local score, scoreError = projectedScoreForCamera(camera, target, bull, aimPoint)
-        archeryLatestScore = score
-        archeryLatestScoreError = scoreError
-        archeryLatestScoreTime = now
-        archeryAutoShootTick(now, camera, target, bull, aimPoint)
+        -- V27: aim still uses the responsive live predictor, but AUTO RELEASE no
+        -- longer trusts the camera ray. The gate queries BowClient.AimDir() and
+        -- simulates the same solved ballistic trajectory the game is about to fire.
+        -- rawCenter + measured velocity lets the gate compare that arrow against the
+        -- target's future position at impact time.
+        archeryAutoShootTick(now, camera, target, bull, rawCenter, velocity)
     end
 
     -- ONE camera writer only. V21 also attached RenderStepped, which caused two aim
@@ -2475,10 +2903,10 @@ local function setArcheryAim(enabled)
 end
 
 toggle(testing, "Archery Center Aim Assist", "ArcheryCenterAim", setArcheryAim)
-cycle(testing, "Auto Shoot Minimum Score", "ArcheryAutoMinScore", {10, 9, 8})
-info(testing, "Smart Auto Shoot controls the bow for you. V25 can fall back to real Mouse1 down/up if BowClient cannot be called. Do not hold Mouse1 while it is ON. It waits for full charge, seeks a 10 first, then can relax to your selected minimum score only after a short high-score wait.")
-toggle(testing, "Smart Auto Shoot (10/9/8 Gate)", "ArcheryAutoShoot", function(enabled)
+info(testing, "V33 scoring: Rounds 1 and 2 remain STRICT 10 ONLY. Round 3 accepts predicted 8/9/10 using a balanced 0.50s horizon, 88% Round 3 velocity lead, 8-stud cap, 92% real ring radius, reduced Round-3-only timing uncertainty, 0.025s direction settle, and 2 safe solved-trajectory frames. A predicted 7 or lower never releases.")
+toggle(testing, "Smart Auto Shoot (R1/R2=10, R3=8/9/10)", "ArcheryAutoShoot", function(enabled)
     if enabled then
+        state.ArcheryAutoMinScore = 10
         -- Auto Shoot depends on the working V23 camera tracker. Turn it on together.
         if not state.ArcheryCenterAim then
             state.ArcheryCenterAim = true
@@ -2492,9 +2920,14 @@ toggle(testing, "Smart Auto Shoot (10/9/8 Gate)", "ArcheryAutoShoot", function(e
         archeryAutoInputMode = nil
         archeryAutoVirtualMouseHeld = false
         archeryAutoDrawVerifyAt = 0
+        archeryAutoConfirmedDraw = false
     else
         if stopArcheryAutoShoot then
             stopArcheryAutoShoot()
         end
     end
 end)
+
+end
+
+setupArcheryV29()
