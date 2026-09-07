@@ -40,8 +40,6 @@ local CONFIG = {
     ScanInterval = 0.20,
     TeleportTweenTime = 0.65,
     ArrivalDistance = 5,
-    AttackDelayMin = 0.30,
-    AttackDelayMax = 1.20,
     FarmRadius = 120,
     FarmMoveSpeed = 25,
     GoldCollectAmount = 1119,
@@ -80,20 +78,22 @@ local LOCATIONS = {
 
 local state = {
     AutoLoot = false,
-    AutoAttack = false,
     AutoSell = false,
     AutoDismantle = false,
     AutoUpgrade = false,
+    AutoEquipBestArmor = false,
     GoldMineCollect = false,
     AntiAFK = false,
     MobESP = false,
+    MobAimbot = false,
+    MobAutoShoot = false,
     TreeScan = false,
     AutoOre = false,
     ManualTravel = false,
     CurrentTarget = nil,
     CurrentTab = "Farm",
-    FarmKind = "All",
     FarmSpecies = "All",
+    MobCombatMode = "Melee",
     SelectedFarm = false,
     NearbyMobScan = {},
     SelectedTargetScan = {},
@@ -114,6 +114,11 @@ local fullShutdown = nil
 local stopArcheryAim = nil
 local stopArcheryAutoShoot = nil
 local setEnvironmentDeleteTest = nil
+local mobBowFarmShot = nil
+local stopMobBowFarm = nil
+local findBestMeleeTool = nil
+local setMobCombatMode = nil
+local visibleMobAimPoint = nil
 
 -- Archery locals are declared here so the kill switch/X button close over the
 -- ACTUAL variables instead of accidentally referring to unrelated globals.
@@ -618,10 +623,21 @@ local function moveNear(position, stopDistance)
     return true
 end
 
+local function mobMatchesSelectedTarget(mob)
+    if not mob or not isAliveMob(mob) then return false end
+    local selected = state.FarmSpecies
+    if not selected or selected == "All" then return true end
+    return mobSpecies(mob) == selected
+end
+
+local function collectSelectedMobs(radius)
+    local selected = state.FarmSpecies
+    local species = selected and selected ~= "All" and selected or nil
+    return collectMobs(radius, nil, species)
+end
+
 local function findBestFarmTarget()
-    local kind = state.FarmKind ~= "All" and state.FarmKind or nil
-    local species = state.FarmSpecies ~= "All" and state.FarmSpecies or nil
-    local mobs = collectMobs(CONFIG.FarmRadius, kind, species)
+    local mobs = collectSelectedMobs(CONFIG.FarmRadius)
     return mobs[1], mobs
 end
 
@@ -636,6 +652,504 @@ local function findToolByHint(hints)
         for _, hint in ipairs(hints) do if string.find(n, string.lower(hint), 1, true) then return tool end end
     end
     return nil
+end
+
+
+local function unlockMobAimMouse()
+    -- Never interfere with the separate archery-contest camera/input state.
+    if state.ArcheryCenterAim or state.ArcheryAutoShoot or archeryAimEnabled then
+        return
+    end
+
+    -- First guarantee that every mob-bow input source is UP.
+    local bowClient = resolveArcheryBowClient and resolveArcheryBowClient() or nil
+    if bowClient and type(bowClient.SetTouchHeld) == "function" then
+        pcall(function() bowClient.SetTouchHeld(false) end)
+    end
+
+    local camera = Workspace.CurrentCamera
+    if camera then
+        local center = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y * 0.5)
+
+        if VirtualInputManager then
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(
+                    math.floor(center.X),
+                    math.floor(center.Y),
+                    0,
+                    false,
+                    game,
+                    0
+                )
+            end)
+        end
+
+        pcall(function()
+            VirtualUser:Button1Up(center, camera.CFrame)
+        end)
+    end
+
+    local function restoreNow()
+        if state.ArcheryCenterAim or state.ArcheryAutoShoot or archeryAimEnabled then
+            return
+        end
+
+        local currentCamera = Workspace.CurrentCamera
+        local firstPerson = false
+        if currentCamera then
+            firstPerson = Player.CameraMode == Enum.CameraMode.LockFirstPerson
+                or (currentCamera.CFrame.Position - currentCamera.Focus.Position).Magnitude <= 1
+        end
+
+        if not firstPerson then
+            pcall(function()
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end)
+            pcall(function()
+                UserInputService.MouseIconEnabled = true
+            end)
+        end
+    end
+
+    -- BowClient updates on its own frame/heartbeat. Restore repeatedly after its
+    -- release cleanup has had a chance to run.
+    restoreNow()
+    task.defer(restoreNow)
+    task.delay(0.05, restoreNow)
+    task.delay(0.15, restoreNow)
+    task.delay(0.35, restoreNow)
+end
+
+-- Real inventory equip path mapped from the game's Inventory UI.
+guiObjects.ResolveOwnedCombatWeapon = function(mode)
+    local ok, serial, itemDef, weaponDef, itemData = pcall(function()
+        local playerScripts = Player:WaitForChild("PlayerScripts")
+        local dataClient = playerScripts:WaitForChild("Data_Client")
+        local playerData = require(dataClient:WaitForChild("PlayerData"))
+
+        local replica = playerData:Get()
+        if not replica then
+            replica = playerData:WaitFor()
+        end
+
+        local data = replica and replica.Data or nil
+        local inventory = data and data.Inventory or nil
+        local weapons = inventory and inventory.Weapons or nil
+        if type(weapons) ~= "table" then
+            return nil
+        end
+
+        local inventoryEngine = ReplicatedStorage:WaitForChild("Inventory_Engine")
+        local itemRegistry = require(inventoryEngine.Modules:WaitForChild("ItemRegistry"))
+        local weaponDPS = require(inventoryEngine.Modules:WaitForChild("WeaponDPS"))
+        local weaponDefs = require(
+            ReplicatedStorage:WaitForChild("Weapon_Engine")
+                :WaitForChild("Modules")
+                :WaitForChild("WeaponDefs")
+        )
+
+        local playerLevel = tonumber(data.Level) or 0
+        local bestSerial, bestItemDef, bestWeaponDef, bestItemData = nil, nil, nil, nil
+        local bestDps = -math.huge
+
+        for candidateSerial, candidate in pairs(weapons) do
+            if type(candidateSerial) == "string"
+                and type(candidate) == "table"
+                and not candidate.Locked then
+
+                local def = itemRegistry[candidate.Id]
+                if def and def.Kind == "Weapon" then
+                    local weaponDef = weaponDefs[def.WeaponId or candidate.Id]
+                    local weaponType = weaponDef and weaponDef.Type or nil
+
+                    local allowed = false
+                    if mode == "Bow" then
+                        allowed = weaponType == "Bow"
+                    else
+                        -- Melee = actual combat melee; do not pick Bow or mining Pickaxe.
+                        allowed = weaponType ~= nil
+                            and weaponType ~= "Bow"
+                            and weaponType ~= "Pickaxe"
+                    end
+
+                    local levelReq = tonumber(def.LevelReq) or 0
+                    if allowed and levelReq <= playerLevel then
+                        local dps = 0
+                        pcall(function()
+                            dps = tonumber(weaponDPS.For(candidate, data)) or 0
+                        end)
+
+                        if dps > bestDps then
+                            bestDps = dps
+                            bestSerial = candidateSerial
+                            bestItemDef = def
+                            bestWeaponDef = weaponDef
+                            bestItemData = candidate
+                        end
+                    end
+                end
+            end
+        end
+
+        return bestSerial, bestItemDef, bestWeaponDef, bestItemData
+    end)
+
+    if not ok then
+        warn("[POLY LOOT] Inventory weapon scan failed:", serial)
+        return nil
+    end
+
+    return serial, itemDef, weaponDef, itemData
+end
+
+guiObjects.EquipOwnedCombatWeapon = function(mode)
+    local serial, itemDef = guiObjects.ResolveOwnedCombatWeapon(mode)
+    if not serial then
+        warn("[POLY LOOT] No owned " .. string.lower(tostring(mode)) .. " weapon found in Inventory.Weapons.")
+        return false
+    end
+
+    local ok, equipped = pcall(function()
+        local playerData = require(
+            Player:WaitForChild("PlayerScripts")
+                :WaitForChild("Data_Client")
+                :WaitForChild("PlayerData")
+        )
+
+        local inventoryEngine = ReplicatedStorage:WaitForChild("Inventory_Engine")
+        local remotes = inventoryEngine:WaitForChild("Remotes")
+        local equipRequest = remotes:WaitForChild("EquipRequest")
+        local unequipRequest = remotes:WaitForChild("UnequipRequest")
+        local bindRequest = remotes:WaitForChild("HotbarBindRequest")
+        local unbindRequest = remotes:WaitForChild("HotbarUnbindRequest")
+
+        local replica = playerData:Get()
+        if not replica then replica = playerData:WaitFor() end
+        local data = replica and replica.Data or nil
+        if not data then return false end
+
+        local hotbar = data.Hotbar
+        local currentSerial = type(hotbar) == "table" and hotbar[1] or nil
+
+        if currentSerial ~= serial then
+            -- Slot 1 can only hold one weapon. Clear the previous weapon using the
+            -- same remotes the real inventory UI uses, then bind the desired serial.
+            if type(currentSerial) == "string" and currentSerial ~= "" then
+                pcall(function() unbindRequest:FireServer(currentSerial) end)
+                pcall(function() unequipRequest:FireServer(currentSerial) end)
+                task.wait(0.08)
+            end
+
+            bindRequest:FireServer(serial)
+
+            -- Wait for PlayerData to confirm that slot 1 really changed.
+            local deadline = os.clock() + 1.25
+            repeat
+                task.wait(0.04)
+                replica = playerData:Get()
+                data = replica and replica.Data or nil
+                hotbar = data and data.Hotbar or nil
+                currentSerial = type(hotbar) == "table" and hotbar[1] or nil
+            until currentSerial == serial or os.clock() >= deadline
+        end
+
+        -- If the serial is already bound, or binding has now completed, ask the
+        -- server to activate/equip it exactly like the real inventory UI.
+        if currentSerial == serial then
+            pcall(function() equipRequest:FireServer(serial) end)
+        end
+
+        -- Wait for the server-created Tool to become a Character child.
+        local character = Player.Character
+        local weaponId = itemDef and (itemDef.WeaponId or itemDef.ToolTemplate) or nil
+        local toolDeadline = os.clock() + 1.25
+
+        repeat
+            if character then
+                for _, child in ipairs(character:GetChildren()) do
+                    if child:IsA("Tool") then
+                        local childWeaponId = child:GetAttribute("WeaponId")
+                        if weaponId == nil
+                            or childWeaponId == weaponId
+                            or child.Name == weaponId
+                            or child.Name == (itemDef and itemDef.Display) then
+                            return true
+                        end
+                    end
+                end
+            end
+            task.wait(0.04)
+        until os.clock() >= toolDeadline
+
+        return false
+    end)
+
+    if not ok then
+        warn("[POLY LOOT] Server inventory equip failed:", equipped)
+        return false
+    end
+
+    return equipped == true
+end
+
+-- ============================================================
+-- AUTO EQUIP BEST ARMOR
+-- Uses the same inventory data, ArmorStat ranking and EquipRequest path
+-- as the game's own Inventory "equip best" logic.
+-- ============================================================
+guiObjects.FindBestArmorSerials = function()
+    local ok, result = pcall(function()
+        local playerData = require(
+            Player:WaitForChild("PlayerScripts")
+                :WaitForChild("Data_Client")
+                :WaitForChild("PlayerData")
+        )
+
+        local replica = playerData:Get()
+        if not replica then
+            replica = playerData:WaitFor()
+        end
+
+        local data = replica and replica.Data or nil
+        if not data then return {} end
+
+        local armors = data.Inventory and data.Inventory.Armors or nil
+        if type(armors) ~= "table" then return {} end
+
+        local inventoryEngine = ReplicatedStorage:WaitForChild("Inventory_Engine")
+        local itemRegistry = require(inventoryEngine.Modules:WaitForChild("ItemRegistry"))
+        local armorStat = require(
+            ReplicatedStorage:WaitForChild("Stats_Engine")
+                :WaitForChild("ArmorStat")
+        )
+
+        local level = tonumber(data.Level) or 0
+        local bestScore = {}
+        local bestSerial = {}
+
+        for serial, inst in pairs(armors) do
+            if type(serial) == "string" and type(inst) == "table" then
+                local def = itemRegistry[inst.Id]
+                if def
+                    and def.Kind == "Armor"
+                    and type(def.ArmorSlot) == "string"
+                    and level >= (tonumber(def.LevelReq) or 0) then
+
+                    local score = nil
+
+                    -- The inventory's own Equip Best path uses ArmorStat.For(inst).
+                    if type(armorStat.For) == "function" then
+                        local okFor, value = pcall(function()
+                            return armorStat.For(inst)
+                        end)
+                        if okFor then
+                            score = tonumber(value)
+                        end
+                    end
+
+                    -- Fallback for builds where the power-aware API is exposed instead.
+                    if score == nil and type(armorStat.Power) == "function" then
+                        local okPower, value = pcall(function()
+                            return armorStat.Power(inst, data)
+                        end)
+                        if okPower then
+                            score = tonumber(value)
+                        end
+                    end
+
+                    score = score or 0
+                    local slot = def.ArmorSlot
+
+                    if bestScore[slot] == nil or score > bestScore[slot] then
+                        bestScore[slot] = score
+                        bestSerial[slot] = serial
+                    end
+                end
+            end
+        end
+
+        return bestSerial
+    end)
+
+    if not ok then
+        warn("[POLY LOOT] Best armor scan failed:", result)
+        return {}
+    end
+
+    return type(result) == "table" and result or {}
+end
+
+guiObjects.EquipBestArmorNow = function()
+    local ok, changed = pcall(function()
+        local playerData = require(
+            Player:WaitForChild("PlayerScripts")
+                :WaitForChild("Data_Client")
+                :WaitForChild("PlayerData")
+        )
+
+        local replica = playerData:Get()
+        if not replica then
+            replica = playerData:WaitFor()
+        end
+
+        local data = replica and replica.Data or nil
+        if not data then return false end
+
+        local equipped = type(data.Equipped) == "table" and data.Equipped or {}
+        local best = guiObjects.FindBestArmorSerials and guiObjects.FindBestArmorSerials() or {}
+        local equipRequest = ReplicatedStorage
+            :WaitForChild("Inventory_Engine")
+            :WaitForChild("Remotes")
+            :WaitForChild("EquipRequest")
+
+        local didChange = false
+        for _, slot in ipairs({"Helmet", "ChestPlate", "Leggings", "Boots"}) do
+            local wantedSerial = best[slot]
+            local currentSerial = equipped[slot]
+
+            if type(wantedSerial) == "string"
+                and wantedSerial ~= ""
+                and currentSerial ~= wantedSerial then
+
+                equipRequest:FireServer(wantedSerial)
+                didChange = true
+                task.wait(0.06)
+            end
+        end
+
+        return didChange
+    end)
+
+    if not ok then
+        warn("[POLY LOOT] Auto armor equip failed:", changed)
+        return false
+    end
+
+    return changed == true
+end
+
+
+-- Auto Farm Mobs weapon helpers.
+local function findMobBowTool()
+    local character = Player.Character
+    local backpack = Player:FindFirstChildOfClass("Backpack")
+
+    for _, container in ipairs({character, backpack}) do
+        if container then
+            for _, tool in ipairs(container:GetDescendants()) do
+                if tool:IsA("Tool") then
+                    local n = string.lower(tool.Name)
+                    local wid = tool:GetAttribute("WeaponId")
+                    local w = type(wid) == "string" and string.lower(wid) or ""
+                    if string.find(n, "bow", 1, true)
+                        or string.find(n, "crossbow", 1, true)
+                        or string.find(w, "bow", 1, true)
+                        or string.find(w, "crossbow", 1, true) then
+                        return tool
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function equipMobWeaponVerified(tool)
+    local character = Player.Character
+    local humanoid = getHumanoid()
+    local backpack = Player:FindFirstChildOfClass("Backpack")
+    if not character or not humanoid or not tool or not tool.Parent then
+        return false
+    end
+
+    if tool.Parent == character then
+        return true
+    end
+
+    for _ = 1, 4 do
+        if not tool.Parent then return false end
+        if tool.Parent == character then return true end
+
+        pcall(function() humanoid:UnequipTools() end)
+        task.wait(0.05)
+
+        -- EquipTool expects a Tool in Backpack. If this game's inventory placed the
+        -- Tool inside a Backpack subfolder, move only that Tool to Backpack first.
+        if backpack and tool:IsDescendantOf(backpack) and tool.Parent ~= backpack then
+            pcall(function() tool.Parent = backpack end)
+            task.wait(0.03)
+        end
+
+        pcall(function() humanoid:EquipTool(tool) end)
+        task.wait(0.10)
+        if tool.Parent == character then return true end
+
+        -- Local fallback for experiences where EquipTool did not move the Tool.
+        pcall(function() tool.Parent = character end)
+        task.wait(0.08)
+        if tool.Parent == character then return true end
+    end
+
+    return tool.Parent == character
+end
+
+-- Auto Farm Mobs combat-mode controller.
+-- Changing modes immediately equips the correct weapon.
+setMobCombatMode = function(mode, equipNow)
+    mode = mode == "Bow" and "Bow" or "Melee"
+
+    -- Never leave a bow draw held when changing modes.
+    if stopMobBowFarm then
+        pcall(stopMobBowFarm)
+    end
+    unlockMobAimMouse()
+
+    state.MobCombatMode = mode
+
+    if guiObjects.UpdateMobBowCrosshair then
+        pcall(guiObjects.UpdateMobBowCrosshair)
+    end
+
+    -- Keep the custom Combat Mode button text synchronized.
+    if guiObjects.MobCombatModeRedraw then
+        pcall(guiObjects.MobCombatModeRedraw)
+    end
+
+    if not equipNow then return true end
+
+    local character = Player.Character
+    local humanoid = getHumanoid()
+    if not character or not humanoid then
+        return false
+    end
+
+    -- Primary path: use the game's actual Inventory.Weapons serial + remotes.
+    if guiObjects.EquipOwnedCombatWeapon then
+        local serverEquipped = guiObjects.EquipOwnedCombatWeapon(mode)
+        if serverEquipped then
+            return true
+        end
+    end
+
+    -- Fallback only for experiences/states where the Tool already exists locally.
+    local wanted = nil
+    if mode == "Melee" then
+        wanted = findBestMeleeTool and findBestMeleeTool() or nil
+    else
+        wanted = findMobBowTool()
+    end
+
+    if not wanted then
+        warn("[POLY LOOT] No local fallback " .. string.lower(mode) .. " Tool found.")
+        return false
+    end
+
+    local equipped = equipMobWeaponVerified(wanted)
+    if not equipped then
+        warn("[POLY LOOT] Failed to equip " .. wanted.Name .. " for " .. mode .. " mode.")
+    end
+    return equipped
 end
 
 local function nearestTree(radius)
@@ -672,7 +1186,69 @@ ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = parent
 
+
 guiObjects.ScreenGui = ScreenGui
+
+-- ============================================================
+-- MOB BOW CROSSHAIR
+-- The game's native Bow reticle intentionally hides after release.
+-- This overlay is ONLY for mob aimbot/bow farming and does not touch
+-- the archery contest HUD.
+-- ============================================================
+do
+    local holder = Instance.new("Frame")
+    holder.Name = "PolyMobBowCrosshair"
+    holder.AnchorPoint = Vector2.new(0.5, 0.5)
+    holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.Size = UDim2.fromOffset(24, 24)
+    holder.BackgroundTransparency = 1
+    holder.Visible = false
+    holder.ZIndex = 1000
+    holder.Parent = ScreenGui
+
+    local function line(name, size, pos)
+        local f = Instance.new("Frame")
+        f.Name = name
+        f.Size = size
+        f.Position = pos
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.BackgroundColor3 = Color3.fromRGB(245, 247, 250)
+        f.BorderSizePixel = 0
+        f.ZIndex = 1000
+        f.Parent = holder
+        return f
+    end
+
+    line("Top", UDim2.fromOffset(2, 7), UDim2.new(0.5, 0, 0.5, -7))
+    line("Bottom", UDim2.fromOffset(2, 7), UDim2.new(0.5, 0, 0.5, 7))
+    line("Left", UDim2.fromOffset(7, 2), UDim2.new(0.5, -7, 0.5, 0))
+    line("Right", UDim2.fromOffset(7, 2), UDim2.new(0.5, 7, 0.5, 0))
+
+    local dot = Instance.new("Frame")
+    dot.Name = "Dot"
+    dot.AnchorPoint = Vector2.new(0.5, 0.5)
+    dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.Size = UDim2.fromOffset(3, 3)
+    dot.BackgroundColor3 = Color3.fromRGB(245, 247, 250)
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 1001
+    dot.Parent = holder
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    guiObjects.MobBowCrosshair = holder
+    guiObjects.UpdateMobBowCrosshair = function()
+        if not holder.Parent then return end
+        local bowModeActive = state.MobCombatMode == "Bow"
+            and (state.SelectedFarm or state.MobAutoShoot or state.MobAimbot)
+        holder.Visible = bowModeActive and not killSwitchActivated
+    end
+
+    connections.MobBowCrosshairWatch = RunService.RenderStepped:Connect(function()
+        if guiObjects.UpdateMobBowCrosshair then
+            guiObjects.UpdateMobBowCrosshair()
+        end
+    end)
+end
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
@@ -1024,6 +1600,9 @@ end
 -- Explicitly show the first tab; no automation is started here.
 selectTab("Farm")
 
+-- Auto Farm Mobs owns every mob-combat control.
+local mobFarm = pages["Auto Farm Mobs"]
+
 -- ============================================================
 -- FARM PAGE
 -- ============================================================
@@ -1043,8 +1622,149 @@ toggle(farm, "Auto Loot", "AutoLoot", function(enabled)
     end)
 end)
 
-slider(farm, "Attack Delay Min", "AttackDelayMin", 0.10, 1.20, CONFIG.AttackDelayMin, 2, function(v) CONFIG.AttackDelayMin = math.min(v, CONFIG.AttackDelayMax - 0.05) end)
-slider(farm, "Attack Delay Max", "AttackDelayMax", 0.20, 2.00, CONFIG.AttackDelayMax, 2, function(v) CONFIG.AttackDelayMax = math.max(v, CONFIG.AttackDelayMin + 0.05) end)
+section(mobFarm, "Weapons")
+info(mobFarm, "Choose Melee or Bow here. Changing Combat Mode immediately swaps to the matching weapon and verifies that it actually equipped.")
+do
+    local modeButton
+    local function redrawMode()
+        if modeButton then
+            modeButton.Text = "Combat Mode: " .. tostring(state.MobCombatMode)
+        end
+    end
+
+    modeButton = button(mobFarm, "Combat Mode: " .. tostring(state.MobCombatMode), function()
+        local nextMode = state.MobCombatMode == "Melee" and "Bow" or "Melee"
+        if setMobCombatMode then
+            setMobCombatMode(nextMode, true)
+        else
+            state.MobCombatMode = nextMode
+        end
+        redrawMode()
+    end)
+
+    guiObjects.MobCombatModeRedraw = redrawMode
+    redrawMode()
+end
+button(mobFarm, "Equip Best Melee Weapon", function()
+    if setMobCombatMode then setMobCombatMode("Melee", true) end
+end)
+button(mobFarm, "Equip Bow / Use Bow Mode", function()
+    if setMobCombatMode then setMobCombatMode("Bow", true) end
+end)
+button(mobFarm, "Restore Mouse / Unlock Aim", function()
+    if stopMobBowFarm then pcall(stopMobBowFarm) end
+    unlockMobAimMouse()
+end)
+do
+    info(mobFarm, "Bow Aim: Mob Aimbot and Mob Auto Shoot only use the mob species selected below and require a clear line of sight.")
+
+    toggle(mobFarm, "Mob Aimbot", "MobAimbot", function(enabled)
+        disconnect("MobAimbot")
+        if not enabled then
+            if stopMobBowFarm then pcall(stopMobBowFarm) end
+            unlockMobAimMouse()
+            return
+        end
+
+        connections.MobAimbot = RunService.RenderStepped:Connect(function()
+            if killSwitchActivated or not state.MobAimbot then return end
+
+            -- Never compete with the existing archery camera writer.
+            if state.ArcheryCenterAim or archeryAimEnabled then return end
+
+            local camera = Workspace.CurrentCamera
+            local playerRoot = getRoot()
+            if not camera or not playerRoot then return end
+
+            local target = nil
+            if (state.SelectedFarm or state.MobAutoShoot)
+                and state.CurrentTarget
+                and mobMatchesSelectedTarget(state.CurrentTarget) then
+                target = state.CurrentTarget
+            else
+                local mobs = collectSelectedMobs(CONFIG.MobRadius)
+                target = mobs[1]
+                if (state.MobAutoShoot or state.SelectedFarm) and target then
+                    state.CurrentTarget = target
+                end
+            end
+            if not target or not isAliveMob(target) then return end
+
+            local aimPosition = visibleMobAimPoint(target)
+            if not aimPosition then
+                -- Current mob is behind a wall. Try another visible mob instead of
+                -- aiming/shooting through the obstruction.
+                target = nil
+                for _, candidate in ipairs(collectSelectedMobs(CONFIG.MobRadius)) do
+                    local visiblePoint = visibleMobAimPoint(candidate)
+                    if visiblePoint then
+                        target = candidate
+                        aimPosition = visiblePoint
+                        if state.MobAutoShoot or state.SelectedFarm then
+                            state.CurrentTarget = candidate
+                        end
+                        break
+                    end
+                end
+            end
+
+            if aimPosition and (aimPosition - camera.CFrame.Position).Magnitude > 0.001 then
+                camera.CFrame = CFrame.lookAt(camera.CFrame.Position, aimPosition)
+            end
+        end)
+    end)
+
+    slider(mobFarm, "Mob Aimbot Radius", "MobAimbotRadius", 20, 500, CONFIG.MobRadius, 0, function(v)
+        CONFIG.MobRadius = v
+    end)
+
+    toggle(mobFarm, "Mob Auto Shoot", "MobAutoShoot", function(enabled)
+        disconnect("MobAutoShoot")
+        if stopMobBowFarm then pcall(stopMobBowFarm) end
+        if not enabled then
+            unlockMobAimMouse()
+            return
+        end
+
+        -- Mob Auto Shoot is a Bow feature: switch and equip immediately.
+        if setMobCombatMode then
+            pcall(function() setMobCombatMode("Bow", true) end)
+        end
+
+        connections.MobAutoShoot = task.spawn(function()
+            while state.MobAutoShoot and not stopFlags.MobAutoShoot and not killSwitchActivated do
+                -- Auto Farm Selected + Bow already owns the exact same shot helper.
+                if state.SelectedFarm and state.MobCombatMode == "Bow" then
+                    task.wait(0.08)
+                else
+                    local target = nil
+                    if state.CurrentTarget and isAliveMob(state.CurrentTarget) then
+                        target = state.CurrentTarget
+                    else
+                        for _, candidate in ipairs(collectSelectedMobs(CONFIG.MobRadius)) do
+                            if visibleMobAimPoint(candidate) then
+                                target = candidate
+                                break
+                            end
+                        end
+                        state.CurrentTarget = target
+                    end
+
+                    if target and isAliveMob(target) and visibleMobAimPoint(target) and mobBowFarmShot then
+                        mobBowFarmShot(target)
+                    else
+                        state.CurrentTarget = nil
+                        task.wait(0.08)
+                    end
+                end
+
+                task.wait(math.max(CONFIG.AttackDelay, 0.08))
+            end
+            if stopMobBowFarm then pcall(stopMobBowFarm) end
+        end)
+    end)
+end
+
 slider(farm, "Loot Radius", "LootRadius", 10, 150, CONFIG.LootRadius, 0, function(v) CONFIG.LootRadius = v end)
 slider(farm, "Farm Radius", "FarmRadius", 20, 250, CONFIG.FarmRadius, 0, function(v) CONFIG.FarmRadius = v end)
 slider(farm, "Farm Move Speed", "FarmMoveSpeed", 1, 999, CONFIG.FarmMoveSpeed, 0, function(v)
@@ -1058,25 +1778,6 @@ end)
 slider(farm, "Gold Amount", "GoldAmount", 1, 5000, CONFIG.GoldCollectAmount, 0, function(v) CONFIG.GoldCollectAmount = v end)
 slider(farm, "Gold Interval", "GoldInterval", 5, 120, CONFIG.GoldCollectInterval, 0, function(v) CONFIG.GoldCollectInterval = v end)
 
-toggle(farm, "Auto Attack", "AutoAttack", function(enabled)
-    disconnect("AutoAttack")
-    if not enabled then return end
-    connections.AutoAttack = task.spawn(function()
-        while state.AutoAttack and not stopFlags.AutoAttack do
-            local target = findBestFarmTarget()
-            local root = getRoot()
-            if target and root then
-                state.CurrentTarget = target
-                local pos = getPosition(target)
-                if pos then moveNear(pos, 9) end
-                local r = getRemote("WeaponAttack")
-                if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer(0) end) end
-            else state.CurrentTarget = nil end
-            local d = CONFIG.AttackDelayMin + math.random() * math.max(CONFIG.AttackDelayMax-CONFIG.AttackDelayMin, 0)
-            task.wait(math.max(d, 0.05))
-        end
-    end)
-end)
 
 toggle(farm, "Gold Mine Collect", "GoldMineCollect", function(enabled)
     disconnect("GoldMineCollect")
@@ -1095,30 +1796,146 @@ end)
 -- ============================================================
 -- AUTO FARM MOBS PAGE
 -- ============================================================
-local mobFarm = pages["Auto Farm Mobs"]
-section(mobFarm, "Mob Farming")
-info(mobFarm, "Select the mob category and target, then enable Auto Farm Selected. The existing mob farming behavior is preserved.")
-cycle(mobFarm, "Mob Type", "FarmKind", {"All", "Passive", "Aggressive"})
-cycle(mobFarm, "Target", "FarmSpecies", {"All", "Chicken", "Sheep", "Cow", "Pig", "Bear", "Bat", "Silverfish", "Snail", "Wolf", "Skeleton", "Gargoyle", "Spider", "King Chicken"})
+section(mobFarm, "Mob Targeting")
+info(mobFarm, "Choose a target species and combat mode. Auto Farm Selected uses the selected weapon and nearest matching live mob.")
+do
+    local targetValues = {"All", "Chicken", "Sheep", "Cow", "Pig", "Bear", "Bat", "Silverfish", "Snail", "Wolf", "Skeleton", "Gargoyle", "Spider", "King Chicken"}
+    local targetIndex = 1
+    for i, value in ipairs(targetValues) do
+        if value == state.FarmSpecies then
+            targetIndex = i
+            break
+        end
+    end
+
+    local targetButton
+    targetButton = button(mobFarm, "Target: " .. tostring(targetValues[targetIndex]), function()
+        targetIndex = targetIndex % #targetValues + 1
+        state.FarmSpecies = targetValues[targetIndex]
+        state.CurrentTarget = nil
+        targetButton.Text = "Target: " .. tostring(state.FarmSpecies)
+    end)
+end
 toggle(mobFarm, "Auto Farm Selected", "SelectedFarm", function(enabled)
     disconnect("SelectedFarm")
-    if not enabled then return end
+    if stopMobBowFarm then pcall(stopMobBowFarm) end
+    if not enabled then
+        state.CurrentTarget = nil
+        if stopMobBowFarm then pcall(stopMobBowFarm) end
+        unlockMobAimMouse()
+        return
+    end
+
+    -- Equip the selected combat mode immediately when farming starts.
+    if setMobCombatMode then
+        pcall(function() setMobCombatMode(state.MobCombatMode, true) end)
+    end
+
     connections.SelectedFarm = task.spawn(function()
-        while state.SelectedFarm and not stopFlags.SelectedFarm do
-            local target = findBestFarmTarget()
-            local root = getRoot()
-            if target and root then
+        while state.SelectedFarm and not stopFlags.SelectedFarm and not killSwitchActivated do
+            local target = state.CurrentTarget
+            if not target or not mobMatchesSelectedTarget(target) then
+                target = findBestFarmTarget()
                 state.CurrentTarget = target
-                local pos = getPosition(target)
-                if pos then moveNear(pos, 9) end
-                local r = getRemote("WeaponAttack")
-                if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer(0) end) end
             end
-            task.wait(CONFIG.AttackDelayMin)
+
+            local root = getRoot()
+            if target and root and isAliveMob(target) then
+                local pos = getPosition(target)
+
+                if state.MobCombatMode == "Bow" then
+                    if not visibleMobAimPoint(target) then
+                        for _, candidate in ipairs(collectSelectedMobs(CONFIG.FarmRadius)) do
+                            if visibleMobAimPoint(candidate) then
+                                target = candidate
+                                state.CurrentTarget = candidate
+                                pos = getPosition(candidate)
+                                break
+                            end
+                        end
+                    end
+
+                    -- Bow: approach only enough to keep a practical shot, then let the
+                    -- bow helper own one camera writer and a full-charge shot.
+                    if pos and (root.Position - pos).Magnitude > 80 then
+                        moveNear(pos, 60)
+                        local approachDeadline = os.clock() + 2.0
+                        repeat
+                            task.wait(0.05)
+                            root = getRoot()
+                            pos = getPosition(target)
+                        until killSwitchActivated
+                            or not state.SelectedFarm
+                            or not isAliveMob(target)
+                            or not root
+                            or not pos
+                            or (root.Position - pos).Magnitude <= 70
+                            or os.clock() >= approachDeadline
+                    end
+
+                    if state.SelectedFarm and isAliveMob(target) and mobBowFarmShot then
+                        mobBowFarmShot(target)
+                    end
+                else
+                    -- Melee: equip the best detected melee weapon first.
+                    local hum = getHumanoid()
+                    local currentTool = Player.Character and Player.Character:FindFirstChildOfClass("Tool") or nil
+                    local currentWeaponId = currentTool and currentTool:GetAttribute("WeaponId") or nil
+                    local currentLooksBow = currentTool and (
+                        string.find(string.lower(currentTool.Name), "bow", 1, true)
+                        or (type(currentWeaponId) == "string"
+                            and string.find(string.lower(currentWeaponId), "bow", 1, true))
+                    )
+
+                    if (not currentTool or currentLooksBow) and guiObjects.EquipOwnedCombatWeapon then
+                        guiObjects.EquipOwnedCombatWeapon("Melee")
+                        task.wait(0.05)
+                    end
+
+                    local weapon = findBestMeleeTool and findBestMeleeTool() or nil
+                    if hum and weapon and weapon.Parent ~= Player.Character then
+                        equipMobWeaponVerified(weapon)
+                    end
+
+                    -- Actually get into melee range before sending WeaponAttack.
+                    if pos and (root.Position - pos).Magnitude > 10 then
+                        moveNear(pos, 8)
+                        local approachDeadline = os.clock() + 2.5
+                        repeat
+                            task.wait(0.04)
+                            root = getRoot()
+                            pos = getPosition(target)
+                        until killSwitchActivated
+                            or not state.SelectedFarm
+                            or not isAliveMob(target)
+                            or not root
+                            or not pos
+                            or (root.Position - pos).Magnitude <= 10
+                            or os.clock() >= approachDeadline
+                    end
+
+                    root = getRoot()
+                    pos = getPosition(target)
+                    if root and pos and isAliveMob(target) and (root.Position - pos).Magnitude <= 12 then
+                        local equipped = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
+                        if equipped then pcall(function() equipped:Activate() end) end
+                        local r = getRemote("WeaponAttack")
+                        if r and r:IsA("RemoteEvent") then
+                            pcall(function() r:FireServer(0) end)
+                        end
+                    end
+                end
+            else
+                state.CurrentTarget = nil
+            end
+
+            task.wait(math.max(CONFIG.AttackDelay, 0.05))
         end
+
+        if stopMobBowFarm then pcall(stopMobBowFarm) end
+        state.CurrentTarget = nil
     end)
 end)
-section(mobFarm, "Mob Movement")
 slider(mobFarm, "Farm Radius", "MobFarmRadius", 20, 250, CONFIG.FarmRadius, 0, function(v) CONFIG.FarmRadius = v end)
 slider(mobFarm, "Farm Move Speed", "FarmMoveSpeed", 1, 999, CONFIG.FarmMoveSpeed, 0, function(v)
     if not state.FarmMoveSpeedLocked then
@@ -1153,6 +1970,31 @@ end)
 button(inv, "Check Favorite Remote", function()
     local r = getRemote("SetFavorite")
     print("[POLY LOOT] SetFavorite:", r and r:GetFullName() or "NOT FOUND")
+end)
+
+section(inv, "Auto Gear")
+info(inv, "Auto Equip Best Armor watches your owned armor and equips the strongest level-eligible Helmet, ChestPlate, Leggings and Boots using the game's real ArmorStat + EquipRequest logic.")
+toggle(inv, "Auto Equip Best Armor", "AutoEquipBestArmor", function(enabled)
+    disconnect("AutoEquipBestArmor")
+    if not enabled then return end
+
+    connections.AutoEquipBestArmor = task.spawn(function()
+        -- Equip the best set immediately when enabled.
+        if guiObjects.EquipBestArmorNow then
+            pcall(guiObjects.EquipBestArmorNow)
+        end
+
+        while state.AutoEquipBestArmor
+            and not stopFlags.AutoEquipBestArmor
+            and not killSwitchActivated do
+
+            if guiObjects.EquipBestArmorNow then
+                pcall(guiObjects.EquipBestArmorNow)
+            end
+
+            task.wait(0.35)
+        end
+    end)
 end)
 
 section(inv, "Inventory Safety")
@@ -1200,7 +2042,7 @@ toggle(world, "Auto Tree Farm", "AutoTreeFarm", function(enabled)
                     end
                 end
             end
-            task.wait(math.max(CONFIG.AttackDelayMin,0.15))
+            task.wait(math.max(CONFIG.AttackDelay, 0.15))
         end
     end)
 end)
@@ -1289,9 +2131,12 @@ fullShutdown = function()
         stopFlags[name] = true
     end
     stopFlags.AutoLoot = true
-    stopFlags.AutoAttack = true
+    stopFlags.AutoEquipBestArmor = true
     stopFlags.GoldMineCollect = true
     stopFlags.SelectedFarm = true
+    stopFlags.MobAutoShoot = true
+    if stopMobBowFarm then pcall(stopMobBowFarm) end
+    unlockMobAimMouse()
     stopFlags.AutoTreeFarm = true
     stopFlags.AutoOre = true
     stopFlags.ManualTravel = true
@@ -1398,8 +2243,12 @@ end
 -- TESTING PAGE
 -- ============================================================
 local testing = pages.Testing
-section(testing, "Environment Delete Test")
-info(testing, "Removes decorative map clutter: bushes, flowers, grass/decor, stumps, trunks, mushrooms, logs, crystals, light poles, rocks and rock paths, fences and lanterns, while leaving pillars intact. Also removes the exact Ultimate Nature Pack meshes Rocks_Icosphere.018 and U Shaped Tree_Vert.011. All other trees, ChoppableTree resources, and the actual walking terrain are protected.")
+
+-- Mob bow controls are created in Auto Farm Mobs -> Weapons.
+
+-- Environment controls are shown in Settings; implementation remains unchanged here.
+section(settings, "Environment Delete Test")
+info(settings, "Removes decorative map clutter: bushes, flowers, grass/decor, stumps, trunks, mushrooms, logs, crystals, light poles, rocks and rock paths, fences and lanterns, while leaving pillars intact. Also removes the exact Ultimate Nature Pack meshes Rocks_Icosphere.018 and U Shaped Tree_Vert.011. All other trees, ChoppableTree resources, and the actual walking terrain are protected.")
 
 -- Decorative environment names. These intentionally exclude every tree name.
 local DECORATION_NAME_HINTS = {
@@ -1650,9 +2499,9 @@ setEnvironmentDeleteTest = function(enabled)
     end
 end
 
-toggle(testing, "Delete Environment Decor", "EnvironmentCollisionTest", setEnvironmentDeleteTest)
+toggle(settings, "Delete Environment Decor", "EnvironmentCollisionTest", setEnvironmentDeleteTest)
 
-button(testing, "Restore Environment", function()
+button(settings, "Restore Environment", function()
     state.EnvironmentCollisionTest = false
     setEnvironmentDeleteTest(false)
     local redraw = guiObjects.EnvironmentCollisionTest
@@ -2536,6 +3385,108 @@ local function resolvedArcheryBowConfig(tool)
     return nil
 end
 
+
+-- Best melee equipment helper for Auto Farm Mobs.
+findBestMeleeTool = function()
+    local character = Player.Character
+    local backpack = Player:FindFirstChildOfClass("Backpack")
+    if not character then return nil end
+
+    local candidates = {}
+    for _, container in ipairs({character, backpack}) do
+        if container then
+            for _, tool in ipairs(container:GetDescendants()) do
+                if tool:IsA("Tool") then
+                    table.insert(candidates, tool)
+                end
+            end
+        end
+    end
+
+    local rarityWeight = {
+        common = 1, uncommon = 2, rare = 3, epic = 4,
+        legendary = 5, mythic = 6, divine = 7,
+    }
+
+    local function numeric(source, keys)
+        if not source then return nil end
+        for _, key in ipairs(keys) do
+            local value = nil
+            if typeof(source) == "Instance" then
+                value = source:GetAttribute(key)
+            elseif type(source) == "table" then
+                value = source[key]
+            end
+            value = tonumber(value)
+            if value then return value end
+        end
+        return nil
+    end
+
+    local function scoreTool(tool)
+        local name = string.lower(tool.Name)
+        local weaponId = tool:GetAttribute("WeaponId")
+        local idLower = type(weaponId) == "string" and string.lower(weaponId) or ""
+
+        -- Never choose bows or obvious non-combat gathering tools for Melee mode.
+        if string.find(name, "bow", 1, true) or string.find(idLower, "bow", 1, true) then
+            return nil
+        end
+        for _, blocked in ipairs({"pickaxe", "fishing", "fishingrod", "shovel", "hoe"}) do
+            if string.find(name, blocked, 1, true) or string.find(idLower, blocked, 1, true) then
+                return nil
+            end
+        end
+
+        local cfg = nil
+        local _, weaponConfig = resolveArcheryBallisticModules()
+        if weaponConfig and type(weaponConfig.Resolve) == "function" and type(weaponId) == "string" then
+            pcall(function()
+                cfg = weaponConfig.Resolve(weaponId, {tool, tool:FindFirstChild("Anim")}, true)
+            end)
+        end
+
+        -- Strongest signal first: actual damage/power from config or tool attributes.
+        local damage = numeric(cfg, {"Damage", "BaseDamage", "AttackDamage", "Power", "DamagePerHit"})
+            or numeric(tool, {"Damage", "BaseDamage", "AttackDamage", "Power", "DamagePerHit"})
+            or 0
+
+        local tier = numeric(cfg, {"Tier", "WeaponTier", "Level"})
+            or numeric(tool, {"Tier", "WeaponTier", "Level"})
+            or 0
+
+        local rarity = tool:GetAttribute("Rarity")
+        if rarity == nil and type(cfg) == "table" then rarity = cfg.Rarity end
+        local rarityScore = rarityWeight[string.lower(tostring(rarity or ""))] or 0
+
+        local meleeHint = 0
+        for _, hint in ipairs({"sword","blade","katana","dagger","spear","mace","club","hammer","axe","greatsword","scythe"}) do
+            if string.find(name, hint, 1, true) or string.find(idLower, hint, 1, true) then
+                meleeHint = 1
+                break
+            end
+        end
+
+        -- A WeaponId strongly suggests a combat-configured tool. Unknown tools with
+        -- neither a weapon id nor a melee hint are ignored.
+        if type(weaponId) ~= "string" and meleeHint == 0 then
+            return nil
+        end
+
+        return damage * 100000 + tier * 1000 + rarityScore * 100 + meleeHint
+    end
+
+    local best, bestScore = nil, -math.huge
+    for _, tool in ipairs(candidates) do
+        local score = scoreTool(tool)
+        if score and score > bestScore then
+            best, bestScore = tool, score
+        end
+    end
+
+    return best
+end
+
 local function exactSolvedTrajectoryScore(target, bull, rawCenter, targetVelocity, targetAcceleration)
     if not (target and bull and rawCenter and bull.Parent) then
         return 0, math.huge, nil, false
@@ -3250,6 +4201,260 @@ isBowEquipped = function()
     local weaponId = tool:GetAttribute("WeaponId")
     if type(weaponId) == "string" and string.find(string.lower(weaponId), "bow", 1, true) then return tool end
     return nil
+end
+
+
+visibleMobAimPoint = function(target)
+    if not target or not isAliveMob(target) then return nil end
+
+    local camera = Workspace.CurrentCamera
+    local character = Player.Character
+    if not camera or not character then return nil end
+
+    local candidates = {}
+    local function add(part)
+        if part and part:IsA("BasePart") then
+            table.insert(candidates, part.Position)
+        end
+    end
+
+    add(target:FindFirstChild("Head", true))
+    add(target:FindFirstChild("UpperTorso", true))
+    add(target:FindFirstChild("Torso", true))
+    add(getMobRoot(target))
+
+    local center = getPosition(target)
+    if center then table.insert(candidates, center) end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {character}
+    params.IgnoreWater = false
+
+    local origin = camera.CFrame.Position
+    for _, point in ipairs(candidates) do
+        local direction = point - origin
+        if direction.Magnitude > 0.001 then
+            local hit = Workspace:Raycast(origin, direction, params)
+            if not hit or hit.Instance == target or hit.Instance:IsDescendantOf(target) then
+                return point
+            end
+        end
+    end
+
+    return nil
+end
+
+-- ============================================================
+-- MOB BOW FARM / MOB AUTO SHOOT
+-- Reuses the script's proven bow DOWN/UP input path. Contest target/scoring
+-- logic is not used or modified.
+-- ============================================================
+do
+    local mobBowHeld = false
+    local mobBowSavedMouseIcon = nil
+    local mobBowSavedMouseBehavior = nil
+
+    local function mobFarmAimPosition(target)
+        return visibleMobAimPoint(target)
+    end
+
+    local function stopAimWriter()
+        local aimConn = connections.MobBowFarmAim
+        if aimConn then
+            connections.MobBowFarmAim = nil
+            pcall(function()
+                if typeof(aimConn) == "RBXScriptConnection" then aimConn:Disconnect() end
+            end)
+        end
+    end
+
+    local function restoreMobBowMouseState()
+        -- BowClient normally restores this itself, but our synthetic multi-input path
+        -- can leave the icon/lock state stale. Restore only what existed before the
+        -- mob shot, and never interfere while contest archery is active.
+        if not state.ArcheryCenterAim and not state.ArcheryAutoShoot and not archeryAimEnabled then
+            if mobBowSavedMouseIcon ~= nil then
+                pcall(function()
+                    UserInputService.MouseIconEnabled = mobBowSavedMouseIcon
+                end)
+            end
+
+            if mobBowSavedMouseBehavior ~= nil then
+                local camera = Workspace.CurrentCamera
+                local firstPerson = false
+                if camera then
+                    firstPerson = Player.CameraMode == Enum.CameraMode.LockFirstPerson
+                        or (camera.CFrame.Position - camera.Focus.Position).Magnitude <= 1
+                end
+
+                if not firstPerson then
+                    pcall(function()
+                        UserInputService.MouseBehavior = mobBowSavedMouseBehavior
+                    end)
+                end
+            end
+        end
+
+        mobBowSavedMouseIcon = nil
+        mobBowSavedMouseBehavior = nil
+        unlockMobAimMouse()
+    end
+
+    local function mobBowRelease()
+        if mobBowHeld then
+            -- This is the same robust UP path used by contest Auto Shoot.
+            releaseArcheryAutoDraw(Workspace.CurrentCamera)
+        else
+            -- Still send an UP in case a previous attempt partially started drawing.
+            local bowClient = resolveArcheryBowClient and resolveArcheryBowClient() or nil
+            if bowClient and type(bowClient.SetTouchHeld) == "function" then
+                pcall(function() bowClient.SetTouchHeld(false) end)
+            end
+            pcall(function() sendArcheryMouseButton(false, Workspace.CurrentCamera) end)
+        end
+        mobBowHeld = false
+        stopAimWriter()
+        restoreMobBowMouseState()
+        if guiObjects.UpdateMobBowCrosshair then
+            pcall(guiObjects.UpdateMobBowCrosshair)
+        end
+    end
+
+    stopMobBowFarm = mobBowRelease
+
+    mobBowFarmShot = function(target)
+        if killSwitchActivated then return false end
+        if not (state.SelectedFarm or state.MobAutoShoot) then return false end
+        if not target or not isAliveMob(target) then return false end
+
+        -- Do not fight the separate contest archery system if the user turns it on.
+        if state.ArcheryCenterAim or state.ArcheryAutoShoot or archeryAimEnabled then
+            return false
+        end
+
+        local character = Player.Character
+        local humanoid = getHumanoid()
+        if not character or not humanoid then return false end
+
+        local bow = isBowEquipped()
+        if not bow and guiObjects.EquipOwnedCombatWeapon then
+            guiObjects.EquipOwnedCombatWeapon("Bow")
+            task.wait(0.08)
+            bow = isBowEquipped()
+        end
+
+        if not bow then
+            bow = findMobBowTool()
+            if not bow then return false end
+            if not equipMobWeaponVerified(bow) then return false end
+            bow = isBowEquipped() or (bow.Parent == character and bow or nil)
+        end
+        if not bow then return false end
+
+        -- Never begin drawing through a wall/terrain/object.
+        if not visibleMobAimPoint(target) then
+            return false
+        end
+
+        -- The shot follows the SAME mob chosen by Auto Farm / Mob Auto Shoot.
+        -- When Mob Aimbot is already enabled, do NOT create a second camera writer.
+        stopAimWriter()
+        if not state.MobAimbot then
+            connections.MobBowFarmAim = RunService.RenderStepped:Connect(function()
+                if killSwitchActivated
+                    or not (state.SelectedFarm or state.MobAutoShoot)
+                    or not target
+                    or not isAliveMob(target)
+                    or state.ArcheryCenterAim
+                    or state.ArcheryAutoShoot
+                    or archeryAimEnabled then
+                    return
+                end
+
+                local camera = Workspace.CurrentCamera
+                local aimPosition = mobFarmAimPosition(target)
+                if camera and aimPosition and (aimPosition - camera.CFrame.Position).Magnitude > 0.001 then
+                    camera.CFrame = CFrame.lookAt(camera.CFrame.Position, aimPosition)
+                end
+            end)
+        end
+
+        -- Give the active aim writer one rendered frame to lock before drawing.
+        RunService.RenderStepped:Wait()
+
+        -- Save the user's cursor/mouse-lock state before BowClient hides/locks it.
+        mobBowSavedMouseIcon = UserInputService.MouseIconEnabled
+        mobBowSavedMouseBehavior = UserInputService.MouseBehavior
+
+        local camera = Workspace.CurrentCamera
+        if not forceArcheryDrawDown(camera) then
+            mobBowRelease()
+            return false
+        end
+        mobBowHeld = true
+
+        local bowClient = resolveArcheryBowClient()
+        local drawing = false
+        local verifyDeadline = os.clock() + 0.55
+        repeat
+            if bowClient and type(bowClient.IsDrawing) == "function" then
+                pcall(function() drawing = bowClient.IsDrawing() == true end)
+            else
+                drawing = true
+            end
+            if drawing then break end
+            if bowClient then pcall(function() bowClient.SetTouchHeld(true) end) end
+            sendArcheryMouseButton(true, camera)
+            task.wait(0.03)
+        until os.clock() >= verifyDeadline
+            or killSwitchActivated
+            or not (state.SelectedFarm or state.MobAutoShoot)
+            or not isAliveMob(target)
+
+        if not drawing and bowClient and type(bowClient.IsDrawing) == "function" then
+            mobBowRelease()
+            return false
+        end
+
+        -- Use the real configured full draw time for this bow.
+        local cfg = resolvedArcheryBowConfig(bow)
+        local drawTime = cfg and tonumber(cfg.DrawTime) or nil
+        drawTime = math.clamp(drawTime or ARCHERY_AUTO_FULL_CHARGE_SECONDS or 1.08, 0.20, 3.00)
+
+        local chargeUntil = os.clock() + drawTime + 0.06
+        while os.clock() < chargeUntil do
+            if killSwitchActivated
+                or not (state.SelectedFarm or state.MobAutoShoot)
+                or not isAliveMob(target)
+                or state.ArcheryCenterAim
+                or state.ArcheryAutoShoot
+                or archeryAimEnabled
+                or not visibleMobAimPoint(target) then
+                mobBowRelease()
+                return false
+            end
+            task.wait(0.02)
+        end
+
+        -- Keep the target locked through the actual UP/release.
+        if isAliveMob(target)
+            and visibleMobAimPoint(target)
+            and (state.SelectedFarm or state.MobAutoShoot) then
+            releaseArcheryAutoDraw(Workspace.CurrentCamera)
+            mobBowHeld = false
+            task.wait(0.06)
+            stopAimWriter()
+            restoreMobBowMouseState()
+            if guiObjects.UpdateMobBowCrosshair then
+                pcall(guiObjects.UpdateMobBowCrosshair)
+            end
+            return true
+        end
+
+        mobBowRelease()
+        return false
+    end
 end
 
 local function archeryTargetOwner(model)
