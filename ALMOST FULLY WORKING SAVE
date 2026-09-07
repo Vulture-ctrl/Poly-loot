@@ -82,6 +82,7 @@ local state = {
     AutoDismantle = false,
     AutoUpgrade = false,
     AutoEquipBestArmor = false,
+    InventorySafety = false,
     GoldMineCollect = false,
     AntiAFK = false,
     MobESP = false,
@@ -891,6 +892,468 @@ guiObjects.EquipOwnedCombatWeapon = function(mode)
 
     return equipped == true
 end
+
+-- ============================================================
+-- INVENTORY SAFETY / PERMANENT FAVORITES
+-- Favorited items are rejected by the game's own sell and dismantle flows.
+-- This system only FAVORITES protected items; it never unfavorites anything.
+-- ============================================================
+guiObjects.InventorySafetyExactNames = {
+    ["apple"] = true,
+    ["arrow"] = true,
+    ["bandage"] = true,
+    ["cloth"] = true,
+    ["fabric"] = true,
+    ["coal ore"] = true,
+    ["crystal ore"] = true,
+    ["common shard"] = true,
+    ["egg"] = true,
+    ["iron ore"] = true,
+    ["item crate 1"] = true,
+    ["milk"] = true,
+    ["string"] = true,
+    ["weapon chest 1"] = true,
+    ["wood"] = true,
+    ["bone"] = true,
+    ["cobweb"] = true,
+    ["gold ore"] = true,
+    ["health potion"] = true,
+    ["rare shard"] = true,
+    ["cake"] = true,
+    ["diamond ore"] = true,
+    ["epic shard"] = true,
+    ["epic shards"] = true,
+    ["golden apple"] = true,
+    ["golden apples"] = true,
+    ["reset points"] = true,
+    ["ability rune"] = true,
+
+    -- Named permanent gear protection.
+    ["red elemental"] = true,
+    ["blue elemental"] = true,
+    ["wooden pickaxe"] = true,
+    ["iron pickaxe"] = true,
+    ["gold pickaxe"] = true,
+    ["diamond pickaxe"] = true,
+    ["hunter bow"] = true,
+    ["crystal sword"] = true,
+    ["crystal scythe"] = true,
+    ["bone sword"] = true,
+    ["crystal helmet"] = true,
+    ["crystal chestplate"] = true,
+    ["crystal leggings"] = true,
+    ["crystal boots"] = true,
+}
+
+guiObjects.InventorySafetyRarities = {
+    secret = true,
+    unknown = true,
+    godly = true,
+}
+
+-- Rank/Tier families that are NEVER allowed to lose safety protection.
+-- The game stores Rank and Sign separately, so protecting A/S/Z here covers:
+-- A-, A, A+ / S-, S, S+ / Z-, Z, Z+.
+guiObjects.InventorySafetyRanks = {
+    a = true,
+    s = true,
+    z = true,
+}
+
+guiObjects.InventorySafetyPending = {}
+
+guiObjects.InventorySafetyNormalize = function(value)
+    local s = string.lower(tostring(value or ""))
+    s = string.gsub(s, "[^%w]+", " ")
+    s = string.gsub(s, "^%s+", "")
+    s = string.gsub(s, "%s+$", "")
+    s = string.gsub(s, "%s+", " ")
+    return s
+end
+
+guiObjects.InventorySafetyContext = function()
+    local cached = guiObjects.InventorySafetyCachedContext
+    if cached
+        and cached.PlayerData
+        and cached.ItemRegistry
+        and cached.WeaponDPS
+        and cached.WeaponDefs
+        and cached.SetFavorite then
+        return cached
+    end
+
+    local ok, result = pcall(function()
+        local playerData = require(
+            Player:WaitForChild("PlayerScripts")
+                :WaitForChild("Data_Client")
+                :WaitForChild("PlayerData")
+        )
+
+        local inventoryEngine = ReplicatedStorage:WaitForChild("Inventory_Engine")
+        local itemRegistry = require(inventoryEngine.Modules:WaitForChild("ItemRegistry"))
+        local weaponDPS = require(inventoryEngine.Modules:WaitForChild("WeaponDPS"))
+        local weaponDefs = require(
+            ReplicatedStorage:WaitForChild("Weapon_Engine")
+                :WaitForChild("Modules")
+                :WaitForChild("WeaponDefs")
+        )
+        local setFavorite = inventoryEngine
+            :WaitForChild("Remotes")
+            :WaitForChild("SetFavorite")
+
+        return {
+            PlayerData = playerData,
+            ItemRegistry = itemRegistry,
+            WeaponDPS = weaponDPS,
+            WeaponDefs = weaponDefs,
+            SetFavorite = setFavorite,
+        }
+    end)
+
+    if not ok then
+        warn("[POLY LOOT] Inventory Safety context failed:", result)
+        return nil
+    end
+
+    guiObjects.InventorySafetyCachedContext = result
+    return result
+end
+
+guiObjects.InventorySafetyItemProtected = function(serial, inst, def, weaponDefs)
+    if type(serial) ~= "string" or type(inst) ~= "table" then
+        return false
+    end
+
+    def = type(def) == "table" and def or {}
+
+    local normalize = guiObjects.InventorySafetyNormalize
+    local idName = normalize(inst.Id)
+    local displayName = normalize(def.Display)
+    local toolTemplateName = normalize(def.ToolTemplate)
+    local itemTemplateName = normalize(def.ItemTemplate)
+    local weaponIdName = normalize(def.WeaponId)
+
+    local rarity = string.lower(tostring(def.Rarity or inst.Rarity or ""))
+    if guiObjects.InventorySafetyRarities[rarity] then
+        return true, "rarity:" .. rarity
+    end
+
+    -- Protect the whole A/S/Z rank families regardless of +/- sign.
+    -- Example item data uses Rank="S", Sign="+" rather than one combined "S+" field.
+    local rank = string.lower(tostring(inst.Rank or def.Rank or ""))
+    local sign = tostring(inst.Sign or def.Sign or "")
+    if guiObjects.InventorySafetyRanks[rank] then
+        return true, "rank:" .. string.upper(rank) .. sign
+    end
+
+    local exact = guiObjects.InventorySafetyExactNames
+    for _, name in ipairs({idName, displayName, toolTemplateName, itemTemplateName, weaponIdName}) do
+        if name ~= "" and exact[name] then
+            return true, "protected-name"
+        end
+    end
+
+    local combined = table.concat({
+        idName,
+        displayName,
+        toolTemplateName,
+        itemTemplateName,
+        weaponIdName,
+    }, " ")
+
+    -- Extra aliases for safe items whose internal IDs may omit spaces
+    -- or include a longer display/template name.
+    local compactCombined = string.gsub(combined, "%s+", "")
+    if string.find(combined, "cloth", 1, true)
+        or string.find(combined, "fabric", 1, true)
+        or string.find(combined, "reset point", 1, true)
+        or string.find(compactCombined, "resetpoints", 1, true)
+        or string.find(combined, "crystal ore", 1, true)
+        or string.find(compactCombined, "crystalore", 1, true) then
+        return true, "safe-item-alias"
+    end
+
+    -- Entire protected item families.
+    if string.find(combined, "shard", 1, true) then
+        return true, "all-shards"
+    end
+    if string.find(combined, "totem", 1, true) then
+        return true, "all-totems"
+    end
+    if string.find(combined, "potion", 1, true) then
+        return true, "all-potions"
+    end
+    if string.find(combined, "tier scroll", 1, true) then
+        return true, "tier-scroll"
+    end
+    if def.Kind == "Chest" then
+        return true, "all-chests"
+    end
+
+    if def.Kind == "Weapon" then
+        local weaponDef = weaponDefs[def.WeaponId or inst.Id]
+        local weaponType = weaponDef and weaponDef.Type or nil
+
+        -- All bows and all pickaxes stay protected regardless of rarity/DPS.
+        if weaponType == "Bow" then
+            return true, "all-bows"
+        end
+        if weaponType == "Pickaxe" then
+            return true, "all-pickaxes"
+        end
+    end
+
+    -- All Crystal armor pieces are permanent-safe, including Boots.
+    if def.Kind == "Armor" and string.find(combined, "crystal", 1, true) then
+        return true, "crystal-armor"
+    end
+
+    return false
+end
+
+guiObjects.InventorySafetyProtectedSerials = function()
+    local ctx = guiObjects.InventorySafetyContext()
+    if not ctx then return {}, nil end
+
+    local replica = ctx.PlayerData:Get()
+    if not replica then
+        replica = ctx.PlayerData:WaitFor()
+    end
+
+    local data = replica and replica.Data or nil
+    if not data then return {}, nil end
+
+    local protected = {}
+
+    -- Every currently equipped item remains favorited.
+    if type(data.Equipped) == "table" then
+        for _, serial in pairs(data.Equipped) do
+            if type(serial) == "string" and serial ~= "" then
+                protected[serial] = "currently-equipped"
+            end
+        end
+    end
+
+    -- Hotbar entries count as current loadout too, including weapon slot 1.
+    if type(data.Hotbar) == "table" then
+        for _, serial in pairs(data.Hotbar) do
+            if type(serial) == "string" and serial ~= "" then
+                protected[serial] = "current-hotbar"
+            end
+        end
+    end
+
+    local inventory = data.Inventory
+    if type(inventory) ~= "table" then
+        return protected, data
+    end
+
+    -- Always protect the strongest owned weapon by the game's real DPS formula,
+    -- even if that weapon is Common.
+    local bestWeaponSerial = nil
+    local bestWeaponDps = -math.huge
+    local weapons = inventory.Weapons
+    if type(weapons) == "table" then
+        for serial, inst in pairs(weapons) do
+            if type(serial) == "string" and type(inst) == "table" then
+                local def = ctx.ItemRegistry[inst.Id]
+                if def and def.Kind == "Weapon" then
+                    local dps = 0
+                    local okDps, value = pcall(function()
+                        return ctx.WeaponDPS.For(inst, data)
+                    end)
+                    if okDps then
+                        dps = tonumber(value) or 0
+                    end
+
+                    if dps > bestWeaponDps then
+                        bestWeaponDps = dps
+                        bestWeaponSerial = serial
+                    end
+                end
+            end
+        end
+    end
+
+    if bestWeaponSerial then
+        protected[bestWeaponSerial] = "best-owned-weapon"
+    end
+
+    -- Protect the strongest owned armor piece for every armor slot,
+    -- regardless of rarity. This is separate from Auto Equip Best Armor:
+    -- Inventory Safety protects it from sell/dismantle even if not equipped yet.
+    local bestArmorBySlot = {}
+    local bestArmorScoreBySlot = {}
+    local armors = inventory.Armors
+
+    if type(armors) == "table" then
+        local armorStat = nil
+        pcall(function()
+            armorStat = require(
+                ReplicatedStorage:WaitForChild("Stats_Engine")
+                    :WaitForChild("ArmorStat")
+            )
+        end)
+
+        for serial, inst in pairs(armors) do
+            if type(serial) == "string" and type(inst) == "table" then
+                local def = ctx.ItemRegistry[inst.Id]
+                if def
+                    and def.Kind == "Armor"
+                    and type(def.ArmorSlot) == "string"
+                    and (tonumber(data.Level) or 0) >= (tonumber(def.LevelReq) or 0) then
+
+                    local score = 0
+
+                    if armorStat and type(armorStat.For) == "function" then
+                        local okFor, value = pcall(function()
+                            return armorStat.For(inst)
+                        end)
+                        if okFor then
+                            score = tonumber(value) or score
+                        end
+                    elseif armorStat and type(armorStat.Power) == "function" then
+                        local okPower, value = pcall(function()
+                            return armorStat.Power(inst, data)
+                        end)
+                        if okPower then
+                            score = tonumber(value) or score
+                        end
+                    end
+
+                    local slot = def.ArmorSlot
+                    if bestArmorScoreBySlot[slot] == nil
+                        or score > bestArmorScoreBySlot[slot] then
+
+                        bestArmorScoreBySlot[slot] = score
+                        bestArmorBySlot[slot] = serial
+                    end
+                end
+            end
+        end
+    end
+
+    for slot, serial in pairs(bestArmorBySlot) do
+        if type(serial) == "string" and serial ~= "" then
+            protected[serial] = "best-owned-armor:" .. tostring(slot)
+        end
+    end
+
+    -- Protect permanent rarities, named items and protected item families.
+    for _, category in pairs(inventory) do
+        if type(category) == "table" then
+            for serial, inst in pairs(category) do
+                if type(serial) == "string" and type(inst) == "table" then
+                    local def = ctx.ItemRegistry[inst.Id]
+                    local keep, reason = guiObjects.InventorySafetyItemProtected(
+                        serial,
+                        inst,
+                        def,
+                        ctx.WeaponDefs
+                    )
+
+                    if keep then
+                        protected[serial] = reason or "protected"
+                    end
+                end
+            end
+        end
+    end
+
+    return protected, data
+end
+
+guiObjects.InventorySafetyUnfavoriteAll = function()
+    -- "Unfavorite All" intentionally disables Inventory Safety first.
+    -- Otherwise protected items would immediately be re-favorited.
+    state.InventorySafety = false
+    disconnect("InventorySafety")
+
+    if guiObjects.InventorySafety then
+        pcall(guiObjects.InventorySafety)
+    end
+
+    local ctx = guiObjects.InventorySafetyContext()
+    if not ctx then return 0 end
+
+    local replica = ctx.PlayerData:Get()
+    if not replica then
+        replica = ctx.PlayerData:WaitFor()
+    end
+
+    local data = replica and replica.Data or nil
+    local inventory = data and data.Inventory or nil
+    if type(inventory) ~= "table" then return 0 end
+
+    local count = 0
+
+    for _, category in pairs(inventory) do
+        if type(category) == "table" then
+            for serial, inst in pairs(category) do
+                if type(serial) == "string"
+                    and type(inst) == "table"
+                    and inst.Favorited == true then
+
+                    pcall(function()
+                        ctx.SetFavorite:FireServer(serial, false)
+                    end)
+
+                    count = count + 1
+                    task.wait(0.015)
+                end
+            end
+        end
+    end
+
+    table.clear(guiObjects.InventorySafetyPending)
+    return count
+end
+
+guiObjects.InventorySafetySweep = function()
+    -- IMPORTANT: this routine only ever sends SetFavorite(serial, true).
+    -- It never sends false for any item.
+    local ctx = guiObjects.InventorySafetyContext()
+    if not ctx then return 0 end
+
+    local protected, data = guiObjects.InventorySafetyProtectedSerials()
+    if not data or type(data.Inventory) ~= "table" then
+        return 0
+    end
+
+    local changed = 0
+    local now = os.clock()
+    local pending = guiObjects.InventorySafetyPending
+
+    for _, category in pairs(data.Inventory) do
+        if type(category) == "table" then
+            for serial, inst in pairs(category) do
+                if type(serial) == "string" and type(inst) == "table" then
+                    if protected[serial] then
+                        if inst.Favorited == true then
+                            pending[serial] = nil
+                        else
+                            local last = pending[serial] or 0
+                            if now - last >= 0.12 then
+                                pending[serial] = now
+                                pcall(function()
+                                    -- Exact contract used by the real inventory UI:
+                                    -- SetFavorite:FireServer(serial, boolean)
+                                    ctx.SetFavorite:FireServer(serial, true)
+                                end)
+                                changed = changed + 1
+                            end
+                        end
+                    else
+                        pending[serial] = nil
+                    end
+                end
+            end
+        end
+    end
+
+    return changed
+end
+
 
 -- ============================================================
 -- AUTO EQUIP BEST ARMOR
@@ -1998,7 +2461,42 @@ toggle(inv, "Auto Equip Best Armor", "AutoEquipBestArmor", function(enabled)
 end)
 
 section(inv, "Inventory Safety")
-info(inv, "Dismantle logic can use CraftingConfig: Weapon/Armor only, with rarity shard yield and Red/Blue Elemental blocked. Exact request payloads are not guessed here.")
+info(inv, "When ON, permanently re-favorites protected inventory entries so the game's own Sell and Dismantle systems reject them. Protects equipped/hotbar gear, strongest owned weapon, strongest owned Helmet/ChestPlate/Leggings/Boots even if Common, all Bows/Pickaxes, Secret/Unknown/Godly, every A/S/Z rank family including +/- variants, named safe gear, all Shards/Totems/Potions/Tier Scrolls/Chests, and the safe materials/items list. Unfavorite All turns this safety toggle OFF first so the items can stay unfavorited.")
+toggle(inv, "Inventory Safety / Auto Favorite LOCK", "InventorySafety", function(enabled)
+    disconnect("InventorySafety")
+    if not enabled then return end
+
+    connections.InventorySafety = task.spawn(function()
+        -- Immediate first sweep.
+        if guiObjects.InventorySafetySweep then
+            pcall(guiObjects.InventorySafetySweep)
+        end
+
+        while state.InventorySafety
+            and not stopFlags.InventorySafety
+            and not killSwitchActivated do
+
+            if guiObjects.InventorySafetySweep then
+                pcall(guiObjects.InventorySafetySweep)
+            end
+
+            -- Hard safety loop: if a protected item is ever unfavorited, re-favorite it almost immediately.
+            task.wait(0.05)
+        end
+    end)
+end)
+button(inv, "Protect Inventory Now", function()
+    if guiObjects.InventorySafetySweep then
+        local ok, changed = pcall(guiObjects.InventorySafetySweep)
+        print("[POLY LOOT] Inventory Safety sweep:", ok and tostring(changed) or "FAILED")
+    end
+end)
+button(inv, "Unfavorite All (Turns Safety Off)", function()
+    if guiObjects.InventorySafetyUnfavoriteAll then
+        local ok, changed = pcall(guiObjects.InventorySafetyUnfavoriteAll)
+        print("[POLY LOOT] Unfavorite All:", ok and tostring(changed) or "FAILED")
+    end
+end)
 
 -- ============================================================
 -- TELEPORT PAGE
@@ -2132,6 +2630,7 @@ fullShutdown = function()
     end
     stopFlags.AutoLoot = true
     stopFlags.AutoEquipBestArmor = true
+    stopFlags.InventorySafety = true
     stopFlags.GoldMineCollect = true
     stopFlags.SelectedFarm = true
     stopFlags.MobAutoShoot = true
